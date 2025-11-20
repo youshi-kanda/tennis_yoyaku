@@ -12,6 +12,7 @@ interface RegisterForm {
   email: string;
   password: string;
   passwordConfirm: string;
+  adminKey?: string;
 }
 
 export function useLogin() {
@@ -34,8 +35,9 @@ export function useLogin() {
       } else {
         setError(response.error || 'ログインに失敗しました');
       }
-    } catch (err) {
-      setError('ネットワークエラーが発生しました');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || 'ネットワークエラーが発生しました';
+      setError(errorMessage);
       console.error('Login error:', err);
     } finally {
       setIsLoading(false);
@@ -75,7 +77,7 @@ export function useRegister() {
     }
 
     try {
-      const response = await apiClient.register(form.email, form.password);
+      const response = await apiClient.register(form.email, form.password, form.adminKey);
       
       if (response.success && response.data) {
         setUser(response.data.user);
@@ -84,8 +86,9 @@ export function useRegister() {
       } else {
         setError(response.error || 'アカウント作成に失敗しました');
       }
-    } catch (err) {
-      setError('ネットワークエラーが発生しました');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || 'ネットワークエラーが発生しました';
+      setError(errorMessage);
       console.error('Register error:', err);
     } finally {
       setIsLoading(false);
@@ -100,8 +103,7 @@ export function useLogout() {
   const { setUser, setAuthenticated } = useAuthStore();
 
   const logout = () => {
-    // トークンをクリア
-    localStorage.removeItem('token');
+    apiClient.logout();
     
     // 状態をクリア
     setUser(null);

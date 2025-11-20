@@ -33,7 +33,9 @@ class ApiClient {
         if (error.response?.status === 401) {
           // 認証エラー: トークンクリア、ログインページへ
           this.clearToken();
-          window.location.href = '/login';
+          if (typeof window !== 'undefined') {
+            window.location.href = '/';
+          }
         }
         return Promise.reject(error);
       }
@@ -65,16 +67,21 @@ class ApiClient {
       email,
       password,
     });
-    this.setToken(response.data.token);
+    if (response.data.success && response.data.data?.token) {
+      this.setToken(response.data.data.token);
+    }
     return response.data;
   }
 
-  async register(email: string, password: string) {
+  async register(email: string, password: string, adminKey?: string) {
     const response = await this.client.post('/api/auth/register', {
       email,
       password,
+      adminKey,
     });
-    this.setToken(response.data.token);
+    if (response.data.success && response.data.data?.token) {
+      this.setToken(response.data.data.token);
+    }
     return response.data;
   }
 
@@ -83,31 +90,25 @@ class ApiClient {
   }
 
   // 監視API
-  async getMonitoringStatus() {
-    const response = await this.client.get('/api/monitoring/status');
+  async getMonitoringList() {
+    const response = await this.client.get('/api/monitoring/list');
     return response.data;
   }
 
-  async startMonitoring(targets: any[]) {
-    const response = await this.client.post('/api/monitoring/start', {
-      targets,
-    });
+  async createMonitoring(data: {
+    site: 'shinagawa' | 'minato';
+    facilityId: string;
+    facilityName: string;
+    date: string;
+    timeSlot: string;
+    autoReserve: boolean;
+  }) {
+    const response = await this.client.post('/api/monitoring/create', data);
     return response.data;
   }
 
-  async stopMonitoring() {
-    const response = await this.client.post('/api/monitoring/stop');
-    return response.data;
-  }
-
-  // 設定API
-  async getSettings() {
-    const response = await this.client.get('/api/settings');
-    return response.data;
-  }
-
-  async updateSettings(settings: any) {
-    const response = await this.client.put('/api/settings', settings);
+  async deleteMonitoring(id: string) {
+    const response = await this.client.delete(`/api/monitoring/${id}`);
     return response.data;
   }
 
@@ -116,6 +117,20 @@ class ApiClient {
     const response = await this.client.get('/api/reservations/history', {
       params: { limit },
     });
+    return response.data;
+  }
+
+  // 設定API
+  async getSiteCredentials() {
+    const response = await this.client.get('/api/settings/credentials');
+    return response.data;
+  }
+
+  async updateSiteCredentials(site: 'shinagawa' | 'minato', credentials: {
+    username: string;
+    password: string;
+  }) {
+    const response = await this.client.put(`/api/settings/credentials/${site}`, credentials);
     return response.data;
   }
 

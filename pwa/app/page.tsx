@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useLogin } from '@/lib/hooks/useAuth';
 
@@ -9,7 +9,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const { login, isLoading, error } = useLogin();
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await login({ email, password });
   };
@@ -25,25 +25,25 @@ export default function Login() {
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-gray-900">
-            テニスコート予約
+            テニスコート自動予約
           </h1>
           <p className="text-gray-600 mt-2">
-            品川区・港区の自動予約システム
+            品川区・港区の予約を自動監視
           </p>
         </div>
 
         {/* ログインカード */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">
             ログイン
           </h2>
 
           {error && (
-            <div className="mb-5 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {error}
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">{error}</p>
             </div>
           )}
-          
+
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* メールアドレス */}
             <div>
@@ -73,10 +73,17 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition"
-                placeholder="••••••••"
+                placeholder="パスワードを入力"
                 required
                 disabled={isLoading}
               />
+            </div>
+
+            {/* パスワード忘れ */}
+            <div className="text-right">
+              <Link href="/forgot-password" className="text-sm text-emerald-600 hover:text-emerald-700">
+                パスワードをお忘れですか？
+              </Link>
             </div>
 
             {/* ログインボタン */}
@@ -85,7 +92,7 @@ export default function Login() {
               disabled={isLoading}
               className="w-full bg-emerald-600 text-white py-3 rounded-lg font-semibold hover:bg-emerald-700 transition duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? '処理中...' : 'ログイン'}
+              {isLoading ? 'ログイン中...' : 'ログイン'}
             </button>
           </form>
 
@@ -98,12 +105,29 @@ export default function Login() {
               </Link>
             </p>
           </div>
+
+          {/* 管理者登録リンク */}
+          <div className="mt-3 text-center">
+            <Link href="/admin" className="text-xs text-purple-600 hover:text-purple-700">
+              管理者アカウント登録
+            </Link>
+          </div>
         </div>
 
-        {/* フッター情報 */}
-        <div className="mt-8 text-center text-sm text-gray-600">
-          <p>24時間自動監視 | プッシュ通知対応</p>
-          <p className="mt-2">品川区・港区の施設に対応</p>
+        {/* 機能紹介 */}
+        <div className="mt-6 grid grid-cols-3 gap-3">
+          <div className="bg-white rounded-lg p-3 text-center shadow">
+            <div className="text-2xl mb-1">🎾</div>
+            <p className="text-xs text-gray-600">自動監視</p>
+          </div>
+          <div className="bg-white rounded-lg p-3 text-center shadow">
+            <div className="text-2xl mb-1">⚡</div>
+            <p className="text-xs text-gray-600">即時通知</p>
+          </div>
+          <div className="bg-white rounded-lg p-3 text-center shadow">
+            <div className="text-2xl mb-1">🔔</div>
+            <p className="text-xs text-gray-600">自動予約</p>
+          </div>
         </div>
       </div>
     </div>

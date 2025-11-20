@@ -1,11 +1,10 @@
+import { generateJWT, verifyJWT, hashPassword, verifyPassword, authenticate } from './auth';
+
 export interface Env {
-  // KV Namespaces
   USERS: KVNamespace;
   SESSIONS: KVNamespace;
   MONITORING: KVNamespace;
   RESERVATIONS: KVNamespace;
-
-  // Environment variables
   ENVIRONMENT: string;
   JWT_SECRET: string;
   ADMIN_KEY: string;
@@ -14,7 +13,7 @@ export interface Env {
 export interface User {
   id: string;
   email: string;
-  password: string; // hashed
+  password: string;
   role: 'user' | 'admin';
   createdAt: number;
 }
@@ -32,98 +31,85 @@ export interface MonitoringTarget {
   createdAt: number;
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS headers
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
-
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
     try {
-      // API routes
       if (path === '/api/auth/register') {
-        return handleRegister(request, env, corsHeaders);
+        return handleRegister(request, env);
       }
 
       if (path === '/api/auth/login') {
-        return handleLogin(request, env, corsHeaders);
+        return handleLogin(request, env);
       }
 
       if (path === '/api/monitoring/list') {
-        return handleMonitoringList(request, env, corsHeaders);
+        return handleMonitoringList(request, env);
+      }
+
+      if (path === '/api/monitoring/create') {
+        return handleMonitoringCreate(request, env);
       }
 
       if (path === '/api/health') {
-        return new Response(JSON.stringify({ status: 'ok', timestamp: Date.now() }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ status: 'ok', timestamp: Date.now() });
       }
 
-      return new Response(JSON.stringify({ error: 'Not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: 'Internal server error' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Not found' }, 404);
+    } catch (error: any) {
+      console.error('Error:', error);
+      return jsonResponse({ error: error.message || 'Internal server error' }, 500);
     }
   },
 
-  // Cron handler (通常監視: 60秒間隔)
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log('Cron job started:', new Date().toISOString());
+    console.log('Cron started:', new Date().toISOString());
     
-    // TODO: 実装
-    // 1. アクティブな監視対象を取得
-    // 2. 各サイトにアクセスして空き状況をチェック
-    // 3. ×→○検知時に通知を送信
-    // 4. 自動予約が有効な場合は予約を実行
+    try {
+      const targets = await getAllActiveTargets(env);
+      console.log(`Found ${targets.length} active monitoring targets`);
+      
+      for (const target of targets) {
+        await checkAvailability(target, env);
+      }
+    } catch (error) {
+      console.error('Cron error:', error);
+    }
   },
 };
 
-// ユーザー登録
-async function handleRegister(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+async function handleRegister(request: Request, env: Env): Promise<Response> {
   try {
     const body = await request.json() as { email: string; password: string; adminKey?: string };
     const { email, password, adminKey } = body;
 
-    // バリデーション
     if (!email || !password) {
-      return new Response(JSON.stringify({ error: 'Email and password are required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Email and password are required' }, 400);
     }
 
-    // ユーザー存在チェック
     const existingUser = await env.USERS.get(`user:${email}`);
     if (existingUser) {
-      return new Response(JSON.stringify({ error: 'User already exists' }), {
-        status: 409,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'User already exists' }, 409);
     }
 
-    // ロール決定
     const role = (adminKey === env.ADMIN_KEY) ? 'admin' : 'user';
 
-    // ユーザー作成
     const user: User = {
       id: crypto.randomUUID(),
       email,
-      password: await hashPassword(password), // TODO: 実装
+      password: await hashPassword(password),
       role,
       createdAt: Date.now(),
     };
@@ -131,78 +117,136 @@ async function handleRegister(request: Request, env: Env, corsHeaders: Record<st
     await env.USERS.put(`user:${email}`, JSON.stringify(user));
     await env.USERS.put(`user:id:${user.id}`, email);
 
-    // JWT生成 (TODO: 実装)
-    const token = 'dummy-token';
+    const token = await generateJWT(
+      { userId: user.id, email: user.email, role: user.role, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 },
+      env.JWT_SECRET
+    );
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       data: {
         user: { id: user.id, email: user.email, role: user.role, createdAt: user.createdAt },
         token,
       },
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Registration failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } catch (error: any) {
+    return jsonResponse({ error: 'Registration failed: ' + error.message }, 500);
   }
 }
 
-// ログイン
-async function handleLogin(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+async function handleLogin(request: Request, env: Env): Promise<Response> {
   try {
     const body = await request.json() as { email: string; password: string };
     const { email, password } = body;
 
     const userJson = await env.USERS.get(`user:${email}`);
     if (!userJson) {
-      return new Response(JSON.stringify({ error: 'Invalid credentials' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Invalid credentials' }, 401);
     }
 
     const user: User = JSON.parse(userJson);
 
-    // パスワード検証 (TODO: 実装)
-    // const isValid = await verifyPassword(password, user.password);
+    const isValid = await verifyPassword(password, user.password);
+    if (!isValid) {
+      return jsonResponse({ error: 'Invalid credentials' }, 401);
+    }
 
-    const token = 'dummy-token';
+    const token = await generateJWT(
+      { userId: user.id, email: user.email, role: user.role, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 },
+      env.JWT_SECRET
+    );
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       data: {
         user: { id: user.id, email: user.email, role: user.role, createdAt: user.createdAt },
         token,
       },
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Login failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } catch (error: any) {
+    return jsonResponse({ error: 'Login failed: ' + error.message }, 500);
   }
 }
 
-// 監視リスト取得
-async function handleMonitoringList(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
-  // TODO: JWT認証実装
-  // const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-  
-  return new Response(JSON.stringify({
-    success: true,
-    data: [],
-  }), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+async function handleMonitoringList(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const list = await env.MONITORING.list({ prefix: `target:${userId}:` });
+    const targets = await Promise.all(
+      list.keys.map(async (key) => {
+        const data = await env.MONITORING.get(key.name);
+        return data ? JSON.parse(data) : null;
+      })
+    );
+
+    return jsonResponse({
+      success: true,
+      data: targets.filter(t => t !== null),
+    });
+  } catch (error: any) {
+    return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
+  }
 }
 
-// パスワードハッシュ化 (TODO: 実装)
-async function hashPassword(password: string): Promise<string> {
-  return password; // 仮実装
+async function handleMonitoringCreate(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const body = await request.json() as {
+      site: 'shinagawa' | 'minato';
+      facilityId: string;
+      facilityName: string;
+      date: string;
+      timeSlot: string;
+      autoReserve: boolean;
+    };
+
+    const target: MonitoringTarget = {
+      id: crypto.randomUUID(),
+      userId,
+      site: body.site,
+      facilityId: body.facilityId,
+      facilityName: body.facilityName,
+      date: body.date,
+      timeSlot: body.timeSlot,
+      status: 'active',
+      autoReserve: body.autoReserve,
+      createdAt: Date.now(),
+    };
+
+    await env.MONITORING.put(`target:${userId}:${target.id}`, JSON.stringify(target));
+
+    return jsonResponse({
+      success: true,
+      data: target,
+    });
+  } catch (error: any) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
+  const list = await env.MONITORING.list({ prefix: 'target:' });
+  const targets = await Promise.all(
+    list.keys.map(async (key) => {
+      const data = await env.MONITORING.get(key.name);
+      return data ? JSON.parse(data) as MonitoringTarget : null;
+    })
+  );
+  return targets.filter(t => t !== null && t.status === 'active');
+}
+
+async function checkAvailability(target: MonitoringTarget, env: Env): Promise<void> {
+  console.log(`Checking availability for target ${target.id}`);
+  // TODO: 実装
+}
+
+function jsonResponse(data: any, status: number = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
 }

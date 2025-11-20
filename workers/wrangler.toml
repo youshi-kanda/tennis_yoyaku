@@ -1,0 +1,30 @@
+name = "tennis-yoyaku-api"
+main = "src/index.ts"
+compatibility_date = "2024-11-20"
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "USERS"
+id = "users"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "sessions"
+
+[[kv_namespaces]]
+binding = "MONITORING"
+id = "monitoring"
+
+[[kv_namespaces]]
+binding = "RESERVATIONS"
+id = "reservations"
+
+# Cron Triggers (通常監視: 60秒間隔)
+[triggers]
+crons = ["*/1 * * * *"]
+
+# Environment variables
+[vars]
+ENVIRONMENT = "development"
+JWT_SECRET = "your-jwt-secret-here-change-in-production"
+ADMIN_KEY = "tennis_admin_2025"

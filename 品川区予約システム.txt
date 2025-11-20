@@ -1,0 +1,475 @@
+1. プロジェクト概要
+1-1. 名前（仮）
+
+品川区施設予約 自動予約ツール（Web管理画面付き・完全自動版）
+
+1-2. ゴール
+
+品川区施設予約システム
+https://www.cm9.eprs.jp/shinagawa/web/
+
+対象：テニスコート等、クライアントが指定する施設
+
+について、
+
+条件に合う空き枠・【取】→【○】に変わった枠を自動監視し、
+
+ログイン〜検索〜規約同意〜人数入力〜予約確定までを全自動
+
+設定やON/OFF、ログ確認は簡易Web画面から操作可能
+
+という状態にする。
+
+2. 前提・制約
+2-1. 技術スタック（提案）
+
+※GitHub Copilot 前提で「素直に組める構成」に寄せてます。
+
+フロントエンド
+
+React（Vite or Next.jsでもOK）
+
+デプロイ：Cloudflare Pages
+
+バックエンド / API / 自動実行
+
+Cloudflare Workers
+
+定期実行：Cron Triggers
+
+DB：Cloudflare D1（SQLite互換）
+（※Supabaseでも構わないが、Cloudflareで完結させる案）
+
+外部サービス
+
+通知：Gmail / Slack / LINE Notify のいずれか（今回はスコープ外にしてもよい）
+
+2-2. 法的・マナー的前提
+
+アクセス頻度は最小限（例：30秒〜数分間隔／対象日のみ）
+
+利用規約違反になるような過度な負荷は禁止
+
+仕様変更（ログイン方式、CAPTCHA導入）が入った場合は
+自動停止 → 手動での調整が必要 という前提をクライアントに明示しておく
+
+3. 要件定義
+3-1. アクター
+
+管理者（クライアント本人）
+
+Web画面にログイン
+
+対象施設・日時・目的・「取」監視条件等を設定
+
+自動予約の ON/OFF を切り替え
+
+実行ログ・エラー内容を閲覧
+
+自動予約エンジン（Worker + Cron）
+
+定期的に品川区サイトへアクセス
+
+ログイン〜予約〜ログ出力を行う
+
+3-2. 機能要件（機能一覧）
+F-1 管理者ログイン
+
+簡易Web画面に対して、
+ID / パスワードでログインできること（シンプルなBasic認証 or JWT認証）。
+
+今回は単一ユーザー想定のため、最低限でよい。
+
+F-2 ログイン情報設定
+
+品川区施設予約システムの
+
+利用者番号（userId：半角数字）
+
+パスワード（password）
+
+を入力・更新できる画面。
+
+DBには暗号化して保存する（AESなど）。
+
+後述の「実装ポイント」で、環境変数のキーを使用。
+
+F-3 予約条件設定
+
+利用目的
+
+施設（地域・館・コート等）
+
+利用目的（例：テニス）
+
+検索に必要なパラメータ（area, building, inst, purpose など）
+
+日時条件
+
+対象期間（例：1週間/1ヶ月）
+
+対象曜日（例：土日のみ）
+
+時間帯（午前 / 午後 / 夜間 / 終日）
+
+優先条件
+
+何面目を優先するか（コート番号など：任意）
+
+一度に予約する上限数（例：1枠まで）
+
+ステータス条件
+
+【○】だけを対象
+
+【取】→【○】に変わったタイミングを狙うモード
+
+【取】状態のみを絞り込んで監視するモード
+
+「取」監視のタイミング
+
+クライアントが把握している「【取】→【○】に変わりやすい時刻」を
+HH:MM:SS 単位で設定できること
+
+例：毎日 08:59:50 〜 09:00:10 の間で集中監視
+
+F-4 自動実行設定（ON/OFF）
+
+グローバルスイッチ
+
+「自動予約：ON / OFF」を切り替えるチェックボックス
+
+取ステータス専用スイッチ
+
+「取→○ 監視モード」を個別に ON/OFF
+
+F-5 ログ表示
+
+直近 N 件の実行結果を一覧表示
+
+実行日時
+
+実行種別（通常検索 / 取モード）
+
+結果ステータス（成功 / 空きなし / ログイン失敗 / エラー）
+
+予約できた場合：施設名・日時・コートなど
+
+エラーの場合：簡易メッセージ
+
+詳細ログ（テキスト）も1件ごとに閲覧できるとベスト。
+
+F-6 通知（最低限の要件）
+
+予約に成功した場合、
+少なくとも1つの通知手段（メール等）でユーザーに知らせる。
+
+宛先メールアドレスは管理画面で設定。
+
+3-3. 非機能要件
+
+実行間隔：
+
+通常監視：5〜10分間隔（Cron）
+
+「取」集中監視：指定された時刻前後に数秒〜数十秒間隔で集中的に実行（ただし負荷に注意）
+
+可用性：
+
+Cloudflare側の障害や先方サイトのダウン時は自動でリトライ or 失敗ログ記録
+
+セキュリティ：
+
+ログにはパスワードを一切出さない
+
+ログイン情報は暗号化
+
+管理画面も最低限の認証つき
+
+4. 基本設計（アーキテクチャ）
+4-1. コンポーネント構成
+
+Frontend（管理画面）
+
+React SPA
+
+機能：設定入力、状態表示、ログ一覧
+
+API 呼び出し先：Cloudflare Worker
+
+Backend API（設定管理＋予約実行トリガー）
+
+Cloudflare Worker
+
+役割：
+
+設定のCRUD
+
+ログの保存・取得
+
+Cron トリガーから呼ばれて「自動予約処理」を実行
+
+DB（D1）
+
+テーブル案（シンプルに）：
+
+users
+
+settings
+
+jobs（予約条件）
+
+execution_logs
+
+Cron Triggers
+
+*/5 * * * * などで通常監視
+
+「取」集中監視用に別の Cron 設定も可（例：毎分）
+
+4-2. データモデル（ざっくり）
+users
+- id (PK)
+- login_id
+- password_hash
+- created_at
+- updated_at
+
+settings
+- id (PK)
+- user_id (FK)
+- shinagawa_user_id_encrypted
+- shinagawa_password_encrypted
+- notify_email
+- is_enabled (boolean)         # 自動予約 全体 ON/OFF
+- watch_tori_enabled (boolean) # 取→○監視 ON/OFF
+- tori_watch_time (string)     # "08:59:50" など
+- created_at
+- updated_at
+
+jobs
+- id (PK)
+- user_id (FK)
+- area_code
+- building_code
+- facility_code
+- purpose_code
+- date_range_days
+- days_of_week (string)  # "1,2,6,7" など
+- timezones (string)     # "morning,afternoon" など
+- max_reservations_per_run (int)
+- status (active/inactive)
+- created_at
+- updated_at
+
+execution_logs
+- id (PK)
+- job_id (FK, nullable)
+- executed_at
+- mode (string)      # "normal" or "tori"
+- result (string)    # "success", "no_slot", "login_failed", "error"
+- message (string)
+- details (text)     # JSON テキストなど
+
+5. 自動予約処理の仕様（詳細）
+5-1. ログイン処理
+
+ホーム画面 or ログイン画面を GET
+https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do
+もしくはホームからログインボタン遷移。
+
+返ってきた HTML から以下を取得：
+
+hidden の loginJKey の値
+
+gRecaptchaActive = false であること（現時点ではCAPTCHAなし）
+
+Content-Type: application/x-www-form-urlencoded で POST
+送信パラメータ（想定）：
+
+userId（利用者番号）
+
+password（パスワード）
+
+loginJKey（hiddenフィールドの値）
+
+必要に応じて他 hidden 項目（実装時に DevTools で確認）
+
+レスポンスのHTMLから「ログイン失敗メッセージ」がないか判定。
+
+あれば login_failed
+
+なければセッションCookieを保持し、以降のリクエストで使用
+
+※Cloudflare Workerでは fetch の cf オプション + Cookie ヘッダでセッション維持。
+
+5-2. 空き検索処理
+
+検索画面URLへ GET
+
+ホーム画面の「空き状況検索」フォームと同じパラメータでPOSTする想定
+
+検索用パラメータ（例）：
+
+日付（開始日・日数）
+
+地域（area）
+
+館（building）
+
+施設（facility）
+
+利用目的（purpose）
+
+時間帯（morning/afternoon/evening など）
+
+→ これらは実装時にブラウザのネットワークタブで確認して定数化する。
+
+レスポンスHTMLを Shift_JIS → UTF-8 に変換してテキスト化
+
+Worker内で new TextDecoder('shift_jis') を使用
+
+HTML 内にある空き状況一覧テーブルをパースし、
+
+対象ステータスが【○】または【取】であるセルを抽出
+
+日付・時間帯・コート番号などを取得
+
+5-3. 「取 → ○」監視ロジック
+
+通常監視とは別に、「取」モードのジョブを持つ。
+
+前回実行時に取得した「取」一覧をキャッシュ / DBに保存しておく（option）。
+
+今回の実行で、
+
+直前まで【取】だった枠が【○】になっていたら、最優先で予約処理。
+
+「分秒単位で狙いたい」要件：
+
+tori_watch_time 付近（±X秒）だけ実行間隔を短くする戦略（例：5秒間隔で数回）
+
+※厳密な「瞬間」を保証はできないので、
+仕様書では「指定時刻前後で一定時間、集中監視する」レベルで定義しておくのが現実的。
+
+5-4. 予約確定処理
+
+検索結果画面の予約ボタンに対応するアクションURLへ POST
+
+規約同意画面 → 同意チェック → 次へ
+
+人数入力画面 → 人数を設定 → 次へ
+
+確認画面 → 予約ボタン押下
+
+確認ポップアップが想定される場合は、
+
+実際には JavaScript で confirm() 等が呼ばれているだけなら、
+HTTPレベルでは「最終POST1回」で完結しているはずなので、
+DevTools で最後のリクエストを捕まえて再現。
+
+→ 実装方針：
+Chrome で手動予約を1回実行 → Networkタブで
+どの .do にどんな form-data が飛んでいるかを調べ、
+それを Worker で再現する。
+
+6. GitHub Copilot に投げる用プロンプト集
+
+実際にコードを書くときに使える「指示文」だけまとめておく。
+
+6-1. Backend（Cloudflare Worker + D1）の初期構築
+Cloudflare Workers と D1 を使って、シンプルなJSON APIを作りたいです。
+
+要件：
+- /api/settings GET/PUT: 自動予約の設定情報を読み書きする
+  - 項目: shinagawa_user_id_encrypted, shinagawa_password_encrypted, notify_email,
+          is_enabled, watch_tori_enabled, tori_watch_time
+- /api/jobs GET/POST/PUT/DELETE: 予約条件（施設や曜日など）のCRUD
+- /api/logs GET: 実行ログの一覧取得（最新50件）
+
+実装方針：
+- TypeScript で書いてください
+- Cloudflare Workers の公式な D1 バインディング（env.DB）を使ってください
+- ルーティングはシンプルに URL.pathname で分岐してもOKです
+- エラー時は { error: "message" } を JSON で返してください
+
+この要件で Worker のエントリポイントコードと D1 のテーブルDDLを生成してください。
+
+6-2. ログイン＆予約処理のスケルトン生成
+品川区施設予約システムの自動ログイン＆検索＆予約用の処理を実装したいです。
+HTTPレベルでフォーム送信を再現します。Cloudflare Workers 上で動かします。
+
+前提：
+- ログイン画面のHTML構造は以下のようになっており、
+  hidden フィールドとして loginJKey が含まれています。
+  （ここに、さきほど貼った HTML の一部をコピペ）
+
+要件：
+- loginShinagawa() 関数を作成
+  - 引数: userId, password, fetch実行用の RequestInit オプション
+  - 処理: ログイン画面を GET、loginJKey を HTML から正規表現で取得、
+          application/x-www-form-urlencoded でログインPOSTを実行
+  - 結果: Cookie を含む Response オブジェクトまたは Cookie ヘッダを返す
+
+- searchVacantSlots() 関数を作成
+  - 引数: Cookie情報、検索条件（エリアコード、目的コード、日付など）
+  - 処理: 検索画面へ POST、Shift_JISをTextDecoderでUTF-8文字列に変換、
+          HTMLから空き枠（○ または 取）を正規表現 or DOMパーサで抽出
+  - 戻り値: 構造化された空き枠リスト（配列）
+
+実装上の注意：
+- Cloudflare Workers 環境で動くように、Node.js限定APIは使わないでください。
+- 文字コード変換には TextDecoder('shift_jis') を使用してください。
+
+この要件で TypeScript のコードスケルトンを生成してください。
+
+6-3. Cron トリガーからの実行ロジック
+Cloudflare Workers で cron トリガーから自動予約処理を実行するロジックを書きたいです。
+
+要件：
+- scheduled(event, env, ctx) ハンドラを実装
+- 手順：
+  1. D1 から settings と active な jobs を取得
+  2. is_enabled が false の場合は何もせず終了
+  3. loginShinagawa() でログイン
+  4. 各 job について searchVacantSlots() を実行
+  5. 条件に合う空き枠があれば reservation フローを実行する関数を呼ぶ
+  6. 結果を execution_logs に INSERT
+
+- モード：
+  - 通常監視モード: mode = "normal"
+  - 「取」監視モード: mode = "tori"
+    - event.scheduledTime と settings.tori_watch_time を比較し、
+      時刻が近い場合だけ実行するロジックを入れる
+
+エラー時は execution_logs に result="error" と message を入れてください。
+
+この要件で scheduled ハンドラのコードを生成してください。
+
+6-4. フロントエンド（管理画面）のプロンプト例
+React（TypeScript）で、自動予約ツールの管理画面を作りたいです。
+
+画面要素：
+1. ログイン情報設定フォーム
+   - fields: shinagawa_user_id, shinagawa_password, notify_email
+   - 保存ボタンで /api/settings に PUT
+
+2. 自動予約設定
+   - チェックボックス: is_enabled, watch_tori_enabled
+   - 時刻入力: tori_watch_time (HH:MM:SS)
+
+3. 予約条件一覧 + 追加フォーム
+   - jobs を /api/jobs から取得してリスト表示
+   - 新規追加フォームで POST
+   - 行ごとに編集・削除ボタン
+
+4. 実行ログ一覧
+   - /api/logs から取得した最新50件をテーブル表示
+   - カラム: executed_at, mode, result, message
+
+要件：
+- React Hooks + fetch API で実装
+- スタイリングは簡易でOK（最低限のテーブルとフォーム）
+- APIエラー時は画面上部にエラーメッセージを表示
+
+この要件で、1ページ構成の管理画面コンポーネントを実装してください。

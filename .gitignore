@@ -1,0 +1,51 @@
+# Dependencies
+pwa/node_modules/
+pwa/.pnp
+pwa/.pnp.js
+
+# Testing
+pwa/coverage/
+
+# Next.js
+pwa/.next/
+pwa/out/
+pwa/build/
+pwa/dist/
+
+# Production
+pwa/.vercel
+pwa/.netlify
+
+# Debug
+pwa/npm-debug.log*
+pwa/yarn-debug.log*
+pwa/yarn-error.log*
+
+# Environment variables
+pwa/.env*.local
+pwa/.env.development
+pwa/.env.production
+
+# Turbopack
+pwa/.turbo/
+
+# OS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-*
+
+# Cloudflare Workers
+workers/.wrangler/
+workers/node_modules/
+workers/dist/
+
+# AWS Lambda
+lambda/.aws-sam/
+lambda/node_modules/
+lambda/dist/

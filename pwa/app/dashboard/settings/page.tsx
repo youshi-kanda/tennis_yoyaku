@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useLogout } from '@/lib/hooks/useAuth';
 import { useAuthStore } from '@/lib/stores/authStore';
+import { usePushNotification } from '@/lib/hooks/usePushNotification';
 
 export default function SettingsPage() {
   const { logout } = useLogout();
   const { user } = useAuthStore();
+  const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotification();
   
   const [shinagawaCredentials, setShinagawaCredentials] = useState({
     username: '',
@@ -18,8 +20,6 @@ export default function SettingsPage() {
     password: '',
   });
 
-  const [pushEnabled, setPushEnabled] = useState(false);
-
   const handleSaveShinagawa = () => {
     // TODO: API呼び出し
     alert('品川区のログイン情報を保存しました');
@@ -30,22 +30,17 @@ export default function SettingsPage() {
     alert('港区のログイン情報を保存しました');
   };
 
-  const handleEnablePush = async () => {
-    if ('serviceWorker' in navigator && 'PushManager' in window) {
-      try {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: 'YOUR_VAPID_PUBLIC_KEY', // TODO: 実際のキーに置き換え
-        });
-        setPushEnabled(true);
-        alert('プッシュ通知を有効にしました');
-      } catch (err) {
-        console.error('Failed to enable push:', err);
-        alert('プッシュ通知の有効化に失敗しました');
+  const handleTogglePush = async () => {
+    if (isSubscribed) {
+      const success = await unsubscribe();
+      if (success) {
+        alert('プッシュ通知を無効にしました');
       }
     } else {
-      alert('このブラウザはプッシュ通知に対応していません');
+      const success = await subscribe();
+      if (success) {
+        alert('プッシュ通知を有効にしました');
+      }
     }
   };
 
@@ -164,25 +159,58 @@ export default function SettingsPage() {
         {/* 通知設定 */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">通知設定</h2>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-gray-900">プッシュ通知</h3>
-                <p className="text-sm text-gray-600">空きが見つかった際に通知を受け取る</p>
-              </div>
-              <button
-                onClick={handleEnablePush}
-                disabled={pushEnabled}
-                className={`px-4 py-2 rounded-lg transition ${
-                  pushEnabled
-                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                }`}
-              >
-                {pushEnabled ? '有効' : '有効にする'}
-              </button>
+          
+          {!isSupported ? (
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                このブラウザはプッシュ通知に対応していません
+              </p>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                    プッシュ通知
+                    {isSubscribed && (
+                      <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                        有効
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-sm text-gray-600">空きが見つかった際に通知を受け取る</p>
+                </div>
+                <button
+                  onClick={handleTogglePush}
+                  disabled={isLoading}
+                  className={`px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isSubscribed
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  }`}
+                >
+                  {isLoading ? '処理中...' : isSubscribed ? '無効にする' : '有効にする'}
+                </button>
+              </div>
+
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-800">{error}</p>
+                </div>
+              )}
+
+              {isSubscribed && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                  <p className="text-sm text-emerald-800 font-medium mb-2">
+                    ✓ プッシュ通知が有効です
+                  </p>
+                  <p className="text-xs text-emerald-700">
+                    テニスコートに空きが見つかった際、リアルタイムで通知されます
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ログアウト */}

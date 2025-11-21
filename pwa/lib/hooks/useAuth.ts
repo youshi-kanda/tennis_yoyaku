@@ -19,7 +19,7 @@ export function useLogin() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { setUser, setAuthenticated } = useAuthStore();
+  const { setUser } = useAuthStore();
 
   const login = async (form: LoginForm) => {
     setIsLoading(true);
@@ -30,7 +30,6 @@ export function useLogin() {
       
       if (response.success && response.data) {
         setUser(response.data.user);
-        setAuthenticated(true);
         router.push('/dashboard');
       } else {
         setError(response.error || 'ログインに失敗しました');
@@ -51,7 +50,7 @@ export function useRegister() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { setUser, setAuthenticated } = useAuthStore();
+  const { setUser } = useAuthStore();
 
   const register = async (form: RegisterForm) => {
     setIsLoading(true);
@@ -81,7 +80,6 @@ export function useRegister() {
       
       if (response.success && response.data) {
         setUser(response.data.user);
-        setAuthenticated(true);
         router.push('/dashboard');
       } else {
         setError(response.error || 'アカウント作成に失敗しました');
@@ -100,14 +98,13 @@ export function useRegister() {
 
 export function useLogout() {
   const router = useRouter();
-  const { setUser, setAuthenticated } = useAuthStore();
+  const { setUser } = useAuthStore();
 
   const logout = () => {
     apiClient.logout();
     
     // 状態をクリア
     setUser(null);
-    setAuthenticated(false);
     
     // ログインページにリダイレクト
     router.push('/');

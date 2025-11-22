@@ -147,6 +147,7 @@ export default function SettingsPage() {
                 onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, username: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="利用者番号（例: 84005349）"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -159,6 +160,7 @@ export default function SettingsPage() {
                 onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, password: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="パスワード"
+                autoComplete="new-password"
               />
             </div>
             <button
@@ -194,6 +196,7 @@ export default function SettingsPage() {
                 onChange={(e) => setMinatoCredentials({ ...minatoCredentials, username: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="利用者番号"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -206,6 +209,7 @@ export default function SettingsPage() {
                 onChange={(e) => setMinatoCredentials({ ...minatoCredentials, password: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="パスワード"
+                autoComplete="new-password"
               />
             </div>
             <button

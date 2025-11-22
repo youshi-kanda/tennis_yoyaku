@@ -221,7 +221,7 @@ export default function MonitoringPage() {
               <select
                 value={config.site}
                 onChange={(e) => setConfig({ ...config, site: e.target.value as 'shinagawa' | 'minato' })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
               >
                 <option value="shinagawa">品川区（全テニスコート）</option>
                 <option value="minato">港区（全テニスコート）</option>
@@ -236,7 +236,7 @@ export default function MonitoringPage() {
               <select
                 value={config.reservationStrategy}
                 onChange={(e) => setConfig({ ...config, reservationStrategy: e.target.value as 'all' | 'priority' })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
               >
                 <option value="priority">優先順位予約（1枠確実確保）</option>
                 <option value="all">全件予約（空き枠すべて）</option>

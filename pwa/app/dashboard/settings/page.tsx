@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useLogout } from '@/lib/hooks/useAuth';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { usePushNotification } from '@/lib/hooks/usePushNotification';
+import { apiClient } from '@/lib/api/client';
 
 export default function SettingsPage() {
   const { logout } = useLogout();
@@ -20,14 +21,30 @@ export default function SettingsPage() {
     password: '',
   });
 
-  const handleSaveShinagawa = () => {
-    // TODO: API呼び出し
-    alert('品川区のログイン情報を保存しました');
+  const handleSaveShinagawa = async () => {
+    try {
+      await apiClient.saveSettings({
+        shinagawaUserId: shinagawaCredentials.username,
+        shinagawaPassword: shinagawaCredentials.password,
+      });
+      alert('品川区のログイン情報を保存しました');
+    } catch (err) {
+      console.error('Save error:', err);
+      alert('保存に失敗しました');
+    }
   };
 
-  const handleSaveMinato = () => {
-    // TODO: API呼び出し
-    alert('港区のログイン情報を保存しました');
+  const handleSaveMinato = async () => {
+    try {
+      await apiClient.saveSettings({
+        minatoUserId: minatoCredentials.username,
+        minatoPassword: minatoCredentials.password,
+      });
+      alert('港区のログイン情報を保存しました');
+    } catch (err) {
+      console.error('Save error:', err);
+      alert('保存に失敗しました');
+    }
   };
 
   const handleTogglePush = async () => {

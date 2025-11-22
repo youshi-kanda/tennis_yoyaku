@@ -4,7 +4,10 @@ import {
   checkMinatoAvailability,
   makeShinagawaReservation,
   makeMinatoReservation,
+  getShinagawaFacilities,
+  getMinatoFacilities,
   type AvailabilityResult,
+  type ReservationHistory,
 } from './scraper';
 
 export interface Env {
@@ -37,19 +40,6 @@ export interface MonitoringTarget {
   autoReserve: boolean;
   lastCheck?: number;
   lastStatus?: string; // '×' or '○'
-  createdAt: number;
-}
-
-export interface ReservationHistory {
-  id: string;
-  userId: string;
-  targetId: string;
-  site: 'shinagawa' | 'minato';
-  facilityName: string;
-  date: string;
-  timeSlot: string;
-  status: 'success' | 'failed' | 'cancelled';
-  message?: string;
   createdAt: number;
 }
 
@@ -87,6 +77,22 @@ export default {
 
       if (path === '/api/reservations/history') {
         return handleReservationHistory(request, env);
+      }
+
+      if (path === '/api/settings' && request.method === 'GET') {
+        return handleGetSettings(request, env);
+      }
+
+      if (path === '/api/settings' && request.method === 'POST') {
+        return handleSaveSettings(request, env);
+      }
+
+      if (path === '/api/facilities/shinagawa') {
+        return handleGetShinagawaFacilities(request, env);
+      }
+
+      if (path === '/api/facilities/minato') {
+        return handleGetMinatoFacilities(request, env);
       }
 
       if (path === '/api/health') {
@@ -280,6 +286,91 @@ async function handleReservationHistory(request: Request, env: Env): Promise<Res
   }
 }
 
+async function handleGetSettings(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const settingsData = await env.USERS.get(`settings:${userId}`);
+    if (!settingsData) {
+      return jsonResponse({ success: true, data: null });
+    }
+
+    const settings = JSON.parse(settingsData);
+    return jsonResponse({ success: true, data: settings });
+  } catch (error: any) {
+    return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
+  }
+}
+
+async function handleSaveSettings(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const body = await request.json() as {
+      shinagawa?: { username: string; password: string };
+      minato?: { username: string; password: string };
+    };
+
+    await env.USERS.put(`settings:${userId}`, JSON.stringify(body));
+
+    return jsonResponse({ success: true, message: 'Settings saved successfully' });
+  } catch (error: any) {
+    return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
+  }
+}
+
+async function handleGetShinagawaFacilities(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    // 認証情報を取得
+    const settingsData = await env.USERS.get(`settings:${userId}`);
+    if (!settingsData) {
+      return jsonResponse({ error: 'Credentials not found. Please save your settings first.' }, 400);
+    }
+
+    const settings = JSON.parse(settingsData);
+    if (!settings.shinagawa) {
+      return jsonResponse({ error: 'Shinagawa credentials not found' }, 400);
+    }
+
+    const facilities = await getShinagawaFacilities(settings.shinagawa, env);
+
+    return jsonResponse({ success: true, data: facilities });
+  } catch (error: any) {
+    console.error('Get Shinagawa facilities error:', error);
+    return jsonResponse({ error: error.message || 'Failed to fetch facilities' }, 500);
+  }
+}
+
+async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    // 認証情報を取得
+    const settingsData = await env.USERS.get(`settings:${userId}`);
+    if (!settingsData) {
+      return jsonResponse({ error: 'Credentials not found. Please save your settings first.' }, 400);
+    }
+
+    const settings = JSON.parse(settingsData);
+    if (!settings.minato) {
+      return jsonResponse({ error: 'Minato credentials not found' }, 400);
+    }
+
+    const facilities = await getMinatoFacilities(settings.minato, env);
+
+    return jsonResponse({ success: true, data: facilities });
+  } catch (error: any) {
+    console.error('Get Minato facilities error:', error);
+    return jsonResponse({ error: error.message || 'Failed to fetch facilities' }, 500);
+  }
+}
+
 async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
   const list = await env.MONITORING.list({ prefix: 'target:' });
   const targets = await Promise.all(
@@ -288,26 +379,58 @@ async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
       return data ? JSON.parse(data) as MonitoringTarget : null;
     })
   );
-  return targets.filter(t => t !== null && t.status === 'active');
+  return targets.filter((t): t is MonitoringTarget => t !== null && t.status === 'active');
+}
+
+/**
+ * ユーザーの成功した予約履歴を取得（キャンセル済み除く）
+ */
+async function getUserReservations(userId: string, env: Env): Promise<ReservationHistory[]> {
+  const list = await env.RESERVATIONS.list({ prefix: `history:${userId}:` });
+  const histories: (ReservationHistory | null)[] = await Promise.all(
+    list.keys.map(async (key) => {
+      const data = await env.RESERVATIONS.get(key.name);
+      return data ? JSON.parse(data) as ReservationHistory : null;
+    })
+  );
+  return histories.filter((h: ReservationHistory | null): h is ReservationHistory => 
+    h !== null && h.status === 'success'
+  );
 }
 
 async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void> {
   console.log(`[Check] Target ${target.id}: ${target.site} - ${target.facilityName}`);
 
   try {
+    // ユーザーの予約履歴を取得（キャンセル済み除く）
+    const existingReservations = await getUserReservations(target.userId, env);
+    
+    // 認証情報を取得
+    const settingsData = await env.USERS.get(`settings:${target.userId}`);
+    if (!settingsData) {
+      console.error(`[Check] No credentials found for user ${target.userId}`);
+      return;
+    }
+    const settings = JSON.parse(settingsData);
+    const credentials = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
+
     let result: AvailabilityResult;
 
     if (target.site === 'shinagawa') {
       result = await checkShinagawaAvailability(
         target.facilityId,
         target.date,
-        target.timeSlot
+        target.timeSlot,
+        credentials,
+        existingReservations
       );
     } else {
       result = await checkMinatoAvailability(
         target.facilityId,
         target.date,
-        target.timeSlot
+        target.timeSlot,
+        credentials,
+        existingReservations
       );
     }
 
@@ -368,6 +491,7 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       userId: target.userId,
       targetId: target.id,
       site: target.site,
+      facilityId: target.facilityId,
       facilityName: target.facilityName,
       date: target.date,
       timeSlot: target.timeSlot,

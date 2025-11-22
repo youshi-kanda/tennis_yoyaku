@@ -85,6 +85,18 @@ class ApiClient {
     return response.data;
   }
 
+  async adminRegister(email: string, password: string, adminKey: string) {
+    const response = await this.client.post('/api/auth/admin-register', {
+      email,
+      password,
+      adminKey,
+    });
+    if (response.data.success && response.data.data?.token) {
+      this.setToken(response.data.data.token);
+    }
+    return response.data;
+  }
+
   async logout() {
     this.clearToken();
   }
@@ -100,8 +112,10 @@ class ApiClient {
     facilityId: string;
     facilityName: string;
     date: string;
-    timeSlot: string;
+    timeSlots: string[]; // 複数時間枠対応
     autoReserve: boolean;
+    reservationStrategy?: 'all' | 'priority';
+    maxReservationsPerDay?: number;
   }) {
     const response = await this.client.post('/api/monitoring/create', data);
     return response.data;
@@ -131,6 +145,33 @@ class ApiClient {
     password: string;
   }) {
     const response = await this.client.put(`/api/settings/credentials/${site}`, credentials);
+    return response.data;
+  }
+
+  // 設定API
+  async saveSettings(settings: {
+    shinagawaUserId?: string;
+    shinagawaPassword?: string;
+    minatoUserId?: string;
+    minatoPassword?: string;
+  }) {
+    const response = await this.client.post('/api/settings', settings);
+    return response.data;
+  }
+
+  async getSettings() {
+    const response = await this.client.get('/api/settings');
+    return response.data;
+  }
+
+  // 施設一覧API
+  async getShinagawaFacilities() {
+    const response = await this.client.get('/api/facilities/shinagawa');
+    return response.data;
+  }
+
+  async getMinatoFacilities() {
+    const response = await this.client.get('/api/facilities/minato');
     return response.data;
   }
 

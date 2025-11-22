@@ -103,7 +103,7 @@ export default function SettingsPage() {
                 type="text"
                 value={shinagawaCredentials.username}
                 onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, username: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="品川区予約サイトのログインID"
               />
             </div>
@@ -115,7 +115,7 @@ export default function SettingsPage() {
                 type="password"
                 value={shinagawaCredentials.password}
                 onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, password: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="パスワード"
               />
             </div>
@@ -145,7 +145,7 @@ export default function SettingsPage() {
                 type="text"
                 value={minatoCredentials.username}
                 onChange={(e) => setMinatoCredentials({ ...minatoCredentials, username: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="港区予約サイトのログインID"
               />
             </div>
@@ -157,7 +157,7 @@ export default function SettingsPage() {
                 type="password"
                 value={minatoCredentials.password}
                 onChange={(e) => setMinatoCredentials({ ...minatoCredentials, password: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 placeholder="パスワード"
               />
             </div>

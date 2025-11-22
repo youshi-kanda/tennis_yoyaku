@@ -37,6 +37,12 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - Network first, fallback to cache
 self.addEventListener('fetch', (event) => {
+  // POSTリクエストはキャッシュしない
+  if (event.request.method !== 'GET') {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {

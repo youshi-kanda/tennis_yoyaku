@@ -102,9 +102,17 @@ export default function MonitoringPage() {
       });
 
       alert(`${facilities.length}施設の監視を開始しました`);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Start monitoring error:', err);
-      setError('監視の開始に失敗しました');
+      
+      // エラーメッセージを解析
+      const errorMessage = err?.response?.data?.error || err?.message || '監視の開始に失敗しました';
+      
+      if (errorMessage.includes('credentials not found') || errorMessage.includes('Credentials not found')) {
+        setError('❗️ 認証情報が未設定です。まず「設定」タブで品川区または港区の利用者ID・パスワードを保存してください。');
+      } else {
+        setError(`監視の開始に失敗: ${errorMessage}`);
+      }
     } finally {
       setIsLoading(false);
     }

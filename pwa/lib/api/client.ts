@@ -155,7 +155,24 @@ class ApiClient {
     minatoUserId?: string;
     minatoPassword?: string;
   }) {
-    const response = await this.client.post('/api/settings', settings);
+    // バックエンドの期待する形式に変換
+    const payload: {
+      shinagawa?: { username: string; password: string };
+      minato?: { username: string; password: string };
+    } = {};
+    if (settings.shinagawaUserId && settings.shinagawaPassword) {
+      payload.shinagawa = {
+        username: settings.shinagawaUserId,
+        password: settings.shinagawaPassword,
+      };
+    }
+    if (settings.minatoUserId && settings.minatoPassword) {
+      payload.minato = {
+        username: settings.minatoUserId,
+        password: settings.minatoPassword,
+      };
+    }
+    const response = await this.client.post('/api/settings', payload);
     return response.data;
   }
 

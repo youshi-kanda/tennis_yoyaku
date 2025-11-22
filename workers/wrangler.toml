@@ -2,30 +2,30 @@ name = "tennis-yoyaku-api"
 main = "src/index.ts"
 compatibility_date = "2024-11-20"
 
-# KV Namespaces
+# KV Namespaces (Production)
 [[kv_namespaces]]
 binding = "USERS"
-id = "users"
+id = "2bb51589e95d448abc4f6821a5898865"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "sessions"
+id = "2111997ed58e4f5080074fc0a95cacf0"
 
 [[kv_namespaces]]
 binding = "MONITORING"
-id = "monitoring"
+id = "5a8f67abf49546b58f6113e18a5b2443"
 
 [[kv_namespaces]]
 binding = "RESERVATIONS"
-id = "reservations"
+id = "6e26433ee30b4ad0bc0a8749a67038be"
 
-# Cron Triggers (通常監視: 60秒間隔)
+# Cron Triggers (60秒間隔で監視)
 [triggers]
 crons = ["*/1 * * * *"]
 
 # Environment variables
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 JWT_SECRET = "your-jwt-secret-here-change-in-production"
 ADMIN_KEY = "tennis_admin_2025"
 VAPID_PUBLIC_KEY = "BJl4G42CTnBBIz0YBhm2yZSPEgyNjXjBnjEXZwT1g0hCiHIGYesl8ePExqj9zcl7kBqRqug9rvg9qLTEtC1KjyQ"

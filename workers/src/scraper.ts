@@ -49,7 +49,7 @@ export interface ReservationHistory {
 /**
  * 品川区サイトにログインしてセッションを確立
  */
-async function loginToShinagawa(userId: string, password: string): Promise<string | null> {
+export async function loginToShinagawa(userId: string, password: string): Promise<string | null> {
   try {
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
     
@@ -540,7 +540,7 @@ export async function getShinagawaTennisCourts(
 /**
  * 港区サイトにログイン
  */
-async function loginToMinato(userId: string, password: string): Promise<string | null> {
+export async function loginToMinato(userId: string, password: string): Promise<string | null> {
   try {
     const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
     

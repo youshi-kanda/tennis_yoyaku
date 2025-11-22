@@ -6,6 +6,8 @@ import {
   makeMinatoReservation,
   getShinagawaFacilities,
   getMinatoFacilities,
+  loginToShinagawa,
+  loginToMinato,
   type AvailabilityResult,
   type ReservationHistory,
 } from './scraper';
@@ -337,7 +339,13 @@ async function handleGetShinagawaFacilities(request: Request, env: Env): Promise
       return jsonResponse({ error: 'Shinagawa credentials not found' }, 400);
     }
 
-    const facilities = await getShinagawaFacilities(settings.shinagawa, env);
+    // ログインしてsessionIdを取得
+    const sessionId = await loginToShinagawa(settings.shinagawa.username, settings.shinagawa.password);
+    if (!sessionId) {
+      return jsonResponse({ error: 'Failed to login to Shinagawa' }, 500);
+    }
+
+    const facilities = await getShinagawaFacilities(sessionId, env.MONITORING);
 
     return jsonResponse({ success: true, data: facilities });
   } catch (error: any) {
@@ -362,7 +370,13 @@ async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Re
       return jsonResponse({ error: 'Minato credentials not found' }, 400);
     }
 
-    const facilities = await getMinatoFacilities(settings.minato, env);
+    // ログインしてsessionIdを取得
+    const sessionId = await loginToMinato(settings.minato.username, settings.minato.password);
+    if (!sessionId) {
+      return jsonResponse({ error: 'Failed to login to Minato' }, 500);
+    }
+
+    const facilities = await getMinatoFacilities(sessionId, env.MONITORING);
 
     return jsonResponse({ success: true, data: facilities });
   } catch (error: any) {

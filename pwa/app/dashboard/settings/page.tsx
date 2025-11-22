@@ -30,13 +30,13 @@ export default function SettingsPage() {
           if (response.data.shinagawa) {
             setShinagawaCredentials({
               username: response.data.shinagawa.username || '',
-              password: '', // セキュリティのためパスワードは空のまま
+              password: response.data.shinagawa.password || '', // 保存済みパスワードを読み込み（マスク表示）
             });
           }
           if (response.data.minato) {
             setMinatoCredentials({
               username: response.data.minato.username || '',
-              password: '', // セキュリティのためパスワードは空のまま
+              password: response.data.minato.password || '', // 保存済みパスワードを読み込み（マスク表示）
             });
           }
         }
@@ -159,7 +159,7 @@ export default function SettingsPage() {
                 value={shinagawaCredentials.password}
                 onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, password: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder="パスワード"
+                placeholder={shinagawaCredentials.password ? "●●●●●●●● (保存済み)" : "パスワード"}
                 autoComplete="new-password"
               />
             </div>
@@ -172,6 +172,7 @@ export default function SettingsPage() {
             {shinagawaCredentials.username && (
               <p className="text-sm text-emerald-600 font-medium">
                 ✓ 利用者番号 {shinagawaCredentials.username} で保存済み
+                {shinagawaCredentials.password && ' (パスワードも保存済み)'}
               </p>
             )}
             <p className="text-xs text-gray-500 mt-2">
@@ -208,7 +209,7 @@ export default function SettingsPage() {
                 value={minatoCredentials.password}
                 onChange={(e) => setMinatoCredentials({ ...minatoCredentials, password: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder="パスワード"
+                placeholder={minatoCredentials.password ? "●●●●●●●● (保存済み)" : "パスワード"}
                 autoComplete="new-password"
               />
             </div>
@@ -221,6 +222,7 @@ export default function SettingsPage() {
             {minatoCredentials.username && (
               <p className="text-sm text-emerald-600 font-medium">
                 ✓ 利用者番号 {minatoCredentials.username} で保存済み
+                {minatoCredentials.password && ' (パスワードも保存済み)'}
               </p>
             )}
             <p className="text-xs text-gray-500 mt-2">

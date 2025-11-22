@@ -97,14 +97,14 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                ユーザー名/メールアドレス
+                利用者番号
               </label>
               <input
                 type="text"
                 value={shinagawaCredentials.username}
                 onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, username: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder="品川区予約サイトのログインID"
+                placeholder="利用者番号（例: 84005349）"
               />
             </div>
             <div>
@@ -139,14 +139,14 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                ユーザー名/メールアドレス
+                利用者番号
               </label>
               <input
                 type="text"
                 value={minatoCredentials.username}
                 onChange={(e) => setMinatoCredentials({ ...minatoCredentials, username: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder="港区予約サイトのログインID"
+                placeholder="利用者番号"
               />
             </div>
             <div>

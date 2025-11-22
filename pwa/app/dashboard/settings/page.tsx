@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLogout } from '@/lib/hooks/useAuth';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { usePushNotification } from '@/lib/hooks/usePushNotification';
@@ -21,8 +21,42 @@ export default function SettingsPage() {
     password: '',
   });
 
+  // 保存済みの設定を読み込む
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const response = await apiClient.getSettings();
+        if (response.success && response.data) {
+          if (response.data.shinagawa) {
+            setShinagawaCredentials({
+              username: response.data.shinagawa.username || '',
+              password: '', // セキュリティのためパスワードは空のまま
+            });
+          }
+          if (response.data.minato) {
+            setMinatoCredentials({
+              username: response.data.minato.username || '',
+              password: '', // セキュリティのためパスワードは空のまま
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+      }
+    };
+    loadSettings();
+  }, []);
+
   const handleSaveShinagawa = async () => {
     try {
+      if (!shinagawaCredentials.username) {
+        alert('利用者番号を入力してください');
+        return;
+      }
+      if (!shinagawaCredentials.password) {
+        alert('パスワードを入力してください');
+        return;
+      }
       await apiClient.saveSettings({
         shinagawaUserId: shinagawaCredentials.username,
         shinagawaPassword: shinagawaCredentials.password,
@@ -36,6 +70,14 @@ export default function SettingsPage() {
 
   const handleSaveMinato = async () => {
     try {
+      if (!minatoCredentials.username) {
+        alert('利用者番号を入力してください');
+        return;
+      }
+      if (!minatoCredentials.password) {
+        alert('パスワードを入力してください');
+        return;
+      }
       await apiClient.saveSettings({
         minatoUserId: minatoCredentials.username,
         minatoPassword: minatoCredentials.password,
@@ -125,6 +167,11 @@ export default function SettingsPage() {
             >
               保存
             </button>
+            {shinagawaCredentials.username && (
+              <p className="text-sm text-emerald-600 font-medium">
+                ✓ 利用者番号 {shinagawaCredentials.username} で保存済み
+              </p>
+            )}
             <p className="text-xs text-gray-500 mt-2">
               ※ 自動予約を有効にするには、品川区予約サイトのログイン情報が必要です
             </p>
@@ -167,6 +214,11 @@ export default function SettingsPage() {
             >
               保存
             </button>
+            {minatoCredentials.username && (
+              <p className="text-sm text-emerald-600 font-medium">
+                ✓ 利用者番号 {minatoCredentials.username} で保存済み
+              </p>
+            )}
             <p className="text-xs text-gray-500 mt-2">
               ※ 自動予約を有効にするには、港区予約サイトのログイン情報が必要です
             </p>

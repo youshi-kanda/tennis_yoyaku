@@ -63,6 +63,15 @@ export default function MonitoringPage() {
     ],
   });
 
+  // 予約可能期間情報
+  const [reservationPeriods, setReservationPeriods] = useState<{
+    shinagawa: { maxDaysAhead: number; source: string; displayText?: string } | null;
+    minato: { maxDaysAhead: number; source: string; displayText?: string } | null;
+  }>({
+    shinagawa: null,
+    minato: null,
+  });
+
   // 設定フォーム
   const [config, setConfig] = useState({
     sites: {
@@ -90,7 +99,50 @@ export default function MonitoringPage() {
   useEffect(() => {
     loadStatus();
     loadFacilities();
+    loadReservationPeriods();
   }, []);
+
+  const loadReservationPeriods = async () => {
+    try {
+      // 各地区の予約可能期間を取得（認証情報がなくても取得可能）
+      const results = await Promise.allSettled([
+        apiClient.getReservationPeriod('shinagawa'),
+        apiClient.getReservationPeriod('minato'),
+      ]);
+
+      const periods = {
+        shinagawa: null as { maxDaysAhead: number; source: string; displayText?: string } | null,
+        minato: null as { maxDaysAhead: number; source: string; displayText?: string } | null,
+      };
+
+      if (results[0].status === 'fulfilled' && results[0].value.success) {
+        const data = results[0].value.data;
+        periods.shinagawa = {
+          maxDaysAhead: data.maxDaysAhead,
+          source: data.source,
+          displayText: `約${Math.floor(data.maxDaysAhead / 30)}ヶ月先まで（${data.maxDaysAhead}日）`,
+        };
+      }
+
+      if (results[1].status === 'fulfilled' && results[1].value.success) {
+        const data = results[1].value.data;
+        periods.minato = {
+          maxDaysAhead: data.maxDaysAhead,
+          source: data.source,
+          displayText: `約${Math.floor(data.maxDaysAhead / 30)}ヶ月先まで（${data.maxDaysAhead}日）`,
+        };
+      }
+
+      setReservationPeriods(periods);
+    } catch (err) {
+      console.error('Failed to load reservation periods:', err);
+      // エラーでもデフォルト値を設定
+      setReservationPeriods({
+        shinagawa: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },
+        minato: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },
+      });
+    }
+  };
 
   const loadFacilities = async () => {
     try {
@@ -169,6 +221,7 @@ export default function MonitoringPage() {
           date?: string;
           startDate?: string;
           endDate?: string;
+          dateMode?: 'single' | 'range' | 'continuous';
           timeSlots: string[];
           selectedWeekdays?: number[];
           priority?: number;
@@ -184,6 +237,9 @@ export default function MonitoringPage() {
           reservationStrategy: config.reservationStrategy,
         };
 
+        // 日付モードをバックエンドに送信
+        monitoringData.dateMode = config.dateMode;
+
         // 日付モードに応じて設定
         if (config.dateMode === 'range') {
           // 期間指定
@@ -193,13 +249,8 @@ export default function MonitoringPage() {
           // 単一日付
           monitoringData.date = config.startDate;
         } else {
-          // 継続監視（翌日から長期間）
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          const farFuture = new Date();
-          farFuture.setDate(farFuture.getDate() + 365); // 1年先まで
-          monitoringData.startDate = tomorrow.toISOString().split('T')[0];
-          monitoringData.endDate = farFuture.toISOString().split('T')[0];
+          // 継続監視（バックエンドで動的に期間を設定）
+          // フロントエンドでは何も設定しない（バックエンドが自動設定）
         }
 
         // 優先度を設定
@@ -545,6 +596,39 @@ export default function MonitoringPage() {
               </p>
             </div>
 
+            {/* 予約可能期間の情報 */}
+            {config.selectedFacilities.length > 0 && (
+              <div className="p-3 bg-gradient-to-r from-emerald-50 to-blue-50 border border-emerald-200 rounded-lg">
+                <p className="text-xs font-semibold text-gray-700 mb-2">📅 予約可能期間</p>
+                <div className="space-y-1">
+                  {config.selectedFacilities.some(f => f.site === 'shinagawa') && reservationPeriods.shinagawa && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-emerald-700 font-medium">品川区:</span>
+                      <span className="text-gray-700">
+                        {reservationPeriods.shinagawa.displayText}
+                        <span className="ml-1 text-gray-500 text-[10px]">
+                          ({reservationPeriods.shinagawa.source === 'html' ? 'HTML検出' : 
+                            reservationPeriods.shinagawa.source === 'calendar' ? 'カレンダー検出' : 'デフォルト'})
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                  {config.selectedFacilities.some(f => f.site === 'minato') && reservationPeriods.minato && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-blue-700 font-medium">港区:</span>
+                      <span className="text-gray-700">
+                        {reservationPeriods.minato.displayText}
+                        <span className="ml-1 text-gray-500 text-[10px]">
+                          ({reservationPeriods.minato.source === 'html' ? 'HTML検出' : 
+                            reservationPeriods.minato.source === 'calendar' ? 'カレンダー検出' : 'デフォルト'})
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* 監視期間の設定 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -595,6 +679,19 @@ export default function MonitoringPage() {
                   <input
                     type="date"
                     value={config.startDate}
+                    min={(() => {
+                      const tomorrow = new Date();
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      return tomorrow.toISOString().split('T')[0];
+                    })()}
+                    max={(() => {
+                      const maxDate = new Date();
+                      const selectedSites = config.selectedFacilities.map(f => f.site);
+                      const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
+                      const maxDays = Math.max(...periods, 90);
+                      maxDate.setDate(maxDate.getDate() + maxDays);
+                      return maxDate.toISOString().split('T')[0];
+                    })()}
                     onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   />
@@ -608,6 +705,19 @@ export default function MonitoringPage() {
                     <input
                       type="date"
                       value={config.startDate}
+                      min={(() => {
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        return tomorrow.toISOString().split('T')[0];
+                      })()}
+                      max={(() => {
+                        const maxDate = new Date();
+                        const selectedSites = config.selectedFacilities.map(f => f.site);
+                        const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
+                        const maxDays = Math.max(...periods, 90);
+                        maxDate.setDate(maxDate.getDate() + maxDays);
+                        return maxDate.toISOString().split('T')[0];
+                      })()}
                       onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                     />
@@ -617,6 +727,15 @@ export default function MonitoringPage() {
                     <input
                       type="date"
                       value={config.endDate}
+                      min={config.startDate}
+                      max={(() => {
+                        const maxDate = new Date();
+                        const selectedSites = config.selectedFacilities.map(f => f.site);
+                        const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
+                        const maxDays = Math.max(...periods, 90);
+                        maxDate.setDate(maxDate.getDate() + maxDays);
+                        return maxDate.toISOString().split('T')[0];
+                      })()}
                       onChange={(e) => setConfig({ ...config, endDate: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                     />
@@ -627,7 +746,14 @@ export default function MonitoringPage() {
               {config.dateMode === 'continuous' && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-800">
-                    ℹ️ 翌日から1年先まで継続的に監視します（停止するまで継続）
+                    ℹ️ 翌日から{(() => {
+                      const selectedSites = config.selectedFacilities.map(f => f.site);
+                      const periods = selectedSites.map(site => reservationPeriods[site]);
+                      const validPeriods = periods.filter(p => p !== null);
+                      if (validPeriods.length === 0) return '予約可能な期間';
+                      const maxDays = Math.max(...validPeriods.map(p => p!.maxDaysAhead));
+                      return `${Math.floor(maxDays / 30)}ヶ月先（${maxDays}日）`;
+                    })()}まで継続的に監視します（停止するまで継続）
                   </p>
                 </div>
               )}

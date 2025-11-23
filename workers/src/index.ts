@@ -11,6 +11,7 @@ import {
   type AvailabilityResult,
   type ReservationHistory,
 } from './scraper';
+import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './reservationPeriod';
 
 // ===== メモリキャッシュ（KV使用量削減のため） =====
 interface SessionCacheEntry {
@@ -238,6 +239,10 @@ export default {
         return handleGetMinatoFacilities(request, env);
       }
 
+      if (path === '/api/reservation-period') {
+        return handleGetReservationPeriod(request, env);
+      }
+
       if (path === '/api/health') {
         return jsonResponse({ status: 'ok', timestamp: Date.now() });
       }
@@ -406,6 +411,7 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       date?: string; // 後方互換性（単一日付）
       startDate?: string; // 期間指定開始日
       endDate?: string; // 期間指定終了日
+      dateMode?: 'single' | 'range' | 'continuous'; // 日付モード
       timeSlot?: string; // 後方互換性
       timeSlots?: string[]; // 新規（複数時間帯）
       priority?: number; // 優先度（1-5）
@@ -418,14 +424,53 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       return jsonResponse({ error: 'timeSlot or timeSlots is required' }, 400);
     }
 
-    // 日付の検証と設定（期間指定 or 単一日付）
+    // セッション情報を取得（予約可能期間の判定に必要）
+    kvMetrics.reads++;
+    const sessionData = await env.SESSIONS.get(`session:${userId}:${body.site}`);
+    const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
+
+    // 予約可能期間を動的取得
+    const periodInfo = await getOrDetectReservationPeriod(body.site, sessionId, env.MONITORING);
+    console.log(`[MonitoringCreate] ${body.site} の予約可能期間: ${periodInfo.maxDaysAhead}日 (source: ${periodInfo.source})`);
+
+    // 日付の検証と設定（期間指定 or 単一日付 or 継続監視）
     let targetDate = body.date || '';
     let startDate = body.startDate;
     let endDate = body.endDate;
 
-    if (startDate && endDate) {
+    // 継続監視モードの場合、終了日を動的設定
+    if (body.dateMode === 'continuous') {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const maxDate = new Date();
+      maxDate.setDate(maxDate.getDate() + periodInfo.maxDaysAhead);
+      
+      startDate = tomorrow.toISOString().split('T')[0];
+      endDate = maxDate.toISOString().split('T')[0];
+      targetDate = startDate;
+      
+      console.log(`[MonitoringCreate] 継続監視モード: ${startDate} 〜 ${endDate} (${periodInfo.maxDaysAhead}日先まで)`);
+    } else if (startDate && endDate) {
       // 期間指定の場合、dateは開始日を設定（後方互換性）
       targetDate = startDate;
+
+      // 終了日が予約可能期間を超えていないかバリデーション
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDateObj = new Date(endDate);
+      const maxAllowedDate = new Date(today);
+      maxAllowedDate.setDate(maxAllowedDate.getDate() + periodInfo.maxDaysAhead);
+
+      if (endDateObj > maxAllowedDate) {
+        return jsonResponse({ 
+          error: `終了日が予約可能期間を超えています。${body.site === 'shinagawa' ? '品川区' : '港区'}は${periodInfo.maxDaysAhead}日先まで予約可能です。`,
+          periodInfo: {
+            maxDaysAhead: periodInfo.maxDaysAhead,
+            maxDate: maxAllowedDate.toISOString().split('T')[0],
+            source: periodInfo.source
+          }
+        }, 400);
+      }
     } else if (!body.date && !startDate && !endDate) {
       return jsonResponse({ error: 'date or startDate/endDate is required' }, 400);
     }
@@ -591,6 +636,36 @@ async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Re
   } catch (error: any) {
     console.error('Get Minato facilities error:', error);
     return jsonResponse({ error: error.message || 'Failed to fetch facilities' }, 500);
+  }
+}
+
+async function handleGetReservationPeriod(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const url = new URL(request.url);
+    const site = url.searchParams.get('site') as 'shinagawa' | 'minato';
+    
+    if (!site || (site !== 'shinagawa' && site !== 'minato')) {
+      return jsonResponse({ error: 'Invalid or missing site parameter (shinagawa or minato)' }, 400);
+    }
+
+    // セッション情報を取得（オプション）
+    kvMetrics.reads++;
+    const sessionData = await env.SESSIONS.get(`session:${userId}:${site}`);
+    const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
+
+    // 予約可能期間を動的取得
+    const periodInfo = await getOrDetectReservationPeriod(site, sessionId, env.MONITORING);
+
+    return jsonResponse({ 
+      success: true, 
+      data: periodInfo
+    });
+  } catch (error: any) {
+    console.error('Get reservation period error:', error);
+    return jsonResponse({ error: error.message || 'Failed to fetch reservation period' }, 500);
   }
 }
 

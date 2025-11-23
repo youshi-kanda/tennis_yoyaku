@@ -207,6 +207,12 @@ class ApiClient {
     return response.data;
   }
 
+  // 予約可能期間API
+  async getReservationPeriod(site: 'shinagawa' | 'minato') {
+    const response = await this.client.get(`/api/reservation-period?site=${site}`);
+    return response.data;
+  }
+
   // プッシュ通知API
   async subscribePush(subscription: PushSubscription) {
     const response = await this.client.post('/api/push/subscribe', subscription);

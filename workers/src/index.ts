@@ -420,7 +420,9 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       dateMode?: 'single' | 'range' | 'continuous'; // 日付モード
       timeSlot?: string; // 後方互換性
       timeSlots?: string[]; // 新規（複数時間帯）
+      selectedWeekdays?: number[]; // 監視する曜日
       priority?: number; // 優先度（1-5）
+      includeHolidays?: boolean | 'only'; // 祝日の扱い
       autoReserve: boolean;
     };
 
@@ -492,7 +494,9 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       endDate: endDate,
       timeSlot: timeSlots[0], // 後方互換性のため最初の時間帯を設定
       timeSlots: timeSlots, // 新規フィールド
+      selectedWeekdays: body.selectedWeekdays, // 曜日フィルタ
       priority: body.priority || 3, // デフォルトは3（普通）
+      includeHolidays: body.includeHolidays, // 祝日の扱い
       status: 'active',
       autoReserve: body.autoReserve,
       createdAt: Date.now(),

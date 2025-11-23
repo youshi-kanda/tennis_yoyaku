@@ -45,20 +45,21 @@ export default function MonitoringPage() {
 
   // 施設リスト（ハードコードで初期表示、API取得で上書き）
   const [facilities, setFacilities] = useState<{
-    shinagawa: Array<{ id: string; name: string }>;
-    minato: Array<{ id: string; name: string }>;
+    shinagawa: Array<{ id: string; name: string; courts?: string }>;
+    minato: Array<{ id: string; name: string; courts?: string }>;
   }>({
     shinagawa: [
-      { id: 'higashishinagawa', name: '東品川公園' },
-      { id: 'yashio', name: '八潮公園' },
-      { id: 'omorikita', name: '大森北公園' },
-      { id: 'oirinkai', name: '大井ふ頭中央海浜公園' },
-      { id: 'nishioi', name: '西大井公園' },
+      { id: 'shinagawa-chuo', name: 'しながわ中央公園', courts: 'A〜E（5コート）' },
+      { id: 'higashi-shinagawa', name: '東品川公園', courts: 'A（1コート）' },
+      { id: 'shinagawa-kumin', name: 'しながわ区民公園', courts: '複数コート' },
+      { id: 'yashio-kita', name: '八潮北公園', courts: '複数コート' },
     ],
     minato: [
-      { id: 'shibaura', name: '芝浦中央公園' },
-      { id: 'odaiba', name: 'お台場海浜公園' },
-      { id: 'aoyama', name: '青山公園' },
+      { id: 'azabu', name: '麻布運動公園', courts: 'A〜D（4コート）' },
+      { id: 'aoyama-ground', name: '青山運動場', courts: 'A〜D（4コート）' },
+      { id: 'aoyama-jhs', name: '青山中学校', courts: 'A〜D（4コート）' },
+      { id: 'takamatsu-jhs', name: '高松中学校', courts: 'A〜D（4コート）' },
+      { id: 'shibaura-chuo', name: '芝浦中央公園運動場', courts: 'A〜D（4コート）' },
     ],
   });
 
@@ -445,10 +446,18 @@ export default function MonitoringPage() {
                             }}
                             className="w-4 h-4 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500"
                           />
-                          <span className="text-sm text-gray-900">{facility.name}</span>
+                          <div className="flex-1">
+                            <div className="text-sm font-medium text-gray-900">{facility.name}</div>
+                            {facility.courts && (
+                              <div className="text-xs text-gray-500 mt-0.5">{facility.courts}</div>
+                            )}
+                          </div>
                         </label>
                       ))}
                     </div>
+                    <p className="text-xs text-gray-500 mt-2 px-2">
+                      ℹ️ 館を選択すると、その館の全コートを監視します
+                    </p>
                   </div>
                 )}
 
@@ -515,16 +524,24 @@ export default function MonitoringPage() {
                             }}
                             className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
                           />
-                          <span className="text-sm text-gray-900">{facility.name}</span>
+                          <div className="flex-1">
+                            <div className="text-sm font-medium text-gray-900">{facility.name}</div>
+                            {facility.courts && (
+                              <div className="text-xs text-gray-500 mt-0.5">{facility.courts}</div>
+                            )}
+                          </div>
                         </label>
                       ))}
                     </div>
+                    <p className="text-xs text-gray-500 mt-2 px-2">
+                      ℹ️ 館を選択すると、その館の全コートを監視します
+                    </p>
                   </div>
                 )}
               </div>
 
-              <p className="text-xs text-gray-600 mt-2">
-                ※ 選択した施設のみ監視します（{config.selectedFacilities.length}施設選択中）
+              <p className="text-xs text-gray-600 mt-3">
+                ※ 選択した{config.selectedFacilities.length}施設の全コートが監視対象になります。空きが見つかった際に自動予約されます。
               </p>
             </div>
 

@@ -475,27 +475,67 @@ export async function getShinagawaFacilities(
     // 既知の施設を返す（実際の予約時に空き状況ページから詳細情報を取得）
     // 注: 実際のfacilityIdは品川区サイトから取得した値に置き換える必要がある
     const facilities: Facility[] = [
+      // しながわ中央公園（コートA〜E）
       {
-        facilityId: 'shinagawa_chuo_a', // しながわ中央公園 庭球場A
+        facilityId: 'shinagawa-chuo-a',
         facilityName: 'しながわ中央公園 庭球場A',
         category: 'tennis',
         isTennisCourt: true,
       },
       {
-        facilityId: 'shinagawa_chuo_b', // しながわ中央公園 庭球場B
+        facilityId: 'shinagawa-chuo-b',
         facilityName: 'しながわ中央公園 庭球場B',
         category: 'tennis',
         isTennisCourt: true,
       },
       {
-        facilityId: 'higashi_shinagawa_a', // 東品川公園 庭球場A
-        facilityName: '東品川公園 庭球場A',
+        facilityId: 'shinagawa-chuo-c',
+        facilityName: 'しながわ中央公園 庭球場C',
         category: 'tennis',
         isTennisCourt: true,
       },
       {
-        facilityId: 'higashi_shinagawa_b', // 東品川公園 庭球場B
-        facilityName: '東品川公園 庭球場B',
+        facilityId: 'shinagawa-chuo-d',
+        facilityName: 'しながわ中央公園 庭球場D',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      {
+        facilityId: 'shinagawa-chuo-e',
+        facilityName: 'しながわ中央公園 庭球場E',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      // 東品川公園（コートA）
+      {
+        facilityId: 'higashi-shinagawa-a',
+        facilityName: '東品川公園 庭球場A',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      // しながわ区民公園（複数コート - 実際の数は要確認）
+      {
+        facilityId: 'shinagawa-kumin-a',
+        facilityName: 'しながわ区民公園 庭球場A',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      {
+        facilityId: 'shinagawa-kumin-b',
+        facilityName: 'しながわ区民公園 庭球場B',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      // 八潮北公園（複数コート - 実際の数は要確認）
+      {
+        facilityId: 'yashio-kita-a',
+        facilityName: '八潮北公園 庭球場A',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      {
+        facilityId: 'yashio-kita-b',
+        facilityName: '八潮北公園 庭球場B',
         category: 'tennis',
         isTennisCourt: true,
       },
@@ -675,15 +715,56 @@ export async function getMinatoFacilities(
     
     console.log(`[Facilities] Found ${facilities.length} Minato facilities (${facilities.filter(f => f.isTennisCourt).length} tennis courts)`);
     
-    await kv.put('facilities:minato', JSON.stringify(facilities), {
-      expirationTtl: 3600,
-    });
+    // 動的取得が成功した場合のみキャッシュ
+    if (facilities.length > 0) {
+      await kv.put('facilities:minato', JSON.stringify(facilities), {
+        expirationTtl: 3600,
+      });
+      return facilities;
+    }
     
-    return facilities;
+    // フォールバック: 動的取得失敗時はハードコードデータを返す
+    console.log('[Facilities] Using fallback hardcoded Minato facilities');
+    return getMinatoFacilitiesFallback();
+    
   } catch (error) {
     console.error('[Facilities] Error fetching Minato facilities:', error);
-    return [];
+    // エラー時もフォールバックを返す
+    return getMinatoFacilitiesFallback();
   }
+}
+
+/**
+ * 港区施設のフォールバックデータ（動的取得失敗時用）
+ */
+function getMinatoFacilitiesFallback(): Facility[] {
+  return [
+    // 麻布運動公園（コートA〜D）
+    { facilityId: 'azabu-a', facilityName: '麻布運動公園 テニスコートA', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'azabu-b', facilityName: '麻布運動公園 テニスコートB', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'azabu-c', facilityName: '麻布運動公園 テニスコートC', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'azabu-d', facilityName: '麻布運動公園 テニスコートD', category: 'tennis', isTennisCourt: true },
+    // 青山運動場（コートA〜D）
+    { facilityId: 'aoyama-ground-a', facilityName: '青山運動場 テニスコートA', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'aoyama-ground-b', facilityName: '青山運動場 テニスコートB', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'aoyama-ground-c', facilityName: '青山運動場 テニスコートC', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'aoyama-ground-d', facilityName: '青山運動場 テニスコートD', category: 'tennis', isTennisCourt: true },
+    // 青山中学校（コートA〜D）
+    { facilityId: 'aoyama-jhs-a', facilityName: '青山中学校 テニスコートA', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'aoyama-jhs-b', facilityName: '青山中学校 テニスコートB', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'aoyama-jhs-c', facilityName: '青山中学校 テニスコートC', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'aoyama-jhs-d', facilityName: '青山中学校 テニスコートD', category: 'tennis', isTennisCourt: true },
+    // 高松中学校（コートA〜D）
+    { facilityId: 'takamatsu-jhs-a', facilityName: '高松中学校 テニスコートA', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'takamatsu-jhs-b', facilityName: '高松中学校 テニスコートB', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'takamatsu-jhs-c', facilityName: '高松中学校 テニスコートC', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'takamatsu-jhs-d', facilityName: '高松中学校 テニスコートD', category: 'tennis', isTennisCourt: true },
+    // 芝浦中央公園運動場（コートA〜D）
+    { facilityId: 'shibaura-chuo-a', facilityName: '芝浦中央公園運動場 テニスコートA', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'shibaura-chuo-b', facilityName: '芝浦中央公園運動場 テニスコートB', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'shibaura-chuo-c', facilityName: '芝浦中央公園運動場 テニスコートC', category: 'tennis', isTennisCourt: true },
+    { facilityId: 'shibaura-chuo-d', facilityName: '芝浦中央公園運動場 テニスコートD', category: 'tennis', isTennisCourt: true },
+  ];
 }
 
 /**

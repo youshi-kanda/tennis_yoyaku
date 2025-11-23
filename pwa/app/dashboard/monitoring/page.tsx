@@ -63,7 +63,7 @@ export default function MonitoringPage() {
     ],
   });
 
-  // 予約可能期間情報
+  // 予約可能期間情報（初期値はnull、取得後に設定）
   const [reservationPeriods, setReservationPeriods] = useState<{
     shinagawa: { maxDaysAhead: number; source: string; displayText?: string } | null;
     minato: { maxDaysAhead: number; source: string; displayText?: string } | null;
@@ -104,45 +104,65 @@ export default function MonitoringPage() {
 
   const loadReservationPeriods = async () => {
     try {
-      // 各地区の予約可能期間を取得（認証情報がなくても取得可能）
+      console.log('[Monitoring] 予約可能期間の取得開始...');
+      
+      // 各地区の予約可能期間を取得
       const results = await Promise.allSettled([
         apiClient.getReservationPeriod('shinagawa'),
         apiClient.getReservationPeriod('minato'),
       ]);
 
-      const periods = {
-        shinagawa: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },
-        minato: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },
+      // デフォルト値から開始
+      const periods: {
+        shinagawa: { maxDaysAhead: number; source: string; displayText: string } | null;
+        minato: { maxDaysAhead: number; source: string; displayText: string } | null;
+      } = {
+        shinagawa: null,
+        minato: null,
       };
 
-      if (results[0].status === 'fulfilled' && results[0].value.success) {
+      // 品川区の処理
+      if (results[0].status === 'fulfilled' && results[0].value?.success) {
         const data = results[0].value.data;
         periods.shinagawa = {
           maxDaysAhead: data.maxDaysAhead,
           source: data.source,
           displayText: `約${Math.floor(data.maxDaysAhead / 30)}ヶ月先まで（${data.maxDaysAhead}日）`,
         };
-        console.log('[Monitoring] 品川区の予約可能期間を取得:', periods.shinagawa);
+        console.log('[Monitoring] ✅ 品川区の予約可能期間を取得:', periods.shinagawa);
       } else {
-        console.warn('[Monitoring] 品川区の予約可能期間取得失敗、デフォルト使用:', results[0]);
+        // 失敗時はデフォルト値
+        periods.shinagawa = {
+          maxDaysAhead: 90,
+          source: 'default',
+          displayText: '約3ヶ月先まで（90日）',
+        };
+        console.warn('[Monitoring] ⚠️ 品川区の予約可能期間取得失敗、デフォルト使用:', results[0]);
       }
 
-      if (results[1].status === 'fulfilled' && results[1].value.success) {
+      // 港区の処理
+      if (results[1].status === 'fulfilled' && results[1].value?.success) {
         const data = results[1].value.data;
         periods.minato = {
           maxDaysAhead: data.maxDaysAhead,
           source: data.source,
           displayText: `約${Math.floor(data.maxDaysAhead / 30)}ヶ月先まで（${data.maxDaysAhead}日）`,
         };
-        console.log('[Monitoring] 港区の予約可能期間を取得:', periods.minato);
+        console.log('[Monitoring] ✅ 港区の予約可能期間を取得:', periods.minato);
       } else {
-        console.warn('[Monitoring] 港区の予約可能期間取得失敗、デフォルト使用:', results[1]);
+        // 失敗時はデフォルト値
+        periods.minato = {
+          maxDaysAhead: 90,
+          source: 'default',
+          displayText: '約3ヶ月先まで（90日）',
+        };
+        console.warn('[Monitoring] ⚠️ 港区の予約可能期間取得失敗、デフォルト使用:', results[1]);
       }
 
       setReservationPeriods(periods);
-      console.log('[Monitoring] 予約可能期間設定完了:', periods);
+      console.log('[Monitoring] 📅 予約可能期間設定完了:', periods);
     } catch (err) {
-      console.error('[Monitoring] Failed to load reservation periods:', err);
+      console.error('[Monitoring] ❌ 予約可能期間の取得でエラー発生:', err);
       // エラーでもデフォルト値を設定
       setReservationPeriods({
         shinagawa: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },

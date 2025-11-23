@@ -29,7 +29,13 @@ export function useLogin() {
       const response = await apiClient.login(form.email, form.password);
       
       if (response.success && response.data) {
+        console.log('[Login] Setting user:', response.data.user);
         setUser(response.data.user);
+        
+        // ユーザー情報が確実に保存されるまで少し待つ
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        console.log('[Login] Redirecting to dashboard...');
         router.push('/dashboard');
       } else {
         setError(response.error || 'ログインに失敗しました');

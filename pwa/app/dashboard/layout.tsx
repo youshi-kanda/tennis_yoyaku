@@ -1,9 +1,13 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { apiClient } from '@/lib/api/client';
+
+// 動的レンダリングを強制
+export const dynamic = 'force-dynamic';
 
 export default function DashboardLayout({
   children,
@@ -13,6 +17,32 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
+  const [isChecking, setIsChecking] = useState(true);
+
+  // 認証チェック
+  useEffect(() => {
+    console.log('[Dashboard Layout] Auth check, user:', user ? user.email : 'null');
+    
+    if (!user) {
+      console.log('[Dashboard Layout] No user, redirecting to login');
+      router.replace('/');
+    } else {
+      console.log('[Dashboard Layout] User authenticated');
+      setIsChecking(false);
+    }
+  }, [user, router]);
+
+  // 認証チェック中
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+          <p className="mt-4 text-gray-600">認証確認中...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleLogout = () => {
     apiClient.logout();

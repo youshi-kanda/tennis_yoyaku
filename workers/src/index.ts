@@ -12,6 +12,38 @@ import {
   type ReservationHistory,
 } from './scraper';
 
+// ===== メモリキャッシュ（KV使用量削減のため） =====
+interface SessionCacheEntry {
+  sessionId: string;
+  expires: number;
+}
+
+interface MonitoringListCache {
+  data: any[] | null;
+  expires: number;
+}
+
+// セッションキャッシュ（5分間有効）
+const sessionCache = new Map<string, SessionCacheEntry>();
+const SESSION_CACHE_TTL = 5 * 60 * 1000; // 5分
+
+// 監視リストキャッシュ（3分間有効）
+const monitoringListCache: MonitoringListCache = {
+  data: null,
+  expires: 0
+};
+const MONITORING_LIST_CACHE_TTL = 3 * 60 * 1000; // 3分
+
+// KV使用量メトリクス
+let kvMetrics = {
+  reads: 0,
+  writes: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  writesSkipped: 0,
+  resetAt: Date.now()
+};
+
 export interface Env {
   USERS: KVNamespace;
   SESSIONS: KVNamespace;
@@ -36,8 +68,12 @@ export interface MonitoringTarget {
   site: 'shinagawa' | 'minato';
   facilityId: string;
   facilityName: string;
-  date: string;
-  timeSlot: string;
+  date: string; // 後方互換性（単一日付）
+  startDate?: string; // 期間指定開始日（新規）
+  endDate?: string; // 期間指定終了日（新規）
+  timeSlot: string; // 後方互換性のため残す（非推奨）
+  timeSlots?: string[]; // 複数時間帯対応（新規）
+  priority?: number; // 優先度（1-5、5が最優先）デフォルトは3
   status: 'active' | 'pending' | 'completed' | 'failed';
   autoReserve: boolean;
   lastCheck?: number;
@@ -50,6 +86,110 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+// ===== キャッシュヘルパー関数 =====
+async function getCachedSession(userId: string, kv: KVNamespace): Promise<string | null> {
+  const now = Date.now();
+  const cacheKey = `session:${userId}`;
+  
+  // メモリキャッシュをチェック
+  const cached = sessionCache.get(cacheKey);
+  if (cached && cached.expires > now) {
+    kvMetrics.cacheHits++;
+    console.log(`[Cache HIT] Session for user ${userId}`);
+    return cached.sessionId;
+  }
+  
+  // キャッシュミス - KVから取得
+  kvMetrics.cacheMisses++;
+  console.log(`[Cache MISS] Session for user ${userId}, fetching from KV`);
+  
+  kvMetrics.reads++;
+  const sessionId = await kv.get(`session:${userId}`);
+  
+  if (sessionId) {
+    // キャッシュに保存
+    sessionCache.set(cacheKey, {
+      sessionId,
+      expires: now + SESSION_CACHE_TTL
+    });
+  }
+  
+  return sessionId;
+}
+
+async function getCachedMonitoringList(kv: KVNamespace): Promise<any[]> {
+  const now = Date.now();
+  
+  // メモリキャッシュをチェック
+  if (monitoringListCache.data && monitoringListCache.expires > now) {
+    kvMetrics.cacheHits++;
+    console.log('[Cache HIT] Monitoring list');
+    return monitoringListCache.data;
+  }
+  
+  // キャッシュミス - KVから取得
+  kvMetrics.cacheMisses++;
+  console.log('[Cache MISS] Monitoring list, fetching from KV');
+  
+  kvMetrics.reads++;
+  const data = await kv.get('monitoring:list', 'json') || [];
+  
+  // キャッシュに保存
+  monitoringListCache.data = data;
+  monitoringListCache.expires = now + MONITORING_LIST_CACHE_TTL;
+  
+  return data;
+}
+
+async function updateMonitoringTargetOptimized(
+  target: MonitoringTarget,
+  newStatus: string,
+  kv: KVNamespace
+): Promise<void> {
+  const previousStatus = target.lastStatus;
+  
+  // ステータスに変更がある場合のみwrite
+  if (previousStatus !== newStatus) {
+    target.lastStatus = newStatus;
+    target.lastCheck = Date.now();
+    
+    // 配列管理: 全ターゲットを取得して該当ターゲットを更新
+    kvMetrics.reads++;
+    const allTargets = await kv.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    const targetIndex = allTargets.findIndex((t: MonitoringTarget) => t.id === target.id);
+    
+    if (targetIndex !== -1) {
+      allTargets[targetIndex] = target;
+      kvMetrics.writes++;
+      await kv.put('monitoring:all_targets', JSON.stringify(allTargets));
+      console.log(`[Optimized Write] Status changed: ${previousStatus} → ${newStatus}`);
+    } else {
+      console.warn(`[Warning] Target ${target.id} not found in array`);
+    }
+    
+    // 監視リストキャッシュを無効化
+    monitoringListCache.data = null;
+    monitoringListCache.expires = 0;
+  } else {
+    kvMetrics.writesSkipped++;
+    console.log(`[Optimized Skip] No change (${newStatus}), write skipped`);
+  }
+}
+
+function logKVMetrics() {
+  const elapsed = (Date.now() - kvMetrics.resetAt) / 1000 / 60; // 分
+  console.log('[KV Metrics]', {
+    reads: kvMetrics.reads,
+    writes: kvMetrics.writes,
+    cacheHits: kvMetrics.cacheHits,
+    cacheMisses: kvMetrics.cacheMisses,
+    writesSkipped: kvMetrics.writesSkipped,
+    cacheHitRate: kvMetrics.cacheHits / (kvMetrics.cacheHits + kvMetrics.cacheMisses),
+    writeSkipRate: kvMetrics.writesSkipped / (kvMetrics.writes + kvMetrics.writesSkipped),
+    elapsedMinutes: elapsed.toFixed(1)
+  });
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -101,6 +241,21 @@ export default {
         return jsonResponse({ status: 'ok', timestamp: Date.now() });
       }
 
+      if (path === '/api/metrics/kv') {
+        const elapsed = (Date.now() - kvMetrics.resetAt) / 1000 / 60;
+        return jsonResponse({
+          reads: kvMetrics.reads,
+          writes: kvMetrics.writes,
+          cacheHits: kvMetrics.cacheHits,
+          cacheMisses: kvMetrics.cacheMisses,
+          writesSkipped: kvMetrics.writesSkipped,
+          cacheHitRate: kvMetrics.cacheHits / (kvMetrics.cacheHits + kvMetrics.cacheMisses) || 0,
+          writeSkipRate: kvMetrics.writesSkipped / (kvMetrics.writes + kvMetrics.writesSkipped) || 0,
+          elapsedMinutes: parseFloat(elapsed.toFixed(1)),
+          resetAt: kvMetrics.resetAt
+        });
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);
@@ -115,13 +270,26 @@ export default {
       const targets = await getAllActiveTargets(env);
       console.log(`[Cron] Found ${targets.length} active monitoring targets`);
       
-      for (const target of targets) {
+      // 優先度順にソート（priorityが高い順、同じなら作成日時が古い順）
+      const sortedTargets = targets.sort((a, b) => {
+        const priorityA = a.priority || 3;
+        const priorityB = b.priority || 3;
+        if (priorityB !== priorityA) {
+          return priorityB - priorityA; // 優先度が高い順
+        }
+        return a.createdAt - b.createdAt; // 作成日時が古い順
+      });
+      
+      for (const target of sortedTargets) {
         try {
           await checkAndNotify(target, env);
         } catch (error) {
           console.error(`[Cron] Error checking target ${target.id}:`, error);
         }
       }
+      
+      // KVメトリクスをログ出力
+      logKVMetrics();
     } catch (error) {
       console.error('[Cron] Error:', error);
     }
@@ -211,17 +379,14 @@ async function handleMonitoringList(request: Request, env: Env): Promise<Respons
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
 
-    const list = await env.MONITORING.list({ prefix: `target:${userId}:` });
-    const targets = await Promise.all(
-      list.keys.map(async (key) => {
-        const data = await env.MONITORING.get(key.name);
-        return data ? JSON.parse(data) : null;
-      })
-    );
+    // 配列管理されたデータを1回のget()で取得（list()不要）
+    kvMetrics.reads++;
+    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    const userTargets = allTargets.filter((t: MonitoringTarget) => t.userId === userId);
 
     return jsonResponse({
       success: true,
-      data: targets.filter(t => t !== null),
+      data: userTargets,
     });
   } catch (error: any) {
     return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
@@ -237,10 +402,32 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       site: 'shinagawa' | 'minato';
       facilityId: string;
       facilityName: string;
-      date: string;
-      timeSlot: string;
+      date?: string; // 後方互換性（単一日付）
+      startDate?: string; // 期間指定開始日
+      endDate?: string; // 期間指定終了日
+      timeSlot?: string; // 後方互換性
+      timeSlots?: string[]; // 新規（複数時間帯）
+      priority?: number; // 優先度（1-5）
       autoReserve: boolean;
     };
+
+    // timeSlots優先、なければtimeSlotを使用（後方互換性）
+    const timeSlots = body.timeSlots || (body.timeSlot ? [body.timeSlot] : []);
+    if (timeSlots.length === 0) {
+      return jsonResponse({ error: 'timeSlot or timeSlots is required' }, 400);
+    }
+
+    // 日付の検証と設定（期間指定 or 単一日付）
+    let targetDate = body.date || '';
+    let startDate = body.startDate;
+    let endDate = body.endDate;
+
+    if (startDate && endDate) {
+      // 期間指定の場合、dateは開始日を設定（後方互換性）
+      targetDate = startDate;
+    } else if (!body.date && !startDate && !endDate) {
+      return jsonResponse({ error: 'date or startDate/endDate is required' }, 400);
+    }
 
     const target: MonitoringTarget = {
       id: crypto.randomUUID(),
@@ -248,14 +435,28 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       site: body.site,
       facilityId: body.facilityId,
       facilityName: body.facilityName,
-      date: body.date,
-      timeSlot: body.timeSlot,
+      date: targetDate,
+      startDate: startDate,
+      endDate: endDate,
+      timeSlot: timeSlots[0], // 後方互換性のため最初の時間帯を設定
+      timeSlots: timeSlots, // 新規フィールド
+      priority: body.priority || 3, // デフォルトは3（普通）
       status: 'active',
       autoReserve: body.autoReserve,
       createdAt: Date.now(),
     };
 
-    await env.MONITORING.put(`target:${userId}:${target.id}`, JSON.stringify(target));
+    // 既存の配列を取得して新しいターゲットを追加
+    kvMetrics.reads++;
+    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    allTargets.push(target);
+    
+    kvMetrics.writes++;
+    await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+
+    // 監視リストキャッシュを無効化（新しい監視が追加されたため）
+    monitoringListCache.data = null;
+    monitoringListCache.expires = 0;
 
     return jsonResponse({
       success: true,
@@ -271,17 +472,13 @@ async function handleReservationHistory(request: Request, env: Env): Promise<Res
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
 
-    const list = await env.RESERVATIONS.list({ prefix: `history:${userId}:` });
-    const history = await Promise.all(
-      list.keys.map(async (key) => {
-        const data = await env.RESERVATIONS.get(key.name);
-        return data ? JSON.parse(data) : null;
-      })
-    );
+    // 配列管理されたデータを1回のget()で取得（list()不要）
+    kvMetrics.reads++;
+    const userHistories = await env.RESERVATIONS.get(`history:${userId}`, 'json') as ReservationHistory[] || [];
 
     return jsonResponse({
       success: true,
-      data: history.filter(h => h !== null).sort((a, b) => b.createdAt - a.createdAt),
+      data: userHistories.sort((a, b) => b.createdAt - a.createdAt),
     });
   } catch (error: any) {
     return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
@@ -313,6 +510,10 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     const body = await request.json() as {
       shinagawa?: { username: string; password: string };
       minato?: { username: string; password: string };
+      reservationLimits?: {
+        perWeek?: number;  // 週あたりの予約上限
+        perMonth?: number; // 月あたりの予約上限
+      };
     };
 
     await env.USERS.put(`settings:${userId}`, JSON.stringify(body));
@@ -327,29 +528,36 @@ async function handleGetShinagawaFacilities(request: Request, env: Env): Promise
   try {
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
+    console.log('[Facilities] Fetching Shinagawa facilities for user:', userId);
 
     // 認証情報を取得
     const settingsData = await env.USERS.get(`settings:${userId}`);
     if (!settingsData) {
+      console.log('[Facilities] No settings found for user:', userId);
       return jsonResponse({ error: 'Credentials not found. Please save your settings first.' }, 400);
     }
 
     const settings = JSON.parse(settingsData);
+    console.log('[Facilities] Settings loaded, has shinagawa:', !!settings.shinagawa);
     if (!settings.shinagawa) {
       return jsonResponse({ error: 'Shinagawa credentials not found' }, 400);
     }
 
     // ログインしてsessionIdを取得
+    console.log('[Facilities] Attempting login to Shinagawa...');
     const sessionId = await loginToShinagawa(settings.shinagawa.username, settings.shinagawa.password);
+    console.log('[Facilities] Login result, sessionId:', sessionId ? 'obtained' : 'failed');
     if (!sessionId) {
       return jsonResponse({ error: 'Failed to login to Shinagawa' }, 500);
     }
 
+    console.log('[Facilities] Fetching facilities with sessionId...');
     const facilities = await getShinagawaFacilities(sessionId, env.MONITORING);
+    console.log('[Facilities] Facilities count:', facilities.length);
 
     return jsonResponse({ success: true, data: facilities });
   } catch (error: any) {
-    console.error('Get Shinagawa facilities error:', error);
+    console.error('[Facilities] Error:', error);
     return jsonResponse({ error: error.message || 'Failed to fetch facilities' }, 500);
   }
 }
@@ -386,30 +594,34 @@ async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Re
 }
 
 async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
-  const list = await env.MONITORING.list({ prefix: 'target:' });
-  const targets = await Promise.all(
-    list.keys.map(async (key) => {
-      const data = await env.MONITORING.get(key.name);
-      return data ? JSON.parse(data) as MonitoringTarget : null;
-    })
-  );
-  return targets.filter((t): t is MonitoringTarget => t !== null && t.status === 'active');
+  // キャッシュされた監視リストを使用
+  const cachedList = await getCachedMonitoringList(env.MONITORING);
+  
+  // キャッシュにデータがある場合はそれを使用
+  if (cachedList && cachedList.length > 0) {
+    return cachedList.filter((t: MonitoringTarget) => t.status === 'active');
+  }
+  
+  // キャッシュミス時 - 配列管理されたデータを1回のget()で取得（list()不要）
+  kvMetrics.reads++;
+  const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+  const activeTargets = allTargets.filter((t: MonitoringTarget) => t.status === 'active');
+  
+  // 取得したデータをキャッシュに保存
+  monitoringListCache.data = activeTargets;
+  monitoringListCache.expires = Date.now() + MONITORING_LIST_CACHE_TTL;
+  
+  return activeTargets;
 }
 
 /**
  * ユーザーの成功した予約履歴を取得（キャンセル済み除く）
  */
 async function getUserReservations(userId: string, env: Env): Promise<ReservationHistory[]> {
-  const list = await env.RESERVATIONS.list({ prefix: `history:${userId}:` });
-  const histories: (ReservationHistory | null)[] = await Promise.all(
-    list.keys.map(async (key) => {
-      const data = await env.RESERVATIONS.get(key.name);
-      return data ? JSON.parse(data) as ReservationHistory : null;
-    })
-  );
-  return histories.filter((h: ReservationHistory | null): h is ReservationHistory => 
-    h !== null && h.status === 'success'
-  );
+  // 配列管理されたデータを1回のget()で取得（list()不要）
+  kvMetrics.reads++;
+  const userHistories = await env.RESERVATIONS.get(`history:${userId}`, 'json') as ReservationHistory[] || [];
+  return userHistories.filter((h: ReservationHistory) => h.status === 'success');
 }
 
 async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void> {
@@ -428,57 +640,119 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
     const settings = JSON.parse(settingsData);
     const credentials = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
 
-    let result: AvailabilityResult;
-
-    if (target.site === 'shinagawa') {
-      result = await checkShinagawaAvailability(
-        target.facilityId,
-        target.date,
-        target.timeSlot,
-        credentials,
-        existingReservations
-      );
-    } else {
-      result = await checkMinatoAvailability(
-        target.facilityId,
-        target.date,
-        target.timeSlot,
-        credentials,
-        existingReservations
-      );
-    }
-
-    // 前回の状態と比較
-    const previousStatus = target.lastStatus || '×';
-    const changedToAvailable = previousStatus === '×' && result.currentStatus === '○';
-
-    // 監視ターゲットを更新
-    target.lastCheck = Date.now();
-    target.lastStatus = result.currentStatus;
-    await env.MONITORING.put(`target:${target.userId}:${target.id}`, JSON.stringify(target));
-
-    console.log(`[Check] Status: ${previousStatus} → ${result.currentStatus}, Changed: ${changedToAvailable}`);
-
-    // ×→○になった場合
-    if (changedToAvailable) {
-      console.log(`[Alert] Availability changed for target ${target.id}!`);
-
-      // 自動予約が有効な場合は予約を試みる
-      if (target.autoReserve) {
-        await attemptReservation(target, env);
+    // チェックする日付のリストを生成
+    const datesToCheck: string[] = [];
+    if (target.startDate && target.endDate) {
+      // 期間指定の場合、開始日から終了日まで全日付を生成
+      const start = new Date(target.startDate);
+      const end = new Date(target.endDate);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        datesToCheck.push(d.toISOString().split('T')[0]);
       }
-
-      // TODO: プッシュ通知を送信
+    } else {
+      // 単一日付の場合
+      datesToCheck.push(target.date);
     }
+
+    // チェックする時間帯のリスト
+    const timeSlotsToCheck = target.timeSlots || [target.timeSlot];
+
+    // 各日付・時間帯の組み合わせをチェック
+    for (const date of datesToCheck) {
+      for (const timeSlot of timeSlotsToCheck) {
+        let result: AvailabilityResult;
+
+        if (target.site === 'shinagawa') {
+          result = await checkShinagawaAvailability(
+            target.facilityId,
+            date,
+            timeSlot,
+            credentials,
+            existingReservations
+          );
+        } else {
+          result = await checkMinatoAvailability(
+            target.facilityId,
+            date,
+            timeSlot,
+            credentials,
+            existingReservations
+          );
+        }
+
+        // 空きが見つかった場合
+        if (result.currentStatus === '○') {
+          console.log(`[Alert] Available: ${date} ${timeSlot}`);
+
+          // 自動予約が有効な場合は予約を試みる
+          if (target.autoReserve) {
+            // 一時的にtargetの日付と時間帯を変更して予約
+            const tempTarget = { ...target, date, timeSlot };
+            await attemptReservation(tempTarget, env);
+          }
+        }
+      }
+    }
+
+    // 最適化された書き込み（ステータス変更時のみwrite）
+    await updateMonitoringTargetOptimized(target, 'checked', env.MONITORING);
+
   } catch (error) {
     console.error(`[Check] Error for target ${target.id}:`, error);
   }
+}
+
+async function checkReservationLimits(userId: string, env: Env): Promise<{ canReserve: boolean; reason?: string }> {
+  // ユーザー設定から上限を取得
+  const settingsData = await env.USERS.get(`settings:${userId}`);
+  if (!settingsData) {
+    return { canReserve: true }; // 設定がない場合は制限なし
+  }
+
+  const settings = JSON.parse(settingsData);
+  const limits = settings.reservationLimits;
+  if (!limits || (!limits.perWeek && !limits.perMonth)) {
+    return { canReserve: true }; // 上限設定がない場合は制限なし
+  }
+
+  // 予約履歴を取得（成功した予約のみ）
+  const userHistories = await env.RESERVATIONS.get(`history:${userId}`, 'json') as ReservationHistory[] || [];
+  const successfulReservations = userHistories.filter(h => h.status === 'success');
+
+  const now = Date.now();
+  const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const oneMonthAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+  // 週の予約数チェック
+  if (limits.perWeek) {
+    const weeklyCount = successfulReservations.filter(h => h.createdAt > oneWeekAgo).length;
+    if (weeklyCount >= limits.perWeek) {
+      return { canReserve: false, reason: `週の予約上限（${limits.perWeek}回）に達しています` };
+    }
+  }
+
+  // 月の予約数チェック
+  if (limits.perMonth) {
+    const monthlyCount = successfulReservations.filter(h => h.createdAt > oneMonthAgo).length;
+    if (monthlyCount >= limits.perMonth) {
+      return { canReserve: false, reason: `月の予約上限（${limits.perMonth}回）に達しています` };
+    }
+  }
+
+  return { canReserve: true };
 }
 
 async function attemptReservation(target: MonitoringTarget, env: Env): Promise<void> {
   console.log(`[Reserve] Attempting reservation for target ${target.id}`);
 
   try {
+    // 予約上限チェック
+    const limitCheck = await checkReservationLimits(target.userId, env);
+    if (!limitCheck.canReserve) {
+      console.log(`[Reserve] Skipped: ${limitCheck.reason}`);
+      return; // 監視は継続するが予約はスキップ
+    }
+
     // TODO: ユーザーの認証情報を取得
     const credentials = { username: 'user', password: 'pass' }; // 仮
 
@@ -499,7 +773,7 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       );
     }
 
-    // 履歴に保存
+    // 履歴に保存（配列管理）
     const history: ReservationHistory = {
       id: crypto.randomUUID(),
       userId: target.userId,
@@ -514,12 +788,21 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       createdAt: Date.now(),
     };
 
-    await env.RESERVATIONS.put(`history:${target.userId}:${history.id}`, JSON.stringify(history));
+    // ユーザーの予約履歴配列を取得して追加
+    const userHistories = await env.RESERVATIONS.get(`history:${target.userId}`, 'json') as ReservationHistory[] || [];
+    userHistories.push(history);
+    await env.RESERVATIONS.put(`history:${target.userId}`, JSON.stringify(userHistories));
 
-    // 成功した場合は監視を完了状態に
+    // 成功した場合は監視を完了状態に（配列管理）
     if (result.success) {
       target.status = 'completed';
-      await env.MONITORING.put(`target:${target.userId}:${target.id}`, JSON.stringify(target));
+      
+      const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+      const targetIndex = allTargets.findIndex((t: MonitoringTarget) => t.id === target.id);
+      if (targetIndex !== -1) {
+        allTargets[targetIndex] = target;
+        await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+      }
     }
 
     console.log(`[Reserve] Result: ${result.success ? 'SUCCESS' : 'FAILED'} - ${result.message}`);

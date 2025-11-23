@@ -111,8 +111,11 @@ class ApiClient {
     site: 'shinagawa' | 'minato';
     facilityId: string;
     facilityName: string;
-    date: string;
+    date?: string; // 単一日付（後方互換性）
+    startDate?: string; // 期間指定開始日
+    endDate?: string; // 期間指定終了日
     timeSlots: string[]; // 複数時間枠対応
+    priority?: number; // 優先度（1-5）
     autoReserve: boolean;
     reservationStrategy?: 'all' | 'priority';
     maxReservationsPerDay?: number;
@@ -154,11 +157,19 @@ class ApiClient {
     shinagawaPassword?: string;
     minatoUserId?: string;
     minatoPassword?: string;
+    reservationLimits?: {
+      perWeek?: number;
+      perMonth?: number;
+    };
   }) {
     // バックエンドの期待する形式に変換
     const payload: {
       shinagawa?: { username: string; password: string };
       minato?: { username: string; password: string };
+      reservationLimits?: {
+        perWeek?: number;
+        perMonth?: number;
+      };
     } = {};
     if (settings.shinagawaUserId && settings.shinagawaPassword) {
       payload.shinagawa = {
@@ -171,6 +182,9 @@ class ApiClient {
         username: settings.minatoUserId,
         password: settings.minatoPassword,
       };
+    }
+    if (settings.reservationLimits) {
+      payload.reservationLimits = settings.reservationLimits;
     }
     const response = await this.client.post('/api/settings', payload);
     return response.data;

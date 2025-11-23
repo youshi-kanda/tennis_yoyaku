@@ -469,50 +469,39 @@ export async function getShinagawaFacilities(
   kv: KVNamespace
 ): Promise<Facility[]> {
   try {
-    // KVキャッシュを確認（1時間有効）
-    const cachedData = await kv.get('facilities:shinagawa');
-    if (cachedData) {
-      console.log('[Facilities] Using cached data');
-      return JSON.parse(cachedData);
-    }
-
-    const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+    console.log('[Facilities] Returning pre-configured Shinagawa facilities');
     
-    // 施設一覧ページにアクセス
-    const response = await fetch(`${baseUrl}/rsvWOpeInstListAction.do`, {
-      method: 'GET',
-      headers: {
-        'Cookie': `JSESSIONID=${sessionId}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    // 品川区のサイトは施設IDの直接取得が困難なため、
+    // 既知の施設を返す（実際の予約時に空き状況ページから詳細情報を取得）
+    // 注: 実際のfacilityIdは品川区サイトから取得した値に置き換える必要がある
+    const facilities: Facility[] = [
+      {
+        facilityId: 'shinagawa_chuo_a', // しながわ中央公園 庭球場A
+        facilityName: 'しながわ中央公園 庭球場A',
+        category: 'tennis',
+        isTennisCourt: true,
       },
-    });
+      {
+        facilityId: 'shinagawa_chuo_b', // しながわ中央公園 庭球場B
+        facilityName: 'しながわ中央公園 庭球場B',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      {
+        facilityId: 'higashi_shinagawa_a', // 東品川公園 庭球場A
+        facilityName: '東品川公園 庭球場A',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+      {
+        facilityId: 'higashi_shinagawa_b', // 東品川公園 庭球場B
+        facilityName: '東品川公園 庭球場B',
+        category: 'tennis',
+        isTennisCourt: true,
+      },
+    ];
     
-    const html = await response.text();
-    
-    // HTMLから施設情報を抽出
-    const facilities: Facility[] = [];
-    
-    // 施設リンクのパターン: rsvWOpeInstMenuAction.do?instNo=XXX
-    // 施設名は<a>タグのテキスト
-    const facilityPattern = /rsvWOpeInstMenuAction\.do\?instNo=([^"']+)["'][^>]*>([^<]+)</g;
-    let match;
-    
-    while ((match = facilityPattern.exec(html)) !== null) {
-      const facilityId = match[1];
-      const facilityName = match[2].trim();
-      
-      // テニスコート判定（施設名に「テニス」が含まれる）
-      const isTennisCourt = facilityName.includes('テニス');
-      
-      facilities.push({
-        facilityId,
-        facilityName,
-        category: isTennisCourt ? 'tennis' : 'other',
-        isTennisCourt,
-      });
-    }
-    
-    console.log(`[Facilities] Found ${facilities.length} facilities (${facilities.filter(f => f.isTennisCourt).length} tennis courts)`);
+    console.log(`[Facilities] Facilities count: ${facilities.length}`);
     
     // KVにキャッシュ（1時間）
     await kv.put('facilities:shinagawa', JSON.stringify(facilities), {
@@ -520,6 +509,38 @@ export async function getShinagawaFacilities(
     });
     
     return facilities;
+    
+    /* 以下はコメントアウト - 施設一覧ページへの直接アクセスはエラーになる
+    const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+    
+    // まずホームページにアクセス（セッションを初期化）
+    console.log('[Facilities] Accessing home page...');
+    const homeResponse = await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
+      method: 'GET',
+      headers: {
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    });
+    
+    if (homeResponse.status !== 200) {
+      console.error('[Facilities] Home page access failed:', homeResponse.status);
+      return [];
+    }
+    
+    console.log('[Facilities] Accessing facility list page...');
+    
+    // 施設一覧トップページにアクセス
+    const instListResponse = await fetch(`${baseUrl}/rsvWTransInstListAction.do`, {
+      method: 'GET',
+      headers: {
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    });
+    
+    const response = instListResponse;
+    */
   } catch (error) {
     console.error('[Facilities] Error fetching facilities:', error);
     return [];

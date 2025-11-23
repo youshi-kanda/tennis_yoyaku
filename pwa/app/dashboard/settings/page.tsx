@@ -21,6 +21,11 @@ export default function SettingsPage() {
     password: '',
   });
 
+  const [reservationLimits, setReservationLimits] = useState({
+    perWeek: 0,  // 0 = 制限なし
+    perMonth: 0, // 0 = 制限なし
+  });
+
   // 保存済みの設定を読み込む
   useEffect(() => {
     const loadSettings = async () => {
@@ -37,6 +42,12 @@ export default function SettingsPage() {
             setMinatoCredentials({
               username: response.data.minato.username || '',
               password: response.data.minato.password || '', // 保存済みパスワードを読み込み（マスク表示）
+            });
+          }
+          if (response.data.reservationLimits) {
+            setReservationLimits({
+              perWeek: response.data.reservationLimits.perWeek || 0,
+              perMonth: response.data.reservationLimits.perMonth || 0,
             });
           }
         }
@@ -83,6 +94,21 @@ export default function SettingsPage() {
         minatoPassword: minatoCredentials.password,
       });
       alert('港区のログイン情報を保存しました');
+    } catch (err) {
+      console.error('Save error:', err);
+      alert('保存に失敗しました');
+    }
+  };
+
+  const handleSaveReservationLimits = async () => {
+    try {
+      await apiClient.saveSettings({
+        reservationLimits: {
+          perWeek: reservationLimits.perWeek > 0 ? reservationLimits.perWeek : undefined,
+          perMonth: reservationLimits.perMonth > 0 ? reservationLimits.perMonth : undefined,
+        },
+      });
+      alert('予約上限設定を保存しました');
     } catch (err) {
       console.error('Save error:', err);
       alert('保存に失敗しました');
@@ -228,6 +254,79 @@ export default function SettingsPage() {
             <p className="text-xs text-gray-500 mt-2">
               ※ 自動予約を有効にするには、港区予約サイトのログイン情報が必要です
             </p>
+          </div>
+        </div>
+
+        {/* 予約上限設定 */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">予約上限設定</h2>
+          <div className="space-y-4">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+              <p className="text-sm text-blue-800">
+                💡 予約しすぎを防ぐために、週・月の予約回数に上限を設定できます。
+                上限に達した場合、監視は継続しますが自動予約は停止します。
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                週あたりの予約上限
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  value={reservationLimits.perWeek}
+                  onChange={(e) => setReservationLimits({ ...reservationLimits, perWeek: parseInt(e.target.value) || 0 })}
+                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
+                <span className="text-sm text-gray-600">
+                  回 / 週 {reservationLimits.perWeek === 0 && '（制限なし）'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                0に設定すると制限なし。例: 週2回までなら「2」と入力
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                月あたりの予約上限
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  value={reservationLimits.perMonth}
+                  onChange={(e) => setReservationLimits({ ...reservationLimits, perMonth: parseInt(e.target.value) || 0 })}
+                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
+                <span className="text-sm text-gray-600">
+                  回 / 月 {reservationLimits.perMonth === 0 && '（制限なし）'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                0に設定すると制限なし。例: 月8回までなら「8」と入力
+              </p>
+            </div>
+
+            <button
+              onClick={handleSaveReservationLimits}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
+            >
+              予約上限を保存
+            </button>
+
+            {(reservationLimits.perWeek > 0 || reservationLimits.perMonth > 0) && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <p className="text-sm text-emerald-800 font-medium">
+                  ✓ 設定中: 
+                  {reservationLimits.perWeek > 0 && ` 週${reservationLimits.perWeek}回まで`}
+                  {reservationLimits.perWeek > 0 && reservationLimits.perMonth > 0 && ' / '}
+                  {reservationLimits.perMonth > 0 && ` 月${reservationLimits.perMonth}回まで`}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

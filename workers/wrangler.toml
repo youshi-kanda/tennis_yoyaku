@@ -19,9 +19,9 @@ id = "5a8f67abf49546b58f6113e18a5b2443"
 binding = "RESERVATIONS"
 id = "6e26433ee30b4ad0bc0a8749a67038be"
 
-# Cron Triggers (60秒間隔で監視)
+# Cron Triggers (最適化後 - 5分間隔)
 [triggers]
-crons = ["*/1 * * * *"]
+crons = ["*/5 * * * *"]
 
 # Environment variables
 [vars]

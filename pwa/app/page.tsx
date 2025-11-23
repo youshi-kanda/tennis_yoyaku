@@ -4,6 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useLogin } from '@/lib/hooks/useAuth';
 
+// 動的レンダリングを強制
+export const dynamic = 'force-dynamic';
+
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

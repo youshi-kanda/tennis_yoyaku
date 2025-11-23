@@ -219,6 +219,10 @@ export default {
         return handleMonitoringCreate(request, env);
       }
 
+      if (path.startsWith('/api/monitoring/') && request.method === 'DELETE') {
+        return handleMonitoringDelete(request, env, path);
+      }
+
       if (path === '/api/reservations/history') {
         return handleReservationHistory(request, env);
       }
@@ -509,6 +513,54 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       data: target,
     });
   } catch (error: any) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleMonitoringDelete(request: Request, env: Env, path: string): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    // パスから監視IDを取得 (/api/monitoring/:id)
+    const parts = path.split('/');
+    const targetId = parts[parts.length - 1];
+
+    if (!targetId) {
+      return jsonResponse({ error: 'Target ID is required' }, 400);
+    }
+
+    // 既存の監視リストを取得
+    kvMetrics.reads++;
+    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+
+    // 指定されたIDの監視を探す
+    const targetIndex = allTargets.findIndex(t => t.id === targetId && t.userId === userId);
+
+    if (targetIndex === -1) {
+      return jsonResponse({ error: 'Monitoring target not found or unauthorized' }, 404);
+    }
+
+    // 監視を削除
+    const deletedTarget = allTargets.splice(targetIndex, 1)[0];
+
+    // KVに保存
+    kvMetrics.writes++;
+    await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+
+    // 監視リストキャッシュを無効化
+    monitoringListCache.data = null;
+    monitoringListCache.expires = 0;
+
+    console.log(`[MonitoringDelete] Deleted monitoring: ${deletedTarget.facilityName} for user ${userId}`);
+
+    return jsonResponse({
+      success: true,
+      message: 'Monitoring target deleted successfully',
+      data: deletedTarget,
+    });
+  } catch (error: any) {
+    console.error('[MonitoringDelete] Error:', error);
     return jsonResponse({ error: error.message }, 500);
   }
 }

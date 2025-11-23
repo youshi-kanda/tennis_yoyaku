@@ -21,6 +21,7 @@ export default function MonitoringPage() {
   const [status, setStatus] = useState<MonitoringStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [monitoringTargets, setMonitoringTargets] = useState<any[]>([]);
 
   // 時間帯の定義
   const TIME_SLOTS = [
@@ -198,6 +199,8 @@ export default function MonitoringPage() {
       if (response.success && response.data && response.data.length > 0) {
         // 既存の監視がある場合はステータス表示
         const activeTargets = response.data.filter((t: { status: string }) => t.status === 'active');
+        setMonitoringTargets(activeTargets);
+        
         if (activeTargets.length > 0) {
           const hasShinagawa = activeTargets.some((t: { site: string }) => t.site === 'shinagawa');
           const hasMinato = activeTargets.some((t: { site: string }) => t.site === 'minato');
@@ -215,7 +218,12 @@ export default function MonitoringPage() {
             reservationStrategy: oldestTarget.reservationStrategy,
             facilitiesCount: activeTargets.length,
           });
+        } else {
+          setStatus(null);
         }
+      } else {
+        setMonitoringTargets([]);
+        setStatus(null);
       }
     } catch (err) {
       console.error('Failed to load status:', err);
@@ -307,7 +315,28 @@ export default function MonitoringPage() {
       const siteNames = [];
       if (hasShinagawa) siteNames.push('品川区');
       if (hasMinato) siteNames.push('港区');
-      alert(`${siteNames.join('・')}の${totalFacilities}施設の監視を開始しました`);
+      
+      // 監視リストを再ロード
+      await loadStatus();
+      
+      // フォームをリセット
+      setConfig({
+        ...config,
+        selectedFacilities: [],
+        dateMode: 'range',
+        startDate: (() => {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          return tomorrow.toISOString().split('T')[0];
+        })(),
+        endDate: (() => {
+          const weekLater = new Date();
+          weekLater.setDate(weekLater.getDate() + 8);
+          return weekLater.toISOString().split('T')[0];
+        })(),
+      });
+      
+      alert(`${siteNames.join('・')}の${totalFacilities}施設の監視を追加しました`);
       
     } catch (err: any) {
       console.error('Start monitoring error:', err);
@@ -439,20 +468,95 @@ export default function MonitoringPage() {
             disabled={isLoading}
             className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? '停止中...' : '監視を停止'}
+            {isLoading ? '停止中...' : 'すべての監視を停止'}
           </button>
         </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="text-center mb-6">
-            <div className="text-6xl mb-4">🎾</div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">監視を開始しましょう</h2>
-            <p className="text-gray-600">
-              下記の設定で全施設の空き枠を自動監視・予約します
-            </p>
-          </div>
+      ) : null}
 
-          <div className="space-y-4 mb-6">
+      {/* 監視中のターゲット一覧 */}
+      {monitoringTargets.length > 0 && (
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">監視中の設定（{monitoringTargets.length}件）</h3>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {monitoringTargets.map((target: any) => (
+              <div key={target.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        target.site === 'shinagawa' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {target.site === 'shinagawa' ? '品川区' : '港区'}
+                      </span>
+                      <span className="font-semibold text-gray-900">{target.facilityName}</span>
+                      {target.priority && (
+                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
+                          優先度: {target.priority}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div>
+                        📅 {target.startDate && target.endDate 
+                          ? `${target.startDate} 〜 ${target.endDate}` 
+                          : target.date || '継続監視'}
+                      </div>
+                      {target.timeSlots && target.timeSlots.length > 0 && (
+                        <div>
+                          🕐 {target.timeSlots.length === 6 ? '全時間帯' : `${target.timeSlots.length}時間帯`}
+                        </div>
+                      )}
+                      {target.selectedWeekdays && target.selectedWeekdays.length > 0 && (
+                        <div>
+                          📆 {target.selectedWeekdays.length === 7 ? '毎日' : 
+                            target.selectedWeekdays.map((d: number) => ['日','月','火','水','木','金','土'][d]).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (confirm(`${target.facilityName}の監視を削除しますか？`)) {
+                        try {
+                          setIsLoading(true);
+                          await apiClient.deleteMonitoring(target.id);
+                          await loadStatus();
+                          alert('監視を削除しました');
+                        } catch (err) {
+                          console.error('Delete monitoring error:', err);
+                          setError('監視の削除に失敗しました');
+                        } finally {
+                          setIsLoading(false);
+                        }
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition disabled:opacity-50"
+                  >
+                    削除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 監視追加フォーム */}
+      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="text-center mb-6">
+          <div className="text-6xl mb-4">🎾</div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">
+            {monitoringTargets.length > 0 ? '新しい監視を追加' : '監視を開始しましょう'}
+          </h2>
+          <p className="text-gray-600">
+            {monitoringTargets.length > 0 
+              ? '異なる条件で複数の監視を設定できます（例: 平日夜、土日全日）' 
+              : '下記の設定で全施設の空き枠を自動監視・予約します'}
+          </p>
+        </div>
+
+        <div className="space-y-4 mb-6">
             {/* 施設選択（複数選択可） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -1000,10 +1104,11 @@ export default function MonitoringPage() {
               </p>
             </div>
           </div>
+        </div>
 
-          <button
-            onClick={handleStart}
-            disabled={isLoading}
+        <button
+          onClick={handleStart}
+          disabled={isLoading}
             className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isLoading ? (
@@ -1014,18 +1119,15 @@ export default function MonitoringPage() {
             ) : (
               <>
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
-                全施設の監視を開始
+                {monitoringTargets.length > 0 ? '監視を追加' : '監視を開始'}
               </>
             )}
           </button>
-        </div>
-      )}
 
       {/* 説明セクション */}
-      <div className="bg-blue-50 rounded-lg p-6">
+      <div className="bg-blue-50 rounded-lg p-6 mb-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-3">自動監視の仕組み</h3>
         <ul className="space-y-2 text-sm text-blue-800">
           <li className="flex items-start gap-2">

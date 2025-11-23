@@ -163,31 +163,8 @@ class ApiClient {
       perMonth?: number;
     };
   }) {
-    // バックエンドの期待する形式に変換
-    const payload: {
-      shinagawa?: { username: string; password: string };
-      minato?: { username: string; password: string };
-      reservationLimits?: {
-        perWeek?: number;
-        perMonth?: number;
-      };
-    } = {};
-    if (settings.shinagawaUserId && settings.shinagawaPassword) {
-      payload.shinagawa = {
-        username: settings.shinagawaUserId,
-        password: settings.shinagawaPassword,
-      };
-    }
-    if (settings.minatoUserId && settings.minatoPassword) {
-      payload.minato = {
-        username: settings.minatoUserId,
-        password: settings.minatoPassword,
-      };
-    }
-    if (settings.reservationLimits) {
-      payload.reservationLimits = settings.reservationLimits;
-    }
-    const response = await this.client.post('/api/settings', payload);
+    // バックエンドの新形式に合わせて送信（既存設定とマージされる）
+    const response = await this.client.post('/api/settings', settings);
     return response.data;
   }
 

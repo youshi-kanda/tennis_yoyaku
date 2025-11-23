@@ -612,15 +612,47 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     const userId = payload.userId;
 
     const body = await request.json() as {
-      shinagawa?: { username: string; password: string };
-      minato?: { username: string; password: string };
+      shinagawaUserId?: string;
+      shinagawaPassword?: string;
+      minatoUserId?: string;
+      minatoPassword?: string;
       reservationLimits?: {
         perWeek?: number;  // 週あたりの予約上限
         perMonth?: number; // 月あたりの予約上限
       };
     };
 
-    await env.USERS.put(`settings:${userId}`, JSON.stringify(body));
+    // 既存の設定を取得（マージするため）
+    kvMetrics.reads++;
+    const existingSettingsData = await env.USERS.get(`settings:${userId}`);
+    const existingSettings = existingSettingsData ? JSON.parse(existingSettingsData) : {};
+
+    // 新しい設定を既存の設定にマージ
+    const updatedSettings: any = { ...existingSettings };
+
+    // 品川区の設定を更新（指定された場合のみ）
+    if (body.shinagawaUserId !== undefined || body.shinagawaPassword !== undefined) {
+      updatedSettings.shinagawa = {
+        username: body.shinagawaUserId || existingSettings.shinagawa?.username || '',
+        password: body.shinagawaPassword || existingSettings.shinagawa?.password || '',
+      };
+    }
+
+    // 港区の設定を更新（指定された場合のみ）
+    if (body.minatoUserId !== undefined || body.minatoPassword !== undefined) {
+      updatedSettings.minato = {
+        username: body.minatoUserId || existingSettings.minato?.username || '',
+        password: body.minatoPassword || existingSettings.minato?.password || '',
+      };
+    }
+
+    // 予約上限の設定を更新（指定された場合のみ）
+    if (body.reservationLimits !== undefined) {
+      updatedSettings.reservationLimits = body.reservationLimits;
+    }
+
+    kvMetrics.writes++;
+    await env.USERS.put(`settings:${userId}`, JSON.stringify(updatedSettings));
 
     return jsonResponse({ success: true, message: 'Settings saved successfully' });
   } catch (error: any) {

@@ -73,6 +73,7 @@ export interface MonitoringTarget {
   endDate?: string; // 期間指定終了日（新規）
   timeSlot: string; // 後方互換性のため残す（非推奨）
   timeSlots?: string[]; // 複数時間帯対応（新規）
+  selectedWeekdays?: number[]; // 監視する曜日（0=日, 1=月, ..., 6=土）デフォルトは全曜日
   priority?: number; // 優先度（1-5、5が最優先）デフォルトは3
   status: 'active' | 'pending' | 'completed' | 'failed';
   autoReserve: boolean;
@@ -647,11 +648,27 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
       const start = new Date(target.startDate);
       const end = new Date(target.endDate);
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        datesToCheck.push(d.toISOString().split('T')[0]);
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // 曜日フィルタリング
+        if (target.selectedWeekdays && target.selectedWeekdays.length > 0) {
+          const dayOfWeek = d.getDay(); // 0=日, 1=月, ..., 6=土
+          if (!target.selectedWeekdays.includes(dayOfWeek)) {
+            continue; // 選択されていない曜日はスキップ
+          }
+        }
+        
+        datesToCheck.push(dateStr);
       }
     } else {
       // 単一日付の場合
-      datesToCheck.push(target.date);
+      const d = new Date(target.date);
+      const dayOfWeek = d.getDay();
+      
+      // 曜日フィルタリング
+      if (!target.selectedWeekdays || target.selectedWeekdays.length === 0 || target.selectedWeekdays.includes(dayOfWeek)) {
+        datesToCheck.push(target.date);
+      }
     }
 
     // チェックする時間帯のリスト

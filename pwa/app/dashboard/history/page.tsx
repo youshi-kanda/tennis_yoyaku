@@ -18,6 +18,8 @@ export default function HistoryPage() {
   const [history, setHistory] = useState<ReservationHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'success' | 'failed'>('all');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
 
   useEffect(() => {
     loadHistory();
@@ -68,14 +70,66 @@ export default function HistoryPage() {
     return new Date(timestamp).toLocaleString('ja-JP');
   };
 
+  // カレンダー用のデータ生成
+  const getCalendarData = () => {
+    const year = selectedMonth.getFullYear();
+    const month = selectedMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startDayOfWeek = firstDay.getDay();
+
+    const calendar: Array<{ date: number; reservations: ReservationHistory[] }> = [];
+    
+    // 空白を埋める
+    for (let i = 0; i < startDayOfWeek; i++) {
+      calendar.push({ date: 0, reservations: [] });
+    }
+
+    // 日付と予約を紐付け
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dayReservations = filteredHistory.filter(h => h.date === dateStr);
+      calendar.push({ date: day, reservations: dayReservations });
+    }
+
+    return calendar;
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* ヘッダー */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">予約履歴</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          過去の予約履歴を確認できます
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">予約履歴</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            過去の予約履歴を確認できます
+          </p>
+        </div>
+        
+        {/* 表示モード切り替え */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`px-4 py-2 rounded-lg font-medium transition ${
+              viewMode === 'list'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            📋 リスト
+          </button>
+          <button
+            onClick={() => setViewMode('calendar')}
+            className={`px-4 py-2 rounded-lg font-medium transition ${
+              viewMode === 'calendar'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            📅 カレンダー
+          </button>
+        </div>
       </div>
 
       {/* フィルター */}
@@ -112,19 +166,106 @@ export default function HistoryPage() {
         </button>
       </div>
 
+      {/* カレンダー表示 */}
+      {viewMode === 'calendar' && !isLoading && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          {/* 月切り替え */}
+          <div className="flex items-center justify-between mb-6">
+            <button
+              onClick={() => setSelectedMonth(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1))}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+            >
+              ← 前月
+            </button>
+            <h2 className="text-xl font-bold text-gray-900">
+              {selectedMonth.getFullYear()}年 {selectedMonth.getMonth() + 1}月
+            </h2>
+            <button
+              onClick={() => setSelectedMonth(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1))}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+            >
+              次月 →
+            </button>
+          </div>
+
+          {/* 曜日ヘッダー */}
+          <div className="grid grid-cols-7 gap-2 mb-2">
+            {['日', '月', '火', '水', '木', '金', '土'].map((day, i) => (
+              <div key={i} className={`text-center font-bold text-sm py-2 ${i === 0 ? 'text-red-600' : i === 6 ? 'text-blue-600' : 'text-gray-700'}`}>
+                {day}
+              </div>
+            ))}
+          </div>
+
+          {/* カレンダーグリッド */}
+          <div className="grid grid-cols-7 gap-2">
+            {getCalendarData().map((day, index) => (
+              <div
+                key={index}
+                className={`min-h-[80px] p-2 rounded-lg border ${
+                  day.date === 0
+                    ? 'bg-gray-50'
+                    : day.reservations.length > 0
+                    ? 'bg-emerald-50 border-emerald-300'
+                    : 'bg-white border-gray-200'
+                }`}
+              >
+                {day.date > 0 && (
+                  <>
+                    <div className="text-sm font-semibold text-gray-900 mb-1">{day.date}</div>
+                    {day.reservations.length > 0 && (
+                      <div className="space-y-1">
+                        {day.reservations.map((res) => (
+                          <div
+                            key={res.id}
+                            className={`text-xs px-1 py-0.5 rounded ${
+                              res.status === 'success'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                            title={`${res.facilityName} ${res.timeSlot}`}
+                          >
+                            {res.status === 'success' ? '✓' : '✗'} {res.timeSlot.substring(0, 5)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex items-center gap-4 text-sm text-gray-600">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-emerald-50 border border-emerald-300 rounded"></div>
+              <span>予約あり</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-green-100 rounded"></div>
+              <span>成功</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-red-100 rounded"></div>
+              <span>失敗</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 履歴リスト */}
       {isLoading ? (
         <div className="text-center py-12">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
           <p className="text-gray-600 mt-2">読み込み中...</p>
         </div>
-      ) : filteredHistory.length === 0 ? (
+      ) : viewMode === 'list' && filteredHistory.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-12 text-center">
           <div className="text-6xl mb-4">📋</div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">履歴がありません</h3>
           <p className="text-gray-600">予約が実行されると履歴が表示されます</p>
         </div>
-      ) : (
+      ) : viewMode === 'list' && (
         <div className="space-y-4">
           {filteredHistory.map((item) => (
             <div key={item.id} className="bg-white rounded-lg shadow p-4 hover:shadow-md transition">

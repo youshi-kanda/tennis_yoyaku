@@ -32,13 +32,34 @@ export default function MonitoringPage() {
     { id: '19:00-21:00', label: '19:00-21:00（夜間）' },
   ];
 
-  // 施設リスト
+  // 曜日の定義
+  const WEEKDAYS = [
+    { id: 0, label: '日', fullLabel: '日曜日' },
+    { id: 1, label: '月', fullLabel: '月曜日' },
+    { id: 2, label: '火', fullLabel: '火曜日' },
+    { id: 3, label: '水', fullLabel: '水曜日' },
+    { id: 4, label: '木', fullLabel: '木曜日' },
+    { id: 5, label: '金', fullLabel: '金曜日' },
+    { id: 6, label: '土', fullLabel: '土曜日' },
+  ];
+
+  // 施設リスト（ハードコードで初期表示、API取得で上書き）
   const [facilities, setFacilities] = useState<{
     shinagawa: Array<{ id: string; name: string }>;
     minato: Array<{ id: string; name: string }>;
   }>({
-    shinagawa: [],
-    minato: [],
+    shinagawa: [
+      { id: 'higashishinagawa', name: '東品川公園' },
+      { id: 'yashio', name: '八潮公園' },
+      { id: 'omorikita', name: '大森北公園' },
+      { id: 'oirinkai', name: '大井ふ頭中央海浜公園' },
+      { id: 'nishioi', name: '西大井公園' },
+    ],
+    minato: [
+      { id: 'shibaura', name: '芝浦中央公園' },
+      { id: 'odaiba', name: 'お台場海浜公園' },
+      { id: 'aoyama', name: '青山公園' },
+    ],
   });
 
   // 設定フォーム
@@ -59,6 +80,7 @@ export default function MonitoringPage() {
       weekLater.setDate(weekLater.getDate() + 8);
       return weekLater.toISOString().split('T')[0];
     })(),
+    selectedWeekdays: [0, 1, 2, 3, 4, 5, 6] as number[], // 曜日指定（デフォルトは全曜日）
     priority: 3, // 優先度（1-5、5が最優先）デフォルトは3
     reservationStrategy: 'priority' as 'all' | 'priority',
     timeSlots: TIME_SLOTS.map(t => t.id), // デフォルトは全時間帯
@@ -76,12 +98,16 @@ export default function MonitoringPage() {
         apiClient.getMinatoFacilities(),
       ]);
 
-      setFacilities({
-        shinagawa: shinagawaRes.success ? shinagawaRes.data : [],
-        minato: minatoRes.success ? minatoRes.data : [],
-      });
+      // API取得成功時のみ上書き
+      if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
+        setFacilities(prev => ({ ...prev, shinagawa: shinagawaRes.data }));
+      }
+      if (minatoRes.success && minatoRes.data?.length > 0) {
+        setFacilities(prev => ({ ...prev, minato: minatoRes.data }));
+      }
     } catch (err) {
-      console.error('Failed to load facilities:', err);
+      console.log('Using default facilities (API call failed):', err);
+      // エラー時はハードコードされた施設リストをそのまま使用
     }
   };
 
@@ -143,6 +169,7 @@ export default function MonitoringPage() {
           startDate?: string;
           endDate?: string;
           timeSlots: string[];
+          selectedWeekdays?: number[];
           priority?: number;
           autoReserve: boolean;
           reservationStrategy: 'all' | 'priority';
@@ -151,6 +178,7 @@ export default function MonitoringPage() {
           facilityId: facility.id,
           facilityName: facility.name,
           timeSlots: config.timeSlots,
+          selectedWeekdays: config.selectedWeekdays,
           autoReserve: true,
           reservationStrategy: config.reservationStrategy,
         };
@@ -704,7 +732,81 @@ export default function MonitoringPage() {
               </div>
 
               <p className="text-xs text-gray-600 mt-2">
-                ℹ️ 複数の空き枠が見つかった場合、優先度が高い監視から順に予約されます。重要な予定は優先度を上げておくと確実です。
+                ℹ️ 複数の空きが見つかった場合、優先度が高い監視から順に予約されます。重要度が高い施設ほど優先度を上げてください。
+              </p>
+            </div>
+
+            {/* 曜日指定 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                監視する曜日（複数選択可）
+              </label>
+              
+              {/* プリセットボタン */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, selectedWeekdays: [0, 1, 2, 3, 4, 5, 6] })}
+                  className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
+                >
+                  全て選択
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, selectedWeekdays: [1, 2, 3, 4, 5] })}
+                  className="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
+                >
+                  平日のみ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, selectedWeekdays: [0, 6] })}
+                  className="px-3 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg transition"
+                >
+                  週末のみ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, selectedWeekdays: [] })}
+                  className="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition"
+                >
+                  選択解除
+                </button>
+              </div>
+
+              {/* 曜日チェックボックス */}
+              <div className="grid grid-cols-7 gap-2">
+                {WEEKDAYS.map((weekday) => (
+                  <label
+                    key={weekday.id}
+                    className={`flex flex-col items-center justify-center p-3 border rounded-lg cursor-pointer transition ${
+                      config.selectedWeekdays.includes(weekday.id)
+                        ? 'bg-emerald-50 border-emerald-500 shadow-sm'
+                        : 'border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={config.selectedWeekdays.includes(weekday.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setConfig({ ...config, selectedWeekdays: [...config.selectedWeekdays, weekday.id].sort() });
+                        } else {
+                          setConfig({ ...config, selectedWeekdays: config.selectedWeekdays.filter(d => d !== weekday.id) });
+                        }
+                      }}
+                      className="sr-only"
+                    />
+                    <span className={`text-lg font-bold ${
+                      config.selectedWeekdays.includes(weekday.id) ? 'text-emerald-600' : 'text-gray-600'
+                    }`}>
+                      {weekday.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                ※ 選択した曜日のみ監視します（{config.selectedWeekdays.length}曜日選択中）
               </p>
             </div>
 

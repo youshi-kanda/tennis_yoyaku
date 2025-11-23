@@ -115,6 +115,7 @@ class ApiClient {
     startDate?: string; // 期間指定開始日
     endDate?: string; // 期間指定終了日
     timeSlots: string[]; // 複数時間枠対応
+    selectedWeekdays?: number[]; // 監視する曜日（0=日, 1=月, ..., 6=土）
     priority?: number; // 優先度（1-5）
     autoReserve: boolean;
     reservationStrategy?: 'all' | 'priority';

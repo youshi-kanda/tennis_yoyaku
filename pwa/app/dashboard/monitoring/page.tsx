@@ -93,6 +93,7 @@ export default function MonitoringPage() {
     })(),
     selectedWeekdays: [0, 1, 2, 3, 4, 5, 6] as number[], // 曜日指定（デフォルトは全曜日）
     priority: 3, // 優先度（1-5、5が最優先）デフォルトは3
+    includeHolidays: true as boolean | 'only', // 祝日の扱い（true=含める, false=除外, 'only'=祝日のみ）
     reservationStrategy: 'priority' as 'all' | 'priority',
     timeSlots: TIME_SLOTS.map(t => t.id), // デフォルトは全時間帯
   });
@@ -260,6 +261,7 @@ export default function MonitoringPage() {
           timeSlots: string[];
           selectedWeekdays?: number[];
           priority?: number;
+          includeHolidays?: boolean | 'only';
           autoReserve: boolean;
           reservationStrategy: 'all' | 'priority';
         } = {
@@ -290,6 +292,9 @@ export default function MonitoringPage() {
 
         // 優先度を設定
         monitoringData.priority = config.priority;
+
+        // 祝日設定を追加
+        monitoringData.includeHolidays = config.includeHolidays;
 
         return apiClient.createMonitoring(monitoringData);
       });
@@ -510,6 +515,12 @@ export default function MonitoringPage() {
                         <div>
                           📆 {target.selectedWeekdays.length === 7 ? '毎日' : 
                             target.selectedWeekdays.map((d: number) => ['日','月','火','水','木','金','土'][d]).join(', ')}
+                        </div>
+                      )}
+                      {target.includeHolidays !== undefined && (
+                        <div>
+                          🎌 {target.includeHolidays === 'only' ? '祝日のみ' : 
+                              target.includeHolidays === true ? '祝日を含む' : '祝日を除外'}
                         </div>
                       )}
                     </div>
@@ -1081,6 +1092,111 @@ export default function MonitoringPage() {
               </div>
               <p className="text-xs text-gray-600 mt-2">
                 ※ 選択した曜日のみ監視します（{config.selectedWeekdays.length}曜日選択中）
+              </p>
+            </div>
+
+            {/* 祝日設定 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                祝日の扱い
+              </label>
+              
+              {/* プリセットボタン */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfig({ 
+                      ...config, 
+                      selectedWeekdays: [1, 2, 3, 4, 5],
+                      includeHolidays: false 
+                    });
+                  }}
+                  className="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
+                >
+                  平日のみ（祝日除く）
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfig({ 
+                      ...config, 
+                      selectedWeekdays: [0, 6],
+                      includeHolidays: true 
+                    });
+                  }}
+                  className="px-3 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg transition"
+                >
+                  週末＋祝日
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfig({ 
+                      ...config, 
+                      selectedWeekdays: [0, 1, 2, 3, 4, 5, 6],
+                      includeHolidays: 'only' 
+                    });
+                  }}
+                  className="px-3 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition"
+                >
+                  祝日のみ
+                </button>
+              </div>
+
+              {/* ラジオボタン */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                  <input
+                    type="radio"
+                    name="includeHolidays"
+                    checked={config.includeHolidays === true}
+                    onChange={() => setConfig({ ...config, includeHolidays: true })}
+                    className="w-4 h-4 text-emerald-600 focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">祝日を含める</div>
+                    <div className="text-xs text-gray-600 mt-0.5">
+                      選択した曜日に加えて、祝日も監視します（例: 平日+祝日、週末+祝日）
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                  <input
+                    type="radio"
+                    name="includeHolidays"
+                    checked={config.includeHolidays === false}
+                    onChange={() => setConfig({ ...config, includeHolidays: false })}
+                    className="w-4 h-4 text-emerald-600 focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">祝日を除外</div>
+                    <div className="text-xs text-gray-600 mt-0.5">
+                      祝日は監視しません（例: 平日のみ、週末のみ）
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                  <input
+                    type="radio"
+                    name="includeHolidays"
+                    checked={config.includeHolidays === 'only'}
+                    onChange={() => setConfig({ ...config, includeHolidays: 'only' })}
+                    className="w-4 h-4 text-emerald-600 focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">祝日のみ</div>
+                    <div className="text-xs text-gray-600 mt-0.5">
+                      祝日だけを監視します（曜日設定は無視されます）
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <p className="text-xs text-gray-600 mt-2">
+                ℹ️ 日本の国民の祝日（振替休日・国民の休日を含む）を自動判定します
               </p>
             </div>
 

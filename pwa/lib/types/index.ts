@@ -47,6 +47,7 @@ export interface MonitoringTarget {
   date: string;
   timeSlots: string[];
   priority: number;
+  includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
   status: 'monitoring' | 'detected' | 'reserved' | 'failed';
   createdAt: number;
   updatedAt: number;

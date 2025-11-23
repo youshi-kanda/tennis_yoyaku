@@ -12,6 +12,7 @@ import {
   type ReservationHistory,
 } from './scraper';
 import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './reservationPeriod';
+import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
 
 // ===== メモリキャッシュ（KV使用量削減のため） =====
 interface SessionCacheEntry {
@@ -76,6 +77,7 @@ export interface MonitoringTarget {
   timeSlots?: string[]; // 複数時間帯対応（新規）
   selectedWeekdays?: number[]; // 監視する曜日（0=日, 1=月, ..., 6=土）デフォルトは全曜日
   priority?: number; // 優先度（1-5、5が最優先）デフォルトは3
+  includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
   status: 'active' | 'pending' | 'completed' | 'failed';
   autoReserve: boolean;
   lastCheck?: number;
@@ -768,6 +770,16 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
     const settings = JSON.parse(settingsData);
     const credentials = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
 
+    // 年ごとの祝日キャッシュを準備
+    const holidaysCacheByYear = new Map<number, HolidayInfo[]>();
+    const getHolidaysForDate = (dateStr: string): HolidayInfo[] => {
+      const year = new Date(dateStr).getFullYear();
+      if (!holidaysCacheByYear.has(year)) {
+        holidaysCacheByYear.set(year, getHolidaysForYear(year));
+      }
+      return holidaysCacheByYear.get(year)!;
+    };
+
     // チェックする日付のリストを生成
     const datesToCheck: string[] = [];
     if (target.startDate && target.endDate) {
@@ -777,11 +789,34 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split('T')[0];
         
-        // 曜日フィルタリング
-        if (target.selectedWeekdays && target.selectedWeekdays.length > 0) {
-          const dayOfWeek = d.getDay(); // 0=日, 1=月, ..., 6=土
-          if (!target.selectedWeekdays.includes(dayOfWeek)) {
-            continue; // 選択されていない曜日はスキップ
+        // 祝日判定
+        const holidaysCache = getHolidaysForDate(dateStr);
+        const isHolidayDate = isHoliday(dateStr, holidaysCache);
+        
+        // 祝日フィルタリング
+        if (target.includeHolidays === 'only') {
+          // 祝日のみ監視
+          if (!isHolidayDate) {
+            console.log(`[Check] Skip ${dateStr}: not a holiday (includeHolidays=only)`);
+            continue;
+          }
+        } else if (target.includeHolidays === false) {
+          // 祝日を除外
+          if (isHolidayDate) {
+            console.log(`[Check] Skip ${dateStr}: holiday excluded (includeHolidays=false)`);
+            continue;
+          }
+        }
+        // includeHolidays === true の場合は祝日も含める（何もしない）
+        
+        // 曜日フィルタリング（祝日のみモードでは不要）
+        if (target.includeHolidays !== 'only') {
+          if (target.selectedWeekdays && target.selectedWeekdays.length > 0) {
+            const dayOfWeek = d.getDay(); // 0=日, 1=月, ..., 6=土
+            if (!target.selectedWeekdays.includes(dayOfWeek)) {
+              console.log(`[Check] Skip ${dateStr}: weekday ${dayOfWeek} not selected`);
+              continue; // 選択されていない曜日はスキップ
+            }
           }
         }
         
@@ -789,14 +824,42 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
       }
     } else {
       // 単一日付の場合
-      const d = new Date(target.date);
-      const dayOfWeek = d.getDay();
+      const dateStr = target.date;
+      const d = new Date(dateStr);
       
-      // 曜日フィルタリング
-      if (!target.selectedWeekdays || target.selectedWeekdays.length === 0 || target.selectedWeekdays.includes(dayOfWeek)) {
-        datesToCheck.push(target.date);
+      // 祝日判定
+      const holidaysCache = getHolidaysForDate(dateStr);
+      const isHolidayDate = isHoliday(dateStr, holidaysCache);
+      
+      // 祝日フィルタリング
+      let shouldCheck = true;
+      if (target.includeHolidays === 'only') {
+        shouldCheck = isHolidayDate;
+        if (!shouldCheck) {
+          console.log(`[Check] Skip ${dateStr}: not a holiday (includeHolidays=only)`);
+        }
+      } else if (target.includeHolidays === false) {
+        shouldCheck = !isHolidayDate;
+        if (!shouldCheck) {
+          console.log(`[Check] Skip ${dateStr}: holiday excluded (includeHolidays=false)`);
+        }
+      }
+      
+      // 曜日フィルタリング（祝日のみモードでは不要）
+      if (shouldCheck && target.includeHolidays !== 'only') {
+        const dayOfWeek = d.getDay();
+        if (target.selectedWeekdays && target.selectedWeekdays.length > 0 && !target.selectedWeekdays.includes(dayOfWeek)) {
+          shouldCheck = false;
+          console.log(`[Check] Skip ${dateStr}: weekday ${dayOfWeek} not selected`);
+        }
+      }
+      
+      if (shouldCheck) {
+        datesToCheck.push(dateStr);
       }
     }
+    
+    console.log(`[Check] Dates to check after filtering: ${datesToCheck.length} days`);
 
     // チェックする時間帯のリスト
     const timeSlotsToCheck = target.timeSlots || [target.timeSlot];

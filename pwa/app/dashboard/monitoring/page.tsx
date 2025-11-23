@@ -111,8 +111,8 @@ export default function MonitoringPage() {
       ]);
 
       const periods = {
-        shinagawa: null as { maxDaysAhead: number; source: string; displayText?: string } | null,
-        minato: null as { maxDaysAhead: number; source: string; displayText?: string } | null,
+        shinagawa: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },
+        minato: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },
       };
 
       if (results[0].status === 'fulfilled' && results[0].value.success) {
@@ -122,6 +122,9 @@ export default function MonitoringPage() {
           source: data.source,
           displayText: `約${Math.floor(data.maxDaysAhead / 30)}ヶ月先まで（${data.maxDaysAhead}日）`,
         };
+        console.log('[Monitoring] 品川区の予約可能期間を取得:', periods.shinagawa);
+      } else {
+        console.warn('[Monitoring] 品川区の予約可能期間取得失敗、デフォルト使用:', results[0]);
       }
 
       if (results[1].status === 'fulfilled' && results[1].value.success) {
@@ -131,11 +134,15 @@ export default function MonitoringPage() {
           source: data.source,
           displayText: `約${Math.floor(data.maxDaysAhead / 30)}ヶ月先まで（${data.maxDaysAhead}日）`,
         };
+        console.log('[Monitoring] 港区の予約可能期間を取得:', periods.minato);
+      } else {
+        console.warn('[Monitoring] 港区の予約可能期間取得失敗、デフォルト使用:', results[1]);
       }
 
       setReservationPeriods(periods);
+      console.log('[Monitoring] 予約可能期間設定完了:', periods);
     } catch (err) {
-      console.error('Failed to load reservation periods:', err);
+      console.error('[Monitoring] Failed to load reservation periods:', err);
       // エラーでもデフォルト値を設定
       setReservationPeriods({
         shinagawa: { maxDaysAhead: 90, source: 'default', displayText: '約3ヶ月先まで（90日）' },

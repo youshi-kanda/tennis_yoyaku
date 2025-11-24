@@ -62,7 +62,7 @@ export default function DashboardHome() {
     if (!confirm('この監視を停止しますか？')) return;
     
     try {
-      await apiClient.deleteMonitoringTarget(target.id);
+      await apiClient.deleteMonitoring(target.id);
       await loadData();
     } catch (error) {
       console.error('Failed to stop monitoring:', error);

@@ -265,10 +265,8 @@ export default function MonitoringPage() {
         return;
       }
 
-      // 選択された施設を順次監視登録（KVレート制限対策）
-      const totalFacilities = config.selectedFacilities.length;
-      
-      for (const facility of config.selectedFacilities) {
+      // 選択された施設を並列で監視登録（Workers側でリトライ処理）
+      const promises = config.selectedFacilities.map((facility) => {
         const monitoringData: {
           site: 'shinagawa' | 'minato';
           facilityId: string;
@@ -309,13 +307,11 @@ export default function MonitoringPage() {
         // 祝日設定を追加
         monitoringData.includeHolidays = config.includeHolidays;
 
-        await apiClient.createMonitoring(monitoringData);
-        
-        // KVレート制限対策：次のリクエストまで少し待機
-        if (config.selectedFacilities.length > 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      }
+        return apiClient.createMonitoring(monitoringData);
+      });
+
+      await Promise.all(promises);
+      const totalFacilities = config.selectedFacilities.length;
 
       // ステータス更新
       const hasShinagawa = config.selectedFacilities.some(f => f.site === 'shinagawa');

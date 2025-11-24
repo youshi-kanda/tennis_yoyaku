@@ -512,9 +512,10 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       createdAt: Date.now(),
     };
 
-    // 既存の配列を取得して新しいターゲットを追加（リトライ付き）
-    let retries = 3;
+    // 既存の配列を取得して新しいターゲットを追加（エクスポネンシャルバックオフ付きリトライ）
+    let retries = 5; // リトライ回数を5回に増加
     let lastError: Error | null = null;
+    let attempt = 0;
     
     while (retries > 0) {
       try {
@@ -526,19 +527,24 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
         await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
         
         // 成功したらループを抜ける
+        console.log(`[MonitoringCreate] Successfully added target ${target.id} (attempt ${attempt + 1})`);
         break;
       } catch (err: any) {
         lastError = err;
         retries--;
+        attempt++;
         
         if (retries > 0) {
-          // 429エラーの場合は少し待機してリトライ
+          // 429エラーの場合はエクスポネンシャルバックオフ
           if (err.message?.includes('429') || err.message?.includes('Too Many Requests')) {
-            console.warn(`[MonitoringCreate] KV write rate limited, retrying... (${retries} retries left)`);
-            await new Promise(resolve => setTimeout(resolve, 200)); // 200ms待機
+            const waitTime = Math.min(1000, 100 * Math.pow(2, attempt)); // 100ms, 200ms, 400ms, 800ms, 1000ms
+            console.warn(`[MonitoringCreate] KV write rate limited, retrying in ${waitTime}ms... (${retries} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
           } else {
-            // 他のエラーの場合は即座にリトライ
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // 他のエラーの場合も少し待機
+            const waitTime = 50 * attempt;
+            console.warn(`[MonitoringCreate] KV write failed (${err.message}), retrying in ${waitTime}ms... (${retries} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
           }
         }
       }
@@ -546,6 +552,7 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
     
     // リトライ回数を使い果たした場合
     if (retries === 0 && lastError) {
+      console.error(`[MonitoringCreate] Failed to add target after ${attempt} attempts:`, lastError);
       throw lastError;
     }
 

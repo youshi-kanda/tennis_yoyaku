@@ -73,6 +73,7 @@ export interface MonitoringTarget {
   facilityId: string;
   facilityName: string;
   date: string; // 後方互換性（単一日付）
+  dateMode?: 'single' | 'range' | 'continuous'; // 日付モード（新規）
   startDate?: string; // 期間指定開始日（新規）
   endDate?: string; // 期間指定終了日（新規）
   timeSlot: string; // 後方互換性のため残す（非推奨）
@@ -492,6 +493,7 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       facilityId: body.facilityId,
       facilityName: body.facilityName,
       date: targetDate,
+      dateMode: body.dateMode || 'single', // 日付モード
       startDate: startDate,
       endDate: endDate,
       timeSlot: timeSlots[0], // 後方互換性のため最初の時間帯を設定

@@ -285,49 +285,6 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
         </CardContent>
       </Card>
 
-      <style jsx global>{`
-        .calendar-container .react-calendar {
-          border: none;
-          font-family: inherit;
-        }
-        
-        .calendar-container .react-calendar__tile {
-          padding: 0.75rem 0.5rem;
-          position: relative;
-        }
-        
-        .calendar-container .react-calendar__tile:enabled:hover {
-          background-color: #f3f4f6;
-        }
-        
-        .calendar-container .react-calendar__tile--active {
-          background-color: #3b82f6 !important;
-          color: white !important;
-        }
-        
-        .calendar-container .react-calendar__tile--now {
-          background-color: #fef3c7;
-        }
-        
-        .calendar-container .react-calendar__navigation button {
-          min-width: 44px;
-          background: none;
-          font-size: 1rem;
-          font-weight: 600;
-        }
-        
-        .calendar-container .react-calendar__navigation button:enabled:hover {
-          background-color: #f3f4f6;
-        }
-        
-        .calendar-container .react-calendar__month-view__weekdays {
-          text-align: center;
-          text-transform: uppercase;
-          font-weight: bold;
-          font-size: 0.75rem;
-          color: #6b7280;
-        }
-      `}</style>
     </div>
   );
 }

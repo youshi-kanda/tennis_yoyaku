@@ -84,7 +84,9 @@ export interface MonitoringTarget {
   status: 'active' | 'pending' | 'completed' | 'failed';
   autoReserve: boolean;
   lastCheck?: number;
-  lastStatus?: string; // '×' or '○'
+  lastStatus?: string; // '×' or '○' or '取'
+  detectedStatus?: '×' | '取' | '○'; // 検知したステータス（集中監視用）
+  intensiveMonitoringUntil?: number; // 集中監視の終了時刻（タイムスタンプ）
   createdAt: number;
 }
 
@@ -336,14 +338,34 @@ export default {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log('[Cron] Started:', new Date().toISOString());
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000); // JST変換
+    
+    console.log('[Cron] Started:', jstTime.toISOString(), `(JST: ${jstTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`);
+    
+    // 集中監視モード判定: 10分刻み(10, 20, 30...)の前後2分間
+    // 例: 10:08, 10:09, 10:10, 10:11, 10:12 は集中監視
+    const isIntensiveMode = (minutes % 10 >= 8) || (minutes % 10 <= 2);
+    
+    if (isIntensiveMode) {
+      console.log(`[Cron] 🔥 集中監視モード: 分=${minutes} (10分刻み前後2分間)`);
+    } else {
+      console.log(`[Cron] 📋 通常監視モード: 分=${minutes}`);
+    }
     
     try {
       const targets = await getAllActiveTargets(env);
       console.log(`[Cron] Found ${targets.length} active monitoring targets`);
       
+      // 集中監視対象をフィルタ（「取」検知済みのターゲット）
+      const intensiveTargets = targets.filter(t => t.detectedStatus === '取' && t.intensiveMonitoringUntil && t.intensiveMonitoringUntil > Date.now());
+      const normalTargets = targets.filter(t => !intensiveTargets.includes(t));
+      
+      console.log(`[Cron] 集中監視対象: ${intensiveTargets.length}件, 通常監視: ${normalTargets.length}件`);
+      
       // 優先度順にソート（priorityが高い順、同じなら作成日時が古い順）
-      const sortedTargets = targets.sort((a, b) => {
+      const sortTargets = (targets: MonitoringTarget[]) => targets.sort((a, b) => {
         const priorityA = a.priority || 3;
         const priorityB = b.priority || 3;
         if (priorityB !== priorityA) {
@@ -352,9 +374,23 @@ export default {
         return a.createdAt - b.createdAt; // 作成日時が古い順
       });
       
-      for (const target of sortedTargets) {
+      const sortedIntensiveTargets = sortTargets(intensiveTargets);
+      const sortedNormalTargets = sortTargets(normalTargets);
+      
+      // 集中監視対象を優先処理
+      for (const target of sortedIntensiveTargets) {
         try {
-          await checkAndNotify(target, env);
+          console.log(`[Cron] 🔥 集中監視チェック: ${target.facilityName} (${target.site})`);
+          await checkAndNotify(target, env, true); // 集中監視フラグ
+        } catch (error) {
+          console.error(`[Cron] Error checking intensive target ${target.id}:`, error);
+        }
+      }
+      
+      // 通常監視対象を処理
+      for (const target of sortedNormalTargets) {
+        try {
+          await checkAndNotify(target, env, false);
         } catch (error) {
           console.error(`[Cron] Error checking target ${target.id}:`, error);
         }
@@ -925,8 +961,9 @@ async function getUserReservations(userId: string, env: Env): Promise<Reservatio
   return userHistories.filter((h: ReservationHistory) => h.status === 'success');
 }
 
-async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void> {
-  console.log(`[Check] Target ${target.id}: ${target.site} - ${target.facilityName}`);
+async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMode: boolean = false): Promise<void> {
+  const modeLabel = isIntensiveMode ? '🔥 集中' : '📋 通常';
+  console.log(`[Check] ${modeLabel} Target ${target.id}: ${target.site} - ${target.facilityName}`);
 
   try {
     // ユーザーの予約履歴を取得（キャンセル済み除く）
@@ -1074,9 +1111,55 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
           );
         }
 
+        // 🔥 「取」ステータスを検知した場合（集中監視モードに移行）
+        if (result.currentStatus === '取' && target.detectedStatus !== '取') {
+          console.log(`[Alert] 🔥「取」検知: ${date} ${timeSlot} - 集中監視モード開始`);
+          
+          // 次の10分刻み時刻を計算
+          const now = new Date();
+          const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+          const currentMinutes = jstNow.getMinutes();
+          const currentSeconds = jstNow.getSeconds();
+          
+          // 次の10分刻み（10:10, 10:20, 10:30...）を計算
+          let nextTenMinuteMark = Math.ceil((currentMinutes + 1) / 10) * 10;
+          if (nextTenMinuteMark === 60) nextTenMinuteMark = 0;
+          
+          const targetTime = new Date(jstNow);
+          targetTime.setMinutes(nextTenMinuteMark, 0, 0); // 秒とミリ秒を0にリセット
+          if (nextTenMinuteMark === 0) {
+            targetTime.setHours(targetTime.getHours() + 1); // 次の時間の00分
+          }
+          
+          // 集中監視終了時刻: 目標時刻の+2分後まで
+          const intensiveUntil = new Date(targetTime.getTime() + 2 * 60 * 1000);
+          
+          console.log(`[Alert] 集中監視: 現在 ${jstNow.toLocaleTimeString('ja-JP')}, 目標 ${targetTime.toLocaleTimeString('ja-JP')}, 終了 ${intensiveUntil.toLocaleTimeString('ja-JP')}`);
+          
+          // ターゲットを更新（集中監視モードに設定）
+          target.detectedStatus = '取';
+          target.intensiveMonitoringUntil = intensiveUntil.getTime() - 9 * 60 * 60 * 1000; // UTC変換
+          
+          await updateMonitoringTargetOptimized(target, 'intensive_mode_activated', env.MONITORING);
+          
+          // プッシュ通知送信
+          await sendPushNotification(target.userId, {
+            title: '🔥「取」検知！集中監視開始',
+            body: `${target.facilityName} ${date} ${timeSlot}\n${targetTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}に「○」に変わる可能性があります`,
+            data: { targetId: target.id, type: 'status_tori_detected' }
+          }, env);
+        }
+        
         // 空きが見つかった場合
         if (result.currentStatus === '○') {
-          console.log(`[Alert] Available: ${date} ${timeSlot}`);
+          console.log(`[Alert] ✅ Available: ${date} ${timeSlot}`);
+          
+          // 「取」から「○」に変わった場合は集中監視終了
+          if (target.detectedStatus === '取') {
+            console.log(`[Alert] 🎉「取」→「○」変化検知！集中監視成功`);
+            target.detectedStatus = '○';
+            target.intensiveMonitoringUntil = undefined;
+          }
 
           // 自動予約が有効な場合は予約を試みる
           if (target.autoReserve) {
@@ -1085,11 +1168,21 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
             await attemptReservation(tempTarget, env);
           }
         }
+        
+        // 集中監視期間が過ぎた場合はリセット
+        if (target.intensiveMonitoringUntil && target.intensiveMonitoringUntil < Date.now()) {
+          console.log(`[Alert] 集中監視期間終了: ${target.facilityName}`);
+          target.detectedStatus = undefined;
+          target.intensiveMonitoringUntil = undefined;
+          await updateMonitoringTargetOptimized(target, 'intensive_mode_ended', env.MONITORING);
+        }
       }
     }
 
     // 最適化された書き込み（ステータス変更時のみwrite）
-    await updateMonitoringTargetOptimized(target, 'checked', env.MONITORING);
+    if (!target.detectedStatus && !target.intensiveMonitoringUntil) {
+      await updateMonitoringTargetOptimized(target, 'checked', env.MONITORING);
+    }
 
   } catch (error) {
     console.error(`[Check] Error for target ${target.id}:`, error);

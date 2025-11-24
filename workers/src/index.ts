@@ -601,9 +601,36 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
     // 監視を削除
     const deletedTarget = allTargets.splice(targetIndex, 1)[0];
 
-    // KVに保存
-    kvMetrics.writes++;
-    await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+    // KVに保存（エクスポネンシャルバックオフ付きリトライ）
+    let retries = 5;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        kvMetrics.writes++;
+        await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+        console.log(`[MonitoringDelete] Successfully deleted target ${targetId} (attempt ${attempt + 1})`);
+        retries = 0;
+        break;
+      } catch (error: any) {
+        lastError = error;
+        retries--;
+        
+        if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+          const waitTime = Math.min(1000, 100 * Math.pow(2, attempt));
+          console.warn(`[MonitoringDelete] KV write rate limited, retrying in ${waitTime}ms... (attempt ${attempt + 1}/5)`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          console.error(`[MonitoringDelete] Unexpected error (attempt ${attempt + 1}):`, error);
+          throw error;
+        }
+      }
+    }
+    
+    if (retries === 0 && lastError) {
+      console.error(`[MonitoringDelete] Failed to delete target after 5 attempts:`, lastError);
+      throw lastError;
+    }
 
     // 監視リストキャッシュを無効化
     monitoringListCache.data = null;
@@ -618,7 +645,11 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
     });
   } catch (error: any) {
     console.error('[MonitoringDelete] Error:', error);
-    return jsonResponse({ error: error.message }, 500);
+    console.error('[MonitoringDelete] Stack:', error.stack);
+    return jsonResponse({ 
+      error: error.message || 'Internal server error',
+      details: error.stack
+    }, 500);
   }
 }
 

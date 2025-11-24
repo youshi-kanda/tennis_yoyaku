@@ -178,6 +178,61 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
             </div>
 
             {/* カレンダー本体 */}
+            <style jsx global>{`
+              .react-calendar {
+                width: 100% !important;
+                border: none !important;
+                font-family: inherit;
+              }
+              .react-calendar__navigation {
+                margin-bottom: 1rem;
+              }
+              .react-calendar__navigation button {
+                min-width: 44px;
+                background: none;
+                font-size: 1.1rem;
+                font-weight: 600;
+                color: #1f2937;
+              }
+              .react-calendar__navigation button:enabled:hover,
+              .react-calendar__navigation button:enabled:focus {
+                background-color: #f3f4f6;
+                border-radius: 0.5rem;
+              }
+              .react-calendar__month-view__weekdays {
+                text-align: center;
+                font-weight: 600;
+                font-size: 0.875rem;
+                color: #4b5563;
+              }
+              .react-calendar__month-view__days__day {
+                padding: 0.75rem 0.25rem;
+                font-size: 0.875rem;
+              }
+              .react-calendar__tile {
+                max-width: 100%;
+                padding: 0.75rem 0.5rem;
+                background: none;
+                text-align: center;
+                line-height: 1.4;
+              }
+              .react-calendar__tile:enabled:hover,
+              .react-calendar__tile:enabled:focus {
+                background-color: #f3f4f6;
+                border-radius: 0.5rem;
+              }
+              .react-calendar__tile--now {
+                background: #dbeafe !important;
+                border-radius: 0.5rem;
+                font-weight: 600;
+              }
+              .react-calendar__tile--active {
+                background: #3b82f6 !important;
+                color: white !important;
+                border-radius: 0.5rem;
+                font-weight: 600;
+              }
+            `}</style>
             <div className="calendar-container">
               <Calendar
                 onChange={(value) => setSelectedDate(value as Date)}
@@ -185,7 +240,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
                 tileClassName={tileClassName}
                 tileContent={tileContent}
                 locale="ja-JP"
-                className="w-full border rounded-lg shadow-sm"
+                className="w-full"
               />
             </div>
           </div>

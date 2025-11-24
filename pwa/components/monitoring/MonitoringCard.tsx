@@ -60,7 +60,7 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
     <Card className="p-4 hover:shadow-lg transition-all duration-200 border-2 hover:border-gray-300">
       <div className="flex justify-between items-start mb-3">
         <div className="flex-1">
-          <h3 className="font-bold text-lg mb-1">
+          <h3 className="font-bold text-lg mb-1 text-gray-900">
             {target.facilityName || target.facilityId || '施設名未設定'}
           </h3>
           <div className="flex items-center gap-1 text-sm text-gray-600">

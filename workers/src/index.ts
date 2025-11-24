@@ -529,7 +529,12 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       data: target,
     });
   } catch (error: any) {
-    return jsonResponse({ error: error.message }, 500);
+    console.error('[MonitoringCreate] Error:', error);
+    console.error('[MonitoringCreate] Stack:', error.stack);
+    return jsonResponse({ 
+      error: error.message || 'Internal server error',
+      details: error.stack
+    }, 500);
   }
 }
 

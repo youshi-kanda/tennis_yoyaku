@@ -47,7 +47,16 @@ export interface MonitoringTarget {
   date: string;
   timeSlots: string[];
   priority: number;
+  
+  // 期間モード用
+  dateMode?: 'single' | 'range' | 'continuous';
+  startDate?: string;
+  endDate?: string;
+  
+  // 曜日指定用
+  selectedWeekdays?: number[];
   includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
+  
   status: 'monitoring' | 'detected' | 'reserved' | 'failed';
   createdAt: number;
   updatedAt: number;

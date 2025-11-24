@@ -20,6 +20,8 @@
 ### 目的
 品川区・港区のテニスコート予約サイトを監視し、キャンセル枠が出た際に自動で予約を行うシステム
 
+**対象施設**: 現状はテニスコートのみ対象（将来的に体育館・野球場等に拡張可能）
+
 ### 対象サイト
 - **品川区**: https://www.shinagawa-yoyaku.jp/
 - **港区**: https://yoyaku.city.minato.tokyo.jp/
@@ -219,9 +221,17 @@ interface UserSettings {
 
 interface SiteCredentials {
   username: string;              // 利用者ID
-  password: string;              // パスワード
+  password: string;              // パスワード（⚠️現在は平文保存、将来的にAES-256暗号化を検討）
   facilities: string[];          // 選択した施設ID
 }
+
+// ⚠️ セキュリティ注意事項:
+// - 現在、パスワードは平文でKVに保存されています
+// - 本番運用では暗号化実装を強く推奨
+// - Workers Secretsには以下を保存:
+//   - JWT_SECRET: JWT署名用シークレット
+//   - ADMIN_KEY: 管理者登録キー
+//   - VAPID_PRIVATE_KEY: プッシュ通知秘密鍵
 
 interface NotificationSettings {
   pushEnabled: boolean;          // プッシュ通知有効
@@ -243,21 +253,26 @@ interface MonitoringTarget {
   site: 'shinagawa' | 'minato';  // サイト
   facilityId: string;            // 施設ID
   facilityName: string;          // 施設名
-  date: string;                  // 日付 (YYYY-MM-DD)
+  date: string;                  // 日付 (YYYY-MM-DD) ※後方互換性のため残存
   timeSlots: string[];           // 時間帯 ['09:00-11:00', ...]
-  priority: number;              // 優先度 (1-10)
+  priority: number;              // 優先度 (1-10) ※現在は削除済み、後方互換性のため型定義のみ残存
   status: 'monitoring' | 'detected' | 'reserved' | 'failed';
   
-  // 期間モード用
-  periodMode?: 'single' | 'range' | 'weekly';
+  // 期間モード用（dateMode により使用するフィールドが異なる）
+  dateMode?: 'single' | 'range' | 'continuous';
   startDate?: string;            // 開始日
   endDate?: string;              // 終了日
   
-  // 曜日指定用
+  // 📌 dateMode別の必須フィールド:
+  // - single: date のみ使用
+  // - range: startDate + endDate 使用、date は開始日と同じ値
+  // - continuous: startDate + endDate を動的設定（予約可能期間まで）
+  
+  // 曜日指定用（continuousモードで使用）
   selectedWeekdays?: number[];   // [0,1,2,...] (0=日曜)
   includeHolidays?: boolean | 'only'; // 祝日の扱い
   
-  // 戦略
+  // 戦略（現在は削除済み、後方互換性のため型定義のみ残存）
   reservationStrategy?: 'all' | 'priority';
   
   createdAt: number;
@@ -367,9 +382,6 @@ interface SiteSession {
 
 #### 2. 監視系
 
-##### POST `/monitoring/start`
-監視開始（廃止予定 - `/monitoring/create`を使用）
-
 ##### POST `/monitoring/create`
 監視ターゲット作成
 
@@ -419,9 +431,6 @@ interface SiteSession {
   ]
 }
 ```
-
-##### DELETE `/monitoring/stop`
-全監視停止（廃止予定 - 個別削除を使用）
 
 ##### DELETE `/monitoring/:targetId`
 監視ターゲット削除
@@ -559,12 +568,19 @@ interface SiteSession {
 ### Cron Schedule
 - **実行間隔**: 5分毎 (`*/5 * * * *`)
 - **実行内容**:
-  1. アクティブな監視ターゲット取得
-  2. 各サイトにログイン（セッション期限切れ時のみ）
-  3. スクレイピング実行
-  4. キャンセル検知
-  5. 自動予約実行
-  6. プッシュ通知送信
+  1. アクティブな監視ターゲット取得（全ユーザー分）
+  2. 優先度順にソート（優先度高→作成日時古い順）
+  3. 各サイトにログイン（セッション期限切れ時のみ）
+  4. スクレイピング実行（ターゲットごと）
+  5. キャンセル検知（×→○）
+  6. 自動予約実行
+  7. プッシュ通知送信
+
+**処理ポリシー**:
+- 1回のCron実行で全ユーザーの全ターゲットを処理
+- 優先度の高いターゲットから順に処理
+- スロットリング: 現在制限なし（将来的に検討）
+- エラー時: 次のターゲットへ継続（個別ターゲットの失敗で全体停止しない）
 
 ### KV Namespaces
 | Namespace | ID | 用途 |
@@ -583,6 +599,36 @@ interface SiteSession {
 | `VAPID_PUBLIC_KEY` | Web Push公開鍵 |
 | `VAPID_PRIVATE_KEY` | Web Push秘密鍵 |
 | `VAPID_SUBJECT` | Web Push送信者情報 |
+
+---
+
+## セキュリティとレート制御
+
+### 認証とセッション管理
+- **JWT認証**: 有効期限30日、Authorization ヘッダーで送信
+- **パスワード保存**: ⚠️ 現在は平文でKV保存（将来的にAES-256暗号化を実装予定）
+- **施設予約サイトのセッション**: JSESSIONID をKVで管理（30分TTL）
+
+### レート制御
+- **予約上限設定**: ユーザーごとに週/月の予約回数上限を設定可能
+  - `settings.reservationLimits.perWeek`: 週あたりの上限
+  - `settings.reservationLimits.perMonth`: 月あたりの上限
+- **監視ターゲット数**: 現在制限なし（将来的に検討）
+
+### エラーハンドリング
+- **スクレイピング失敗**: エラーログ出力、次のターゲットへ継続
+- **ログイン失敗**: セッション削除、次回Cronで再試行
+- **予約失敗**: `ReservationHistory.status = 'failed'` に記録
+- **リトライ**: 現在は1回のみ（将来的に複数回リトライを検討）
+
+### Workers Secrets（本番環境）
+```
+JWT_SECRET: JWT署名用シークレットキー
+ADMIN_KEY: 管理者登録キー（"tennis_admin_2025"）
+VAPID_PUBLIC_KEY: Web Push 公開鍵
+VAPID_PRIVATE_KEY: Web Push 秘密鍵
+VAPID_SUBJECT: Web Push 送信者情報
+```
 
 ---
 

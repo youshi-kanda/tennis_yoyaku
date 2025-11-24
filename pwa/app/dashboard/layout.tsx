@@ -26,10 +26,16 @@ export default function DashboardLayout({
     if (!user) {
       console.log('[Dashboard Layout] No user, redirecting to login');
       router.replace('/');
-    } else {
-      console.log('[Dashboard Layout] User authenticated');
-      setIsChecking(false);
+      return;
     }
+    
+    console.log('[Dashboard Layout] User authenticated');
+    // 認証済みの場合、次のレンダリングで表示
+    const timer = setTimeout(() => {
+      setIsChecking(false);
+    }, 0);
+    
+    return () => clearTimeout(timer);
   }, [user, router]);
 
   // 認証チェック中

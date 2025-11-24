@@ -40,10 +40,11 @@ export function useLogin() {
       } else {
         setError(response.error || 'ログインに失敗しました');
       }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'ネットワークエラーが発生しました';
+    } catch (err) {
+      const error = err as Error & { response?: { data?: { error?: string } } };
+      const errorMessage = error.response?.data?.error || 'ネットワークエラーが発生しました';
       setError(errorMessage);
-      console.error('Login error:', err);
+      console.error('Login error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -55,7 +56,6 @@ export function useLogin() {
 export function useRegister() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
   const { setUser } = useAuthStore();
 
   const register = async (form: RegisterForm) => {
@@ -86,14 +86,14 @@ export function useRegister() {
       
       if (response.success && response.data) {
         setUser(response.data.user);
-        router.push('/dashboard');
       } else {
         setError(response.error || 'アカウント作成に失敗しました');
       }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'ネットワークエラーが発生しました';
+    } catch (err) {
+      const error = err as Error & { response?: { data?: { error?: string } } };
+      const errorMessage = error.response?.data?.error || 'ネットワークエラーが発生しました';
       setError(errorMessage);
-      console.error('Register error:', err);
+      console.error('Register error:', error);
     } finally {
       setIsLoading(false);
     }

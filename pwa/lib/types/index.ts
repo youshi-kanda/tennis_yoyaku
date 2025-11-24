@@ -75,7 +75,7 @@ export interface SiteSession {
 }
 
 // API レスポンス
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -110,5 +110,5 @@ export interface Notification {
   body: string;
   timestamp: number;
   read: boolean;
-  data?: any;
+  data?: Record<string, unknown>;
 }

@@ -137,7 +137,7 @@ async function getCachedMonitoringList(kv: KVNamespace): Promise<any[]> {
   console.log('[Cache MISS] Monitoring list, fetching from KV');
   
   kvMetrics.reads++;
-  const data = await kv.get('monitoring:list', 'json') || [];
+  const data = (await kv.get('monitoring:list', 'json') as any[]) || [];
   
   // キャッシュに保存
   monitoringListCache.data = data;
@@ -1027,7 +1027,7 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       date: target.date,
       timeSlot: target.timeSlot,
       status: result.success ? 'success' : 'failed',
-      message: result.message,
+      message: 'message' in result ? result.message : (result.error || ''),
       createdAt: Date.now(),
     };
 
@@ -1048,7 +1048,8 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       }
     }
 
-    console.log(`[Reserve] Result: ${result.success ? 'SUCCESS' : 'FAILED'} - ${result.message}`);
+    const resultMessage = 'message' in result ? result.message : (result.error || 'Unknown error');
+    console.log(`[Reserve] Result: ${result.success ? 'SUCCESS' : 'FAILED'} - ${resultMessage}`);
   } catch (error) {
     console.error(`[Reserve] Error:`, error);
   }

@@ -13,15 +13,35 @@ interface MonitoringStatus {
     minato: boolean;
   };
   startedAt?: number;
-  reservationStrategy: 'all' | 'priority';
   facilitiesCount: number;
+}
+
+interface MonitoringTarget {
+  id: string;
+  site: 'shinagawa' | 'minato';
+  facilityId: string;
+  facilityName: string;
+  date: string;
+  timeSlots: string[];
+  priority: number;
+  status: 'monitoring' | 'detected' | 'reserved' | 'failed';
+  createdAt: number;
+  updatedAt: number;
+  startDate?: string;
+  endDate?: string;
+  selectedWeekdays?: number[];
+  includeHolidays?: boolean | 'only';
 }
 
 export default function MonitoringPage() {
   const [status, setStatus] = useState<MonitoringStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [monitoringTargets, setMonitoringTargets] = useState<any[]>([]);
+  const [monitoringTargets, setMonitoringTargets] = useState<MonitoringTarget[]>([]);
+  
+  // ウィザードステップ管理
+  const [currentStep, setCurrentStep] = useState(1); // 1: 施設選択, 2: 日時設定, 3: 詳細設定
+  const [showWizard, setShowWizard] = useState(false); // ウィザード表示フラグ
 
   // 時間帯の定義
   const TIME_SLOTS = [
@@ -92,9 +112,7 @@ export default function MonitoringPage() {
       return weekLater.toISOString().split('T')[0];
     })(),
     selectedWeekdays: [0, 1, 2, 3, 4, 5, 6] as number[], // 曜日指定（デフォルトは全曜日）
-    priority: 3, // 優先度（1-5、5が最優先）デフォルトは3
     includeHolidays: true as boolean | 'only', // 祝日の扱い（true=含める, false=除外, 'only'=祝日のみ）
-    reservationStrategy: 'priority' as 'all' | 'priority',
     timeSlots: TIME_SLOTS.map(t => t.id), // デフォルトは全時間帯
   });
 
@@ -199,13 +217,13 @@ export default function MonitoringPage() {
       const response = await apiClient.getMonitoringList();
       if (response.success && response.data && response.data.length > 0) {
         // 既存の監視がある場合はステータス表示
-        const activeTargets = response.data.filter((t: { status: string }) => t.status === 'active');
+        const activeTargets = response.data.filter((t: MonitoringTarget) => t.status === 'monitoring');
         setMonitoringTargets(activeTargets);
         
         if (activeTargets.length > 0) {
-          const hasShinagawa = activeTargets.some((t: { site: string }) => t.site === 'shinagawa');
-          const hasMinato = activeTargets.some((t: { site: string }) => t.site === 'minato');
-          const oldestTarget = activeTargets.reduce((oldest: any, current: any) => 
+          const hasShinagawa = activeTargets.some((t: MonitoringTarget) => t.site === 'shinagawa');
+          const hasMinato = activeTargets.some((t: MonitoringTarget) => t.site === 'minato');
+          const oldestTarget = activeTargets.reduce((oldest: MonitoringTarget, current: MonitoringTarget) => 
             (oldest.createdAt < current.createdAt) ? oldest : current
           );
           
@@ -216,7 +234,6 @@ export default function MonitoringPage() {
               minato: hasMinato,
             },
             startedAt: oldestTarget.createdAt,
-            reservationStrategy: oldestTarget.reservationStrategy,
             facilitiesCount: activeTargets.length,
           });
         } else {
@@ -260,10 +277,8 @@ export default function MonitoringPage() {
           dateMode?: 'single' | 'range' | 'continuous';
           timeSlots: string[];
           selectedWeekdays?: number[];
-          priority?: number;
           includeHolidays?: boolean | 'only';
           autoReserve: boolean;
-          reservationStrategy: 'all' | 'priority';
         } = {
           site: facility.site,
           facilityId: facility.id,
@@ -271,7 +286,6 @@ export default function MonitoringPage() {
           timeSlots: config.timeSlots,
           selectedWeekdays: config.selectedWeekdays,
           autoReserve: true,
-          reservationStrategy: config.reservationStrategy,
         };
 
         // 日付モードをバックエンドに送信
@@ -289,9 +303,6 @@ export default function MonitoringPage() {
           // 継続監視（バックエンドで動的に期間を設定）
           // フロントエンドでは何も設定しない（バックエンドが自動設定）
         }
-
-        // 優先度を設定
-        monitoringData.priority = config.priority;
 
         // 祝日設定を追加
         monitoringData.includeHolidays = config.includeHolidays;
@@ -313,10 +324,9 @@ export default function MonitoringPage() {
           minato: hasMinato,
         },
         startedAt: Date.now(),
-        reservationStrategy: config.reservationStrategy,
         facilitiesCount: totalFacilities,
       });
-
+      
       const siteNames = [];
       if (hasShinagawa) siteNames.push('品川区');
       if (hasMinato) siteNames.push('港区');
@@ -341,13 +351,18 @@ export default function MonitoringPage() {
         })(),
       });
       
+      // ウィザードを閉じる
+      setShowWizard(false);
+      setCurrentStep(1);
+      
       alert(`${siteNames.join('・')}の${totalFacilities}施設の監視を追加しました`);
       
-    } catch (err: any) {
-      console.error('Start monitoring error:', err);
+    } catch (err) {
+      const error = err as Error & { response?: { data?: { error?: string } } };
+      console.error('Start monitoring error:', error);
       
       // エラーメッセージを解析
-      const errorMessage = err?.response?.data?.error || err?.message || '監視の開始に失敗しました';
+      const errorMessage = error?.response?.data?.error || error?.message || '監視の開始に失敗しました';
       
       if (errorMessage.includes('credentials not found') || errorMessage.includes('Credentials not found')) {
         setError('❗️ 認証情報が未設定です。まず「設定」タブで選択した地区の利用者ID・パスワードを保存してください。');
@@ -374,7 +389,7 @@ export default function MonitoringPage() {
         console.log(`[Stop] Found ${response.data.length} monitoring targets`);
         
         // すべての監視を削除
-        const deletePromises = response.data.map((target: { id: string }) => {
+        const deletePromises = response.data.map((target: MonitoringTarget) => {
           console.log(`[Stop] Deleting target: ${target.id}`);
           return apiClient.deleteMonitoring(target.id);
         });
@@ -392,14 +407,55 @@ export default function MonitoringPage() {
         setStatus(null);
         alert('停止する監視が見つかりませんでした');
       }
-    } catch (err: any) {
-      console.error('Stop monitoring error:', err);
-      const errorMessage = err?.response?.data?.error || err?.message || '不明なエラー';
+    } catch (err) {
+      const error = err as Error & { response?: { data?: { error?: string } } };
+      console.error('Stop monitoring error:', error);
+      const errorMessage = error?.response?.data?.error || error?.message || '不明なエラー';
       setError(`監視の停止に失敗しました: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
   };
+
+  // ウィザードナビゲーション関数
+  const handleStartWizard = () => {
+    setShowWizard(true);
+    setCurrentStep(1);
+    setError(null);
+  };
+
+  const handleCancelWizard = () => {
+    if (confirm('設定をキャンセルしますか？入力内容は保持されます。')) {
+      setShowWizard(false);
+      setCurrentStep(1);
+    }
+  };
+
+  const handleNextStep = () => {
+    // バリデーション
+    if (currentStep === 1) {
+      if (config.selectedFacilities.length === 0) {
+        setError('少なくとも1つの施設を選択してください');
+        return;
+      }
+    } else if (currentStep === 2) {
+      if (config.timeSlots.length === 0) {
+        setError('少なくとも1つの時間帯を選択してください');
+        return;
+      }
+    }
+    
+    setError(null);
+    setCurrentStep(currentStep + 1);
+  };
+
+  const handlePrevStep = () => {
+    setError(null);
+    setCurrentStep(currentStep - 1);
+  };
+
+  const canProceedStep1 = config.selectedFacilities.length > 0;
+  const canProceedStep2 = config.timeSlots.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -448,12 +504,6 @@ export default function MonitoringPage() {
               <p className="text-xs text-gray-600 mb-1">監視施設数</p>
               <p className="text-2xl font-bold text-gray-900">{status.facilitiesCount}</p>
             </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs text-gray-600 mb-1">予約戦略</p>
-              <p className="text-sm font-bold text-gray-900">
-                {status.reservationStrategy === 'all' ? '全件予約' : '優先1枠'}
-              </p>
-            </div>
           </div>
 
           <div className="flex items-center justify-between text-sm text-gray-600 mb-4">
@@ -483,7 +533,7 @@ export default function MonitoringPage() {
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">監視中の設定（{monitoringTargets.length}件）</h3>
           <div className="space-y-3 max-h-96 overflow-y-auto">
-            {monitoringTargets.map((target: any) => (
+            {monitoringTargets.map((target) => (
               <div key={target.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
@@ -555,21 +605,78 @@ export default function MonitoringPage() {
 
       {/* 監視追加フォーム */}
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-        <div className="text-center mb-6">
-          <div className="text-6xl mb-4">🎾</div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">
-            {monitoringTargets.length > 0 ? '新しい監視を追加' : '監視を開始しましょう'}
-          </h2>
-          <p className="text-gray-600">
-            {monitoringTargets.length > 0 
-              ? '異なる条件で複数の監視を設定できます（例: 平日夜、土日全日）' 
-              : '下記の設定で全施設の空き枠を自動監視・予約します'}
-          </p>
-        </div>
+        {!showWizard ? (
+          // ウィザード開始画面
+          <div className="text-center">
+            <div className="text-6xl mb-4">🎾</div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              {monitoringTargets.length > 0 ? '新しい監視を追加' : '監視を開始しましょう'}
+            </h2>
+            <p className="text-gray-600 mb-6">
+              {monitoringTargets.length > 0 
+                ? '異なる条件で複数の監視を設定できます（例: 平日夜、土日全日）' 
+                : '3つのステップで簡単に設定できます'}
+            </p>
+            <button
+              onClick={handleStartWizard}
+              className="px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-semibold text-lg"
+            >
+              {monitoringTargets.length > 0 ? '監視を追加する' : '監視設定を開始する'}
+            </button>
+          </div>
+        ) : (
+          // ウィザード表示（2カラムレイアウト）
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 左側: ウィザードフォーム */}
+            <div className="lg:col-span-2">
+            {/* プログレスバー */}
+            <div className="mb-8">
+              <div className="flex items-center justify-center mb-4">
+                <div className="text-sm font-medium text-gray-600">
+                  ステップ {currentStep} / 3
+                </div>
+              </div>
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                    currentStep >= 1 ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-400'
+                  }`}>
+                    1
+                  </div>
+                  <span className={`text-sm font-medium ${currentStep >= 1 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    施設選択
+                  </span>
+                </div>
+                <div className={`h-0.5 w-16 ${currentStep >= 2 ? 'bg-emerald-600' : 'bg-gray-200'}`}></div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                    currentStep >= 2 ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-400'
+                  }`}>
+                    2
+                  </div>
+                  <span className={`text-sm font-medium ${currentStep >= 2 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    日時設定
+                  </span>
+                </div>
+                <div className={`h-0.5 w-16 ${currentStep >= 3 ? 'bg-emerald-600' : 'bg-gray-200'}`}></div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                    currentStep >= 3 ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-400'
+                  }`}>
+                    3
+                  </div>
+                  <span className={`text-sm font-medium ${currentStep >= 3 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    詳細設定
+                  </span>
+                </div>
+              </div>
+            </div>
 
-        <div className="space-y-4 mb-6">
-            {/* 施設選択（複数選択可） */}
+            <div className="space-y-4 mb-6">
+            {/* ステップ1: 施設選択 */}
+            {currentStep === 1 && (
             <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">どの施設を監視しますか？</h3>
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 監視する施設（複数選択可）
               </label>
@@ -736,7 +843,6 @@ export default function MonitoringPage() {
               <p className="text-xs text-gray-600 mt-3">
                 ※ 選択した{config.selectedFacilities.length}施設の全コートが監視対象になります。空きが見つかった際に自動予約されます。
               </p>
-            </div>
 
             {/* 予約可能期間の情報 */}
             {config.selectedFacilities.length > 0 && (
@@ -770,7 +876,14 @@ export default function MonitoringPage() {
                 </div>
               </div>
             )}
+            </div>
+            )}
 
+            {/* ステップ2: 日時・時間帯設定 */}
+            {currentStep === 2 && (
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">いつ予約したいですか？</h3>
+            
             {/* 監視期間の設定 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -979,48 +1092,14 @@ export default function MonitoringPage() {
                 ※ 選択した時間帯のみ監視します（{config.timeSlots.length}個選択中）
               </p>
             </div>
-
-            {/* 優先度設定 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                優先度レベル
-              </label>
-              
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="1"
-                  max="5"
-                  value={config.priority}
-                  onChange={(e) => setConfig({ ...config, priority: parseInt(e.target.value) })}
-                  className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                  style={{
-                    background: `linear-gradient(to right, #10b981 0%, #10b981 ${(config.priority - 1) * 25}%, #e5e7eb ${(config.priority - 1) * 25}%, #e5e7eb 100%)`
-                  }}
-                />
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-emerald-600">{config.priority}</span>
-                  <span className="text-sm text-gray-600">/ 5</span>
-                </div>
-              </div>
-
-              <div className="mt-2 flex justify-between text-xs text-gray-600">
-                <span>低</span>
-                <span className="font-medium">
-                  {config.priority === 1 && '🔵 低優先度'}
-                  {config.priority === 2 && '🟢 やや低'}
-                  {config.priority === 3 && '🟡 普通'}
-                  {config.priority === 4 && '🟠 やや高'}
-                  {config.priority === 5 && '🔴 最優先'}
-                </span>
-                <span>高</span>
-              </div>
-
-              <p className="text-xs text-gray-600 mt-2">
-                ℹ️ 複数の空きが見つかった場合、優先度が高い監視から順に予約されます。重要度が高い施設ほど優先度を上げてください。
-              </p>
             </div>
+            )}
 
+            {/* ステップ3: 曜日・祝日設定 */}
+            {currentStep === 3 && (
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">曜日を絞り込みますか？</h3>
+            
             {/* 曜日指定 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -1199,48 +1278,205 @@ export default function MonitoringPage() {
                 ℹ️ 日本の国民の祝日（振替休日・国民の休日を含む）を自動判定します
               </p>
             </div>
+            </div>
+            )}
+          </div>
 
-            {/* 予約戦略 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                予約戦略
-              </label>
-              <select
-                value={config.reservationStrategy}
-                onChange={(e) => setConfig({ ...config, reservationStrategy: e.target.value as 'all' | 'priority' })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              >
-                <option value="priority">優先順位予約（1枠確実確保）</option>
-                <option value="all">全件予約（空き枠すべて）</option>
-              </select>
-              <p className="text-xs text-gray-600 mt-2">
-                {config.reservationStrategy === 'priority'
-                  ? '時間帯の優先順位に従って1枠ずつ予約を試み、成功したら次の施設へ（確実性重視）'
-                  : '空いている枠をすべて同時に予約します（複数枠確保優先）'}
-              </p>
+        {/* ナビゲーションボタン */}
+        <div className="flex items-center justify-between gap-4 mt-6">
+          {currentStep > 1 ? (
+            <button
+              onClick={handlePrevStep}
+              className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-semibold"
+            >
+              ← 戻る
+            </button>
+          ) : (
+            <button
+              onClick={handleCancelWizard}
+              className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-semibold"
+            >
+              キャンセル
+            </button>
+          )}
+          
+          {currentStep < 3 ? (
+            <button
+              onClick={handleNextStep}
+              disabled={currentStep === 1 && !canProceedStep1 || currentStep === 2 && !canProceedStep2}
+              className="px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              次へ →
+            </button>
+          ) : (
+            <button
+              onClick={handleStart}
+              disabled={isLoading}
+              className="px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  設定中...
+                </>
+              ) : (
+                <>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  監視を開始
+                </>
+              )}
+            </button>
+          )}
+        </div>
+            </div>
+
+            {/* 右側: 設定プレビュー */}
+            <div className="lg:col-span-1">
+              <div className="sticky top-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-6 border-2 border-emerald-200 shadow-lg">
+                <h3 className="text-lg font-bold text-emerald-900 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  設定プレビュー
+                </h3>
+
+                <div className="space-y-4">
+                  {/* 施設選択状況 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-gray-700">施設選択</span>
+                      {config.selectedFacilities.length > 0 ? (
+                        <span className="text-xs bg-emerald-600 text-white px-2 py-1 rounded-full">✓ 設定済み</span>
+                      ) : (
+                        <span className="text-xs bg-gray-300 text-gray-600 px-2 py-1 rounded-full">未設定</span>
+                      )}
+                    </div>
+                    {config.selectedFacilities.length > 0 ? (
+                      <div className="bg-white rounded-lg p-3 text-sm">
+                        <div className="font-medium text-emerald-700 mb-1">
+                          {config.selectedFacilities.length}施設を監視
+                        </div>
+                        <div className="text-xs text-gray-600 space-y-1 max-h-32 overflow-y-auto">
+                          {config.selectedFacilities.slice(0, 3).map((f, i) => (
+                            <div key={i}>• {f.name}</div>
+                          ))}
+                          {config.selectedFacilities.length > 3 && (
+                            <div className="text-gray-500">...他{config.selectedFacilities.length - 3}施設</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg p-3 text-sm text-gray-500 italic">
+                        施設を選択してください
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 日時設定状況 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-gray-700">日時設定</span>
+                      {config.timeSlots.length > 0 ? (
+                        <span className="text-xs bg-emerald-600 text-white px-2 py-1 rounded-full">✓ 設定済み</span>
+                      ) : (
+                        <span className="text-xs bg-gray-300 text-gray-600 px-2 py-1 rounded-full">未設定</span>
+                      )}
+                    </div>
+                    {config.dateMode && config.timeSlots.length > 0 ? (
+                      <div className="bg-white rounded-lg p-3 text-sm space-y-2">
+                        <div>
+                          <span className="text-gray-600">期間:</span>
+                          <span className="ml-2 font-medium text-gray-800">
+                            {config.dateMode === 'single' && '特定日'}
+                            {config.dateMode === 'range' && '期間指定'}
+                            {config.dateMode === 'continuous' && '毎週曜日'}
+                          </span>
+                        </div>
+                        {config.dateMode === 'single' && config.startDate && (
+                          <div className="text-xs text-gray-600">
+                            {config.startDate}
+                          </div>
+                        )}
+                        {config.dateMode === 'range' && config.startDate && config.endDate && (
+                          <div className="text-xs text-gray-600">
+                            {config.startDate} 〜 {config.endDate}
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-gray-600">時間帯:</span>
+                          <span className="ml-2 font-medium text-gray-800">
+                            {config.timeSlots.length}枠
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg p-3 text-sm text-gray-500 italic">
+                        日時と時間帯を設定してください
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 詳細設定状況 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-gray-700">詳細設定</span>
+                      {currentStep >= 3 ? (
+                        <span className="text-xs bg-emerald-600 text-white px-2 py-1 rounded-full">✓ 設定済み</span>
+                      ) : (
+                        <span className="text-xs bg-gray-300 text-gray-600 px-2 py-1 rounded-full">未設定</span>
+                      )}
+                    </div>
+                    {config.dateMode === 'continuous' ? (
+                      <div className="bg-white rounded-lg p-3 text-sm space-y-2">
+                        {config.selectedWeekdays && config.selectedWeekdays.length > 0 ? (
+                          <div>
+                            <span className="text-gray-600">曜日:</span>
+                            <span className="ml-2 font-medium text-gray-800">
+                              {config.selectedWeekdays.length === 7 ? '毎日' :
+                                config.selectedWeekdays.map(d => ['日','月','火','水','木','金','土'][d]).join(', ')}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500">曜日未設定</div>
+                        )}
+                        {config.includeHolidays !== undefined ? (
+                          <div>
+                            <span className="text-gray-600">祝日:</span>
+                            <span className="ml-2 font-medium text-gray-800">
+                              {config.includeHolidays === 'only' ? '祝日のみ' :
+                                config.includeHolidays === true ? '含む' : '除外'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500">祝日設定未設定</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg p-3 text-sm text-gray-500 italic">
+                        毎週曜日モードでは曜日・祝日設定が必要です
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 設定完了メッセージ */}
+                {canProceedStep1 && canProceedStep2 && currentStep === 3 && (
+                  <div className="mt-4 p-3 bg-emerald-100 border border-emerald-300 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-emerald-800 font-medium">
+                      <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      設定完了！監視を開始できます
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-
-        <button
-          onClick={handleStart}
-          disabled={isLoading}
-            className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                施設情報を取得中...
-              </>
-            ) : (
-              <>
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                {monitoringTargets.length > 0 ? '監視を追加' : '監視を開始'}
-              </>
-            )}
-          </button>
+        )}
+      </div>
 
       {/* 説明セクション */}
       <div className="bg-blue-50 rounded-lg p-6 mb-6">

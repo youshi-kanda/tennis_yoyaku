@@ -513,11 +513,10 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
     };
 
     // 既存の配列を取得して新しいターゲットを追加（エクスポネンシャルバックオフ付きリトライ）
-    let retries = 5; // リトライ回数を5回に増加
+    let success = false;
     let lastError: Error | null = null;
-    let attempt = 0;
     
-    while (retries > 0) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
         kvMetrics.reads++;
         const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
@@ -526,33 +525,27 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
         kvMetrics.writes++;
         await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
         
-        // 成功したらループを抜ける
         console.log(`[MonitoringCreate] Successfully added target ${target.id} (attempt ${attempt + 1})`);
+        success = true;
         break;
       } catch (err: any) {
         lastError = err;
-        retries--;
-        attempt++;
         
-        if (retries > 0) {
-          // 429エラーの場合はエクスポネンシャルバックオフ
+        if (attempt < 4) {  // 最後の試行後は待機しない
           if (err.message?.includes('429') || err.message?.includes('Too Many Requests')) {
-            const waitTime = Math.min(1000, 100 * Math.pow(2, attempt)); // 100ms, 200ms, 400ms, 800ms, 1000ms
-            console.warn(`[MonitoringCreate] KV write rate limited, retrying in ${waitTime}ms... (${retries} retries left)`);
+            const waitTime = Math.min(1000, 100 * Math.pow(2, attempt));
+            console.warn(`[MonitoringCreate] KV write rate limited, retrying in ${waitTime}ms... (attempt ${attempt + 1}/5)`);
             await new Promise(resolve => setTimeout(resolve, waitTime));
           } else {
-            // 他のエラーの場合も少し待機
-            const waitTime = 50 * attempt;
-            console.warn(`[MonitoringCreate] KV write failed (${err.message}), retrying in ${waitTime}ms... (${retries} retries left)`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
+            console.error(`[MonitoringCreate] Unexpected error (attempt ${attempt + 1}):`, err);
+            throw err;
           }
         }
       }
     }
     
-    // リトライ回数を使い果たした場合
-    if (retries === 0 && lastError) {
-      console.error(`[MonitoringCreate] Failed to add target after ${attempt} attempts:`, lastError);
+    if (!success && lastError) {
+      console.error(`[MonitoringCreate] Failed to add target after 5 attempts:`, lastError);
       throw lastError;
     }
 
@@ -602,7 +595,7 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
     const deletedTarget = allTargets.splice(targetIndex, 1)[0];
 
     // KVに保存（エクスポネンシャルバックオフ付きリトライ）
-    let retries = 5;
+    let success = false;
     let lastError: Error | null = null;
     
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -610,11 +603,10 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
         kvMetrics.writes++;
         await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
         console.log(`[MonitoringDelete] Successfully deleted target ${targetId} (attempt ${attempt + 1})`);
-        retries = 0;
+        success = true;
         break;
       } catch (error: any) {
         lastError = error;
-        retries--;
         
         if (error.message?.includes('429') || error.message?.includes('rate limit')) {
           const waitTime = Math.min(1000, 100 * Math.pow(2, attempt));
@@ -627,7 +619,7 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
       }
     }
     
-    if (retries === 0 && lastError) {
+    if (!success && lastError) {
       console.error(`[MonitoringDelete] Failed to delete target after 5 attempts:`, lastError);
       throw lastError;
     }

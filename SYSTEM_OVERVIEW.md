@@ -221,14 +221,16 @@ interface UserSettings {
 
 interface SiteCredentials {
   username: string;              // 利用者ID
-  password: string;              // パスワード（⚠️現在は平文保存、将来的にAES-256暗号化を検討）
+  password: string;              // パスワード（✅ AES-256-GCM で暗号化して保存）
   facilities: string[];          // 選択した施設ID
 }
 
-// ⚠️ セキュリティ注意事項:
-// - 現在、パスワードは平文でKVに保存されています
-// - 本番運用では暗号化実装を強く推奨
+// ✅ セキュリティ実装済み:
+// - パスワードは AES-256-GCM で暗号化してKVに保存
+// - 暗号化キーは Workers Secrets に保存
+// - 自動マイグレーション: 既存の平文パスワードを初回アクセス時に暗号化
 // - Workers Secretsには以下を保存:
+//   - ENCRYPTION_KEY: パスワード暗号化キー（256ビット）
 //   - JWT_SECRET: JWT署名用シークレット
 //   - ADMIN_KEY: 管理者登録キー
 //   - VAPID_PRIVATE_KEY: プッシュ通知秘密鍵
@@ -561,9 +563,10 @@ interface SiteSession {
 #### Workers (Backend)
 - **URL**: https://tennis-yoyaku-api.kanda02-1203.workers.dev
 - **Platform**: Cloudflare Workers
-- **Version ID**: `2fbc9278-b343-4ceb-9c00-589c527dac17`
+- **Version ID**: `f58ae125-5029-403e-9f35-cc139b1e379e`
 - **Compatibility Date**: 2024-01-01
 - **Last Deploy**: 2025-11-24
+- **Security**: AES-256-GCM パスワード暗号化実装済み
 
 ### Cron Schedule
 - **実行間隔**: 5分毎 (`*/5 * * * *`)
@@ -606,7 +609,11 @@ interface SiteSession {
 
 ### 認証とセッション管理
 - **JWT認証**: 有効期限30日、Authorization ヘッダーで送信
-- **パスワード保存**: ⚠️ 現在は平文でKV保存（将来的にAES-256暗号化を実装予定）
+- **パスワード保存**: ✅ AES-256-GCM で暗号化してKV保存（実装済み）
+  - 暗号化キー: Workers Secrets の `ENCRYPTION_KEY`（256ビット）
+  - IV: 96ビット（12バイト）をランダム生成
+  - 認証タグ: 128ビット（16バイト）
+  - 自動マイグレーション: 既存の平文パスワードを初回アクセス時に自動暗号化
 - **施設予約サイトのセッション**: JSESSIONID をKVで管理（30分TTL）
 
 ### レート制御
@@ -623,6 +630,7 @@ interface SiteSession {
 
 ### Workers Secrets（本番環境）
 ```
+ENCRYPTION_KEY: パスワード暗号化キー（256ビット、64文字のHex文字列）
 JWT_SECRET: JWT署名用シークレットキー
 ADMIN_KEY: 管理者登録キー（"tennis_admin_2025"）
 VAPID_PUBLIC_KEY: Web Push 公開鍵
@@ -801,5 +809,6 @@ MIT License
 ---
 
 **最終更新**: 2025年11月24日  
-**バージョン**: 1.2.0  
-**Workers Version**: `2fbc9278-b343-4ceb-9c00-589c527dac17`
+**バージョン**: 1.3.0  
+**Workers Version**: `f58ae125-5029-403e-9f35-cc139b1e379e`  
+**セキュリティ**: AES-256-GCM パスワード暗号化実装済み

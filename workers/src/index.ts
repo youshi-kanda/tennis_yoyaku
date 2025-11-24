@@ -13,6 +13,7 @@ import {
 } from './scraper';
 import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './reservationPeriod';
 import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
+import { encryptPassword, decryptPassword, isEncrypted } from './crypto';
 
 // ===== メモリキャッシュ（KV使用量削減のため） =====
 interface SessionCacheEntry {
@@ -52,6 +53,7 @@ export interface Env {
   MONITORING: KVNamespace;
   RESERVATIONS: KVNamespace;
   ENVIRONMENT: string;
+  ENCRYPTION_KEY: string;
   JWT_SECRET: string;
   ADMIN_KEY: string;
 }
@@ -600,6 +602,28 @@ async function handleGetSettings(request: Request, env: Env): Promise<Response> 
     }
 
     const settings = JSON.parse(settingsData);
+    
+    // マイグレーション: 平文パスワードを暗号化
+    let migrated = false;
+    
+    if (settings.shinagawa?.password && !isEncrypted(settings.shinagawa.password)) {
+      console.log(`[Migration] Encrypting shinagawa password for user ${userId}`);
+      settings.shinagawa.password = await encryptPassword(settings.shinagawa.password, env.ENCRYPTION_KEY);
+      migrated = true;
+    }
+    
+    if (settings.minato?.password && !isEncrypted(settings.minato.password)) {
+      console.log(`[Migration] Encrypting minato password for user ${userId}`);
+      settings.minato.password = await encryptPassword(settings.minato.password, env.ENCRYPTION_KEY);
+      migrated = true;
+    }
+    
+    // マイグレーションが発生した場合、KVに保存
+    if (migrated) {
+      await env.USERS.put(`settings:${userId}`, JSON.stringify(settings));
+      console.log(`[Migration] Settings updated for user ${userId}`);
+    }
+    
     return jsonResponse({ success: true, data: settings });
   } catch (error: any) {
     return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
@@ -634,7 +658,10 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     if (body.shinagawaUserId !== undefined || body.shinagawaPassword !== undefined) {
       updatedSettings.shinagawa = {
         username: body.shinagawaUserId || existingSettings.shinagawa?.username || '',
-        password: body.shinagawaPassword || existingSettings.shinagawa?.password || '',
+        // パスワードを暗号化して保存
+        password: body.shinagawaPassword 
+          ? await encryptPassword(body.shinagawaPassword, env.ENCRYPTION_KEY)
+          : existingSettings.shinagawa?.password || '',
       };
     }
 
@@ -642,7 +669,10 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     if (body.minatoUserId !== undefined || body.minatoPassword !== undefined) {
       updatedSettings.minato = {
         username: body.minatoUserId || existingSettings.minato?.username || '',
-        password: body.minatoPassword || existingSettings.minato?.password || '',
+        // パスワードを暗号化して保存
+        password: body.minatoPassword 
+          ? await encryptPassword(body.minatoPassword, env.ENCRYPTION_KEY)
+          : existingSettings.minato?.password || '',
       };
     }
 
@@ -681,7 +711,17 @@ async function handleGetShinagawaFacilities(request: Request, env: Env): Promise
 
     // ログインしてsessionIdを取得
     console.log('[Facilities] Attempting login to Shinagawa...');
-    const sessionId = await loginToShinagawa(settings.shinagawa.username, settings.shinagawa.password);
+    // パスワードを復号化（平文パスワードの場合はそのまま使用）
+    let decryptedPassword = settings.shinagawa.password;
+    if (isEncrypted(settings.shinagawa.password)) {
+      try {
+        decryptedPassword = await decryptPassword(settings.shinagawa.password, env.ENCRYPTION_KEY);
+      } catch (error) {
+        console.error('[Facilities] Failed to decrypt password:', error);
+        return jsonResponse({ error: 'Failed to decrypt password' }, 500);
+      }
+    }
+    const sessionId = await loginToShinagawa(settings.shinagawa.username, decryptedPassword);
     console.log('[Facilities] Login result, sessionId:', sessionId ? 'obtained' : 'failed');
     if (!sessionId) {
       return jsonResponse({ error: 'Failed to login to Shinagawa' }, 500);
@@ -715,7 +755,17 @@ async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Re
     }
 
     // ログインしてsessionIdを取得
-    const sessionId = await loginToMinato(settings.minato.username, settings.minato.password);
+    // パスワードを復号化（平文パスワードの場合はそのまま使用）
+    let decryptedPassword = settings.minato.password;
+    if (isEncrypted(settings.minato.password)) {
+      try {
+        decryptedPassword = await decryptPassword(settings.minato.password, env.ENCRYPTION_KEY);
+      } catch (error) {
+        console.error('[Facilities] Failed to decrypt password:', error);
+        return jsonResponse({ error: 'Failed to decrypt password' }, 500);
+      }
+    }
+    const sessionId = await loginToMinato(settings.minato.username, decryptedPassword);
     if (!sessionId) {
       return jsonResponse({ error: 'Failed to login to Minato' }, 500);
     }
@@ -804,7 +854,23 @@ async function checkAndNotify(target: MonitoringTarget, env: Env): Promise<void>
       return;
     }
     const settings = JSON.parse(settingsData);
-    const credentials = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
+    const siteSettings = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
+    
+    // パスワードを復号化（平文パスワードの場合はそのまま使用）
+    let decryptedPassword = siteSettings.password;
+    if (isEncrypted(siteSettings.password)) {
+      try {
+        decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
+      } catch (error) {
+        console.error(`[Check] Failed to decrypt password for user ${target.userId}:`, error);
+        return;
+      }
+    }
+    
+    const credentials = {
+      username: siteSettings.username,
+      password: decryptedPassword
+    };
 
     // 年ごとの祝日キャッシュを準備
     const holidaysCacheByYear = new Map<number, HolidayInfo[]>();
@@ -996,8 +1062,30 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       return; // 監視は継続するが予約はスキップ
     }
 
-    // TODO: ユーザーの認証情報を取得
-    const credentials = { username: 'user', password: 'pass' }; // 仮
+    // ユーザーの認証情報を取得
+    const settingsData = await env.USERS.get(`settings:${target.userId}`);
+    if (!settingsData) {
+      console.error(`[Reserve] No credentials found for user ${target.userId}`);
+      return;
+    }
+    const settings = JSON.parse(settingsData);
+    const siteSettings = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
+    
+    // パスワードを復号化（平文パスワードの場合はそのまま使用）
+    let decryptedPassword = siteSettings.password;
+    if (isEncrypted(siteSettings.password)) {
+      try {
+        decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
+      } catch (error) {
+        console.error(`[Reserve] Failed to decrypt password for user ${target.userId}:`, error);
+        return;
+      }
+    }
+    
+    const credentials = {
+      username: siteSettings.username,
+      password: decryptedPassword
+    };
 
     let result;
     if (target.site === 'shinagawa') {

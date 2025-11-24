@@ -397,7 +397,13 @@ async function handleMonitoringList(request: Request, env: Env): Promise<Respons
     // 配列管理されたデータを1回のget()で取得（list()不要）
     kvMetrics.reads++;
     const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
-    const userTargets = allTargets.filter((t: MonitoringTarget) => t.userId === userId);
+    const userTargets = allTargets
+      .filter((t: MonitoringTarget) => t.userId === userId)
+      .map((t: MonitoringTarget) => ({
+        ...t,
+        // facilityNameがない場合はfacilityIdで代替
+        facilityName: t.facilityName || t.facilityId || '施設名未設定'
+      }));
 
     return jsonResponse({
       success: true,

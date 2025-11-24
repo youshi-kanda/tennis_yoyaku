@@ -60,7 +60,9 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
     <Card className="p-4 hover:shadow-lg transition-all duration-200 border-2 hover:border-gray-300">
       <div className="flex justify-between items-start mb-3">
         <div className="flex-1">
-          <h3 className="font-bold text-lg mb-1">{target.facilityName}</h3>
+          <h3 className="font-bold text-lg mb-1">
+            {target.facilityName || target.facilityId || '施設名未設定'}
+          </h3>
           <div className="flex items-center gap-1 text-sm text-gray-600">
             <MapPin className="w-4 h-4" />
             <span>{target.site === 'shinagawa' ? '品川区' : '港区'}</span>

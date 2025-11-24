@@ -16,6 +16,7 @@
     "next": "16.0.3",
     "next-pwa": "^5.6.0",
     "react": "19.2.0",
+    "react-calendar": "^6.0.0",
     "react-dom": "19.2.0",
     "workbox-webpack-plugin": "^7.4.0",
     "zod": "^4.1.12",

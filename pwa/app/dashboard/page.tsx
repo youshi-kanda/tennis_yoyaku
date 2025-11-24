@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { apiClient } from '@/lib/api/client';
-import Link from 'next/link';
+import { MonitoringCalendar } from '@/components/monitoring/MonitoringCalendar';
+import { MonitoringCard } from '@/components/monitoring/MonitoringCard';
+import { MonitoringTarget } from '@/lib/types';
+import { useRouter } from 'next/navigation';
 
 interface Stats {
   activeMonitoring: number;
@@ -13,24 +16,29 @@ interface Stats {
 
 export default function DashboardHome() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [stats, setStats] = useState<Stats>({
     activeMonitoring: 0,
     totalReservations: 0,
     successRate: 0,
   });
+  const [targets, setTargets] = useState<MonitoringTarget[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadStats();
+    loadData();
   }, []);
 
-  const loadStats = async () => {
+  const loadData = async () => {
     try {
       setIsLoading(true);
       
-      // 監視数を取得
+      // 監視ターゲットを取得
       const monitoringResponse = await apiClient.getMonitoringList();
-      const activeCount = monitoringResponse.data?.filter((t: { status: string }) => t.status === 'active').length || 0;
+      const monitoringTargets = monitoringResponse.data || [];
+      setTargets(monitoringTargets);
+      
+      const activeCount = monitoringTargets.filter((t: MonitoringTarget) => t.status === 'monitoring').length;
       
       // 予約履歴を取得
       const historyResponse = await apiClient.getReservationHistory(100);
@@ -44,16 +52,28 @@ export default function DashboardHome() {
         successRate,
       });
     } catch (error) {
-      console.error('Failed to load stats:', error);
+      console.error('Failed to load data:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleStop = async (target: MonitoringTarget) => {
+    if (!confirm('この監視を停止しますか？')) return;
+    
+    try {
+      await apiClient.deleteMonitoringTarget(target.id);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to stop monitoring:', error);
+      alert('監視の停止に失敗しました');
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto space-y-8">
       {/* ヘッダー */}
-      <div className="mb-8">
+      <div>
         <h1 className="text-3xl font-bold text-gray-900">
           ダッシュボード
         </h1>
@@ -63,7 +83,7 @@ export default function DashboardHome() {
       </div>
 
       {/* 統計カード */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* 監視中の施設 */}
         <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
           <div className="flex items-center justify-between mb-4">
@@ -135,76 +155,90 @@ export default function DashboardHome() {
         </div>
       </div>
 
-      {/* クイックアクション */}
-      <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 mb-8">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">クイックアクション</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Link 
-            href="/dashboard/monitoring"
-            className="flex items-center p-4 border border-gray-200 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-colors group"
-          >
-            <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-emerald-200">
-              <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">監視を追加</h3>
-              <p className="text-sm text-gray-600">新しい施設を監視開始</p>
-            </div>
-          </Link>
+      {/* カレンダー */}
+      {!isLoading && <MonitoringCalendar targets={targets} />}
 
-          <Link 
-            href="/dashboard/history"
-            className="flex items-center p-4 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors group"
+      {/* 監視中の設定一覧 */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">📋 監視中の設定</h2>
+          <Button
+            onClick={() => router.push('/dashboard/monitoring')}
+            className="bg-emerald-600 hover:bg-emerald-700"
           >
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-blue-200">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">予約履歴</h3>
-              <p className="text-sm text-gray-600">過去の予約を確認</p>
-            </div>
-          </Link>
-
-          <Link 
-            href="/dashboard/settings"
-            className="flex items-center p-4 border border-gray-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors group"
-          >
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-purple-200">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">設定</h3>
-              <p className="text-sm text-gray-600">アカウント設定を変更</p>
-            </div>
-          </Link>
+            + 新規追加
+          </Button>
         </div>
-      </div>
 
-      {/* お知らせ */}
-      <div className="bg-linear-to-r from-emerald-50 to-teal-50 rounded-xl p-6 border border-emerald-200">
-        <div className="flex items-start">
-          <div className="shrink-0">
-            <svg className="w-6 h-6 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="animate-pulse bg-white rounded-lg p-6 border">
+                <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+              </div>
+            ))}
+          </div>
+        ) : targets.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-md p-12 text-center border border-gray-200">
+            <svg
+              className="w-16 h-16 text-gray-300 mx-auto mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
             </svg>
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">監視設定がありません</h3>
+            <p className="text-gray-500 mb-6">
+              右上の「新規追加」ボタンから監視を追加してください
+            </p>
+            <Button
+              onClick={() => router.push('/dashboard/monitoring')}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              監視を追加
+            </Button>
           </div>
-          <div className="ml-3">
-            <h3 className="text-sm font-semibold text-emerald-900 mb-1">使い方のヒント</h3>
-            <ul className="text-sm text-emerald-800 space-y-1">
-              <li>• 監視設定で「自動予約」をONにすると、空きを検知した際に自動で予約を試みます</li>
-              <li>• 設定ページで品川区・港区の予約サイトのログイン情報を登録してください</li>
-              <li>• 監視は60秒間隔で自動実行されます</li>
-            </ul>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {targets.map((target) => (
+              <MonitoringCard
+                key={target.id}
+                target={target}
+                onDetail={() => router.push(`/dashboard/monitoring?target=${target.id}`)}
+                onEdit={() => router.push(`/dashboard/monitoring?edit=${target.id}`)}
+                onStop={handleStop}
+              />
+            ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function Button({
+  children,
+  onClick,
+  className,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 rounded-lg font-medium transition-colors ${className}`}
+    >
+      {children}
+    </button>
   );
 }

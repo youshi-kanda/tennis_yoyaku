@@ -23,15 +23,15 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
   const getStatusBadge = () => {
     switch (target.status) {
       case 'monitoring':
-        return <Badge variant="default" className="bg-green-500">🔄 監視中</Badge>;
+        return <Badge variant="success">🔄 監視中</Badge>;
       case 'detected':
-        return <Badge variant="default" className="bg-yellow-500">👀 検知</Badge>;
+        return <Badge variant="warning">👀 検知</Badge>;
       case 'reserved':
-        return <Badge variant="default" className="bg-blue-500">✅ 予約済</Badge>;
+        return <Badge variant="info">✅ 予約済</Badge>;
       case 'failed':
-        return <Badge variant="destructive">❌ 失敗</Badge>;
+        return <Badge variant="error">❌ 失敗</Badge>;
       default:
-        return <Badge variant="outline">{target.status}</Badge>;
+        return <Badge variant="default">{target.status}</Badge>;
     }
   };
 
@@ -130,9 +130,9 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
         {onStop && (
           <Button
             size="sm"
-            variant="destructive"
+            variant="outline"
             onClick={() => onStop(target)}
-            className="flex-1"
+            className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
           >
             停止
           </Button>

@@ -133,15 +133,15 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'monitoring':
-        return <Badge variant="default" className="bg-green-500">監視中</Badge>;
+        return <Badge variant="success">監視中</Badge>;
       case 'detected':
-        return <Badge variant="default" className="bg-yellow-500">検知</Badge>;
+        return <Badge variant="warning">検知</Badge>;
       case 'reserved':
-        return <Badge variant="default" className="bg-blue-500">予約済</Badge>;
+        return <Badge variant="info">予約済</Badge>;
       case 'failed':
-        return <Badge variant="destructive">失敗</Badge>;
+        return <Badge variant="error">失敗</Badge>;
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge variant="default">{status}</Badge>;
     }
   };
 

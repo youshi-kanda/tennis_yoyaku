@@ -512,13 +512,42 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       createdAt: Date.now(),
     };
 
-    // 既存の配列を取得して新しいターゲットを追加
-    kvMetrics.reads++;
-    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
-    allTargets.push(target);
+    // 既存の配列を取得して新しいターゲットを追加（リトライ付き）
+    let retries = 3;
+    let lastError: Error | null = null;
     
-    kvMetrics.writes++;
-    await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+    while (retries > 0) {
+      try {
+        kvMetrics.reads++;
+        const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+        allTargets.push(target);
+        
+        kvMetrics.writes++;
+        await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+        
+        // 成功したらループを抜ける
+        break;
+      } catch (err: any) {
+        lastError = err;
+        retries--;
+        
+        if (retries > 0) {
+          // 429エラーの場合は少し待機してリトライ
+          if (err.message?.includes('429') || err.message?.includes('Too Many Requests')) {
+            console.warn(`[MonitoringCreate] KV write rate limited, retrying... (${retries} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, 200)); // 200ms待機
+          } else {
+            // 他のエラーの場合は即座にリトライ
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
+      }
+    }
+    
+    // リトライ回数を使い果たした場合
+    if (retries === 0 && lastError) {
+      throw lastError;
+    }
 
     // 監視リストキャッシュを無効化（新しい監視が追加されたため）
     monitoringListCache.data = null;

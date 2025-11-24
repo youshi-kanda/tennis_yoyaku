@@ -88,11 +88,68 @@ export interface MonitoringTarget {
   createdAt: number;
 }
 
+// ===== バッチ化されたデータ構造（KV最適化） =====
+export interface UserMonitoringState {
+  targets: MonitoringTarget[];
+  updatedAt: number;
+  version: number; // データバージョン管理
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+// ===== バッチ化ヘルパー関数（KV最適化） =====
+
+/**
+ * ユーザーの監視状態を取得（新形式: MONITORING:{userId}）
+ * 後方互換性のため、旧形式(monitoring:all_targets)からの自動移行も行う
+ */
+async function getUserMonitoringState(userId: string, kv: KVNamespace): Promise<UserMonitoringState> {
+  // 新形式で取得
+  const newKey = `MONITORING:${userId}`;
+  kvMetrics.reads++;
+  const newData = await kv.get(newKey, 'json') as UserMonitoringState | null;
+  
+  if (newData) {
+    return newData;
+  }
+  
+  // 新形式がない場合、旧形式から移行（初回のみ）
+  console.log(`[Migration] Loading old format for user ${userId}`);
+  kvMetrics.reads++;
+  const oldData = await kv.get('monitoring:all_targets', 'json') as MonitoringTarget[] | null;
+  
+  if (oldData) {
+    const userTargets = oldData.filter(t => t.userId === userId);
+    return {
+      targets: userTargets,
+      updatedAt: Date.now(),
+      version: 1
+    };
+  }
+  
+  // データがない場合は空の状態を返す
+  return {
+    targets: [],
+    updatedAt: Date.now(),
+    version: 1
+  };
+}
+
+/**
+ * ユーザーの監視状態を保存（新形式のみ）
+ */
+async function saveUserMonitoringState(userId: string, state: UserMonitoringState, kv: KVNamespace): Promise<void> {
+  const key = `MONITORING:${userId}`;
+  state.updatedAt = Date.now();
+  
+  kvMetrics.writes++;
+  await kv.put(key, JSON.stringify(state));
+  console.log(`[KV Write] Saved monitoring state for user ${userId}, ${state.targets.length} targets`);
+}
 
 // ===== キャッシュヘルパー関数 =====
 async function getCachedSession(userId: string, kv: KVNamespace): Promise<string | null> {
@@ -394,16 +451,13 @@ async function handleMonitoringList(request: Request, env: Env): Promise<Respons
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
 
-    // 配列管理されたデータを1回のget()で取得（list()不要）
-    kvMetrics.reads++;
-    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
-    const userTargets = allTargets
-      .filter((t: MonitoringTarget) => t.userId === userId)
-      .map((t: MonitoringTarget) => ({
-        ...t,
-        // facilityNameがない場合はfacilityIdで代替
-        facilityName: t.facilityName || t.facilityId || '施設名未設定'
-      }));
+    // 新形式：ユーザー単位で取得（KV最適化）
+    const state = await getUserMonitoringState(userId, env.MONITORING);
+    const userTargets = state.targets.map((t: MonitoringTarget) => ({
+      ...t,
+      // facilityNameがない場合はfacilityIdで代替
+      facilityName: t.facilityName || t.facilityId || '施設名未設定'
+    }));
 
     return jsonResponse({
       success: true,
@@ -512,41 +566,19 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       createdAt: Date.now(),
     };
 
-    // 既存の配列を取得して新しいターゲットを追加（エクスポネンシャルバックオフ付きリトライ）
-    let success = false;
-    let lastError: Error | null = null;
-    
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        kvMetrics.reads++;
-        const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
-        allTargets.push(target);
-        
-        kvMetrics.writes++;
-        await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
-        
-        console.log(`[MonitoringCreate] Successfully added target ${target.id} (attempt ${attempt + 1})`);
-        success = true;
-        break;
-      } catch (err: any) {
-        lastError = err;
-        
-        if (attempt < 4) {  // 最後の試行後は待機しない
-          if (err.message?.includes('429') || err.message?.includes('Too Many Requests')) {
-            const waitTime = Math.min(1000, 100 * Math.pow(2, attempt));
-            console.warn(`[MonitoringCreate] KV write rate limited, retrying in ${waitTime}ms... (attempt ${attempt + 1}/5)`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-          } else {
-            console.error(`[MonitoringCreate] Unexpected error (attempt ${attempt + 1}):`, err);
-            throw err;
-          }
-        }
+    // 新形式：ユーザー単位で監視状態を保存（KV書き込み最適化）
+    try {
+      const state = await getUserMonitoringState(userId, env.MONITORING);
+      state.targets.push(target);
+      await saveUserMonitoringState(userId, state, env.MONITORING);
+      
+      console.log(`[MonitoringCreate] Successfully added target ${target.id} for user ${userId}`);
+    } catch (err: any) {
+      console.error(`[MonitoringCreate] KV write failed:`, err);
+      if (err.message?.includes('429') || err.message?.includes('limit exceeded')) {
+        throw new Error('KV write limit exceeded. Please try again later or upgrade to paid plan.');
       }
-    }
-    
-    if (!success && lastError) {
-      console.error(`[MonitoringCreate] Failed to add target after 5 attempts:`, lastError);
-      throw lastError;
+      throw err;
     }
 
     // 監視リストキャッシュを無効化（新しい監視が追加されたため）
@@ -580,48 +612,29 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
       return jsonResponse({ error: 'Target ID is required' }, 400);
     }
 
-    // 既存の監視リストを取得
-    kvMetrics.reads++;
-    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    // 新形式：ユーザー単位で取得（KV最適化）
+    const state = await getUserMonitoringState(userId, env.MONITORING);
 
     // 指定されたIDの監視を探す
-    const targetIndex = allTargets.findIndex(t => t.id === targetId && t.userId === userId);
+    const targetIndex = state.targets.findIndex(t => t.id === targetId);
 
     if (targetIndex === -1) {
       return jsonResponse({ error: 'Monitoring target not found or unauthorized' }, 404);
     }
 
     // 監視を削除
-    const deletedTarget = allTargets.splice(targetIndex, 1)[0];
+    const deletedTarget = state.targets.splice(targetIndex, 1)[0];
 
-    // KVに保存（エクスポネンシャルバックオフ付きリトライ）
-    let success = false;
-    let lastError: Error | null = null;
-    
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        kvMetrics.writes++;
-        await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
-        console.log(`[MonitoringDelete] Successfully deleted target ${targetId} (attempt ${attempt + 1})`);
-        success = true;
-        break;
-      } catch (error: any) {
-        lastError = error;
-        
-        if (error.message?.includes('429') || error.message?.includes('rate limit')) {
-          const waitTime = Math.min(1000, 100 * Math.pow(2, attempt));
-          console.warn(`[MonitoringDelete] KV write rate limited, retrying in ${waitTime}ms... (attempt ${attempt + 1}/5)`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        } else {
-          console.error(`[MonitoringDelete] Unexpected error (attempt ${attempt + 1}):`, error);
-          throw error;
-        }
+    // 新形式で保存（リトライなし - KV書き込み上限対策）
+    try {
+      await saveUserMonitoringState(userId, state, env.MONITORING);
+      console.log(`[MonitoringDelete] Successfully deleted target ${targetId}`);
+    } catch (error: any) {
+      console.error(`[MonitoringDelete] KV write failed:`, error);
+      if (error.message?.includes('429') || error.message?.includes('limit exceeded')) {
+        throw new Error('KV write limit exceeded. Please try again later or upgrade to paid plan.');
       }
-    }
-    
-    if (!success && lastError) {
-      console.error(`[MonitoringDelete] Failed to delete target after 5 attempts:`, lastError);
-      throw lastError;
+      throw error;
     }
 
     // 監視リストキャッシュを無効化

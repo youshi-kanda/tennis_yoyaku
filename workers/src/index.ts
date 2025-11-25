@@ -1119,10 +1119,25 @@ async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
     return cachedList.filter((t: MonitoringTarget) => t.status === 'active');
   }
   
-  // キャッシュミス時 - 配列管理されたデータを1回のget()で取得（list()不要）
+  // キャッシュミス時 - 新形式のKVから全ユーザーの監視設定を取得
+  console.log('[getAllActiveTargets] キャッシュミス - KVから取得');
   kvMetrics.reads++;
-  const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+  kvMetrics.cacheMisses++;
+  
+  // 新形式: MONITORING:{userId} から全ユーザーの監視設定を取得
+  const listResult = await env.MONITORING.list({ prefix: 'MONITORING:' });
+  const allTargets: MonitoringTarget[] = [];
+  
+  for (const key of listResult.keys) {
+    kvMetrics.reads++;
+    const state = await env.MONITORING.get(key.name, 'json') as UserMonitoringState | null;
+    if (state && state.targets) {
+      allTargets.push(...state.targets);
+    }
+  }
+  
   const activeTargets = allTargets.filter((t: MonitoringTarget) => t.status === 'active');
+  console.log(`[getAllActiveTargets] 取得完了: ${allTargets.length}件中${activeTargets.length}件がアクティブ`);
   
   // 取得したデータをキャッシュに保存
   monitoringListCache.data = activeTargets;

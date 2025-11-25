@@ -1274,28 +1274,46 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // 空き枠を収集（priority_firstの場合に使用）
     const availableSlots: Array<{date: string; timeSlot: string}> = [];
 
-    // 各日付・時間帯の組み合わせをチェック
+    // 🚀 並列処理で高速化: すべてのチェックを同時実行
+    const checkPromises: Promise<{date: string; timeSlot: string; result: AvailabilityResult}>[] = [];
+    
     for (const date of datesToCheck) {
       for (const timeSlot of timeSlotsToCheck) {
-        let result: AvailabilityResult;
+        const promise = (async () => {
+          let result: AvailabilityResult;
 
-        if (target.site === 'shinagawa') {
-          result = await checkShinagawaAvailability(
-            target.facilityId,
-            date,
-            timeSlot,
-            credentials,
-            existingReservations
-          );
-        } else {
-          result = await checkMinatoAvailability(
-            target.facilityId,
-            date,
-            timeSlot,
-            credentials,
-            existingReservations
-          );
-        }
+          if (target.site === 'shinagawa') {
+            result = await checkShinagawaAvailability(
+              target.facilityId,
+              date,
+              timeSlot,
+              credentials,
+              existingReservations
+            );
+          } else {
+            result = await checkMinatoAvailability(
+              target.facilityId,
+              date,
+              timeSlot,
+              credentials,
+              existingReservations
+            );
+          }
+          
+          return { date, timeSlot, result };
+        })();
+        
+        checkPromises.push(promise);
+      }
+    }
+    
+    // すべてのチェックを並列実行
+    console.log(`[Check] 🚀 並列実行: ${checkPromises.length}件の空き状況チェック`);
+    const checkResults = await Promise.all(checkPromises);
+    console.log(`[Check] ✅ 並列実行完了`);
+    
+    // 結果を処理
+    for (const { date, timeSlot, result } of checkResults) {
 
         // 🔥 「取」ステータスを検知した場合（集中監視モードに移行）
         if (result.currentStatus === '取' && target.detectedStatus !== '取') {

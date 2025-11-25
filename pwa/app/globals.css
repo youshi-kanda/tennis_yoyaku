@@ -36,6 +36,8 @@ body {
   padding: 0.75rem 0.5rem;
   position: relative;
   border-radius: 0.375rem;
+  color: #1f2937; /* 平日の日付を濃い灰色に */
+  font-weight: 500; /* 少し太く */
 }
 
 .calendar-container .react-calendar__tile:enabled:hover,
@@ -84,9 +86,17 @@ body {
 }
 
 .calendar-container .react-calendar__month-view__days__day--weekend {
-  color: #dc2626;
+  color: #dc2626; /* 土日は赤 */
+  font-weight: 600; /* 太く */
 }
 
 .calendar-container .react-calendar__month-view__days__day--neighboringMonth {
-  color: #9ca3af;
+  color: #9ca3af; /* 前後の月の日付は薄く */
+}
+
+/* 平日の日付を見やすく */
+.calendar-container .react-calendar__month-view__days button {
+  font-size: 0.95rem;
+  color: #111827; /* さらに濃い黒に近い色 */
+  font-weight: 500;
 }

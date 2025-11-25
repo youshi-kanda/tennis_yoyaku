@@ -47,6 +47,63 @@ let kvMetrics = {
   resetAt: Date.now()
 };
 
+// ===== 深夜早朝時間帯判定（品川区の制約） =====
+interface TimeRestrictions {
+  canLogin: boolean;
+  canReserve: boolean;
+  shouldResetSession: boolean;
+  reason?: string;
+}
+
+/**
+ * 品川区の深夜早朝時間帯制約をチェック
+ * @param now 現在時刻（UTC）
+ * @returns 時間帯制約情報
+ */
+function checkTimeRestrictions(now: Date = new Date()): TimeRestrictions {
+  // JST変換（UTC + 9時間）
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const hour = jst.getHours();
+  const minute = jst.getMinutes();
+  
+  // 24:00〜3:15: ログイン不可、既存セッションのみ予約可
+  if (hour === 0 || hour === 1 || hour === 2 || (hour === 3 && minute < 15)) {
+    return {
+      canLogin: false,
+      canReserve: true, // 既存セッションは予約可能
+      shouldResetSession: false,
+      reason: '深夜時間帯（24:00-3:15）: ログイン不可、既存セッションのみ予約可'
+    };
+  }
+  
+  // 3:15: セッションリセットタイミング
+  if (hour === 3 && minute === 15) {
+    return {
+      canLogin: false,
+      canReserve: false,
+      shouldResetSession: true,
+      reason: '3:15: セッションリセット時刻'
+    };
+  }
+  
+  // 3:15〜5:00: 新規予約不可
+  if ((hour === 3 && minute > 15) || hour === 4) {
+    return {
+      canLogin: false,
+      canReserve: false,
+      shouldResetSession: false,
+      reason: '早朝時間帯（3:15-5:00）: ログイン・予約不可'
+    };
+  }
+  
+  // その他の時間帯: 制限なし
+  return {
+    canLogin: true,
+    canReserve: true,
+    shouldResetSession: false
+  };
+}
+
 export interface Env {
   USERS: KVNamespace;
   SESSIONS: KVNamespace;
@@ -343,6 +400,31 @@ export default {
     const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000); // JST変換
     
     console.log('[Cron] Started:', jstTime.toISOString(), `(JST: ${jstTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`);
+    
+    // ⏰ 深夜早朝時間帯チェック（品川区の制約）
+    const timeRestrictions = checkTimeRestrictions(now);
+    if (timeRestrictions.reason) {
+      console.log(`[Cron] ⏰ ${timeRestrictions.reason}`);
+    }
+    
+    // 3:15: セッションリセット処理
+    if (timeRestrictions.shouldResetSession) {
+      console.log('[Cron] 🔄 セッションリセット実行中...');
+      try {
+        // 全ユーザーのセッションをクリア
+        await resetAllSessions(env);
+        console.log('[Cron] ✅ セッションリセット完了');
+      } catch (error) {
+        console.error('[Cron] ❌ セッションリセット失敗:', error);
+      }
+      return; // リセット後は監視処理をスキップ
+    }
+    
+    // 予約不可時間帯はスキップ
+    if (!timeRestrictions.canReserve) {
+      console.log('[Cron] ⏸️  予約不可時間帯のため監視スキップ');
+      return;
+    }
     
     // 集中監視モード判定: 10分刻み(10, 20, 30...)の前後2分間
     // 例: 10:08, 10:09, 10:10, 10:11, 10:12 は集中監視
@@ -927,6 +1009,34 @@ async function handleGetReservationPeriod(request: Request, env: Env): Promise<R
   } catch (error: any) {
     console.error('Get reservation period error:', error);
     return jsonResponse({ error: error.message || 'Failed to fetch reservation period' }, 500);
+  }
+}
+
+/**
+ * 全ユーザーのセッションをリセット（3:15処理用）
+ */
+async function resetAllSessions(env: Env): Promise<void> {
+  console.log('[Reset] セッション全削除開始...');
+  
+  try {
+    // SESSIONSのすべてのキーを取得
+    const sessionKeys = await env.SESSIONS.list({ prefix: 'session:' });
+    
+    console.log(`[Reset] ${sessionKeys.keys.length}件のセッションを削除中...`);
+    
+    // すべてのセッションを削除
+    for (const key of sessionKeys.keys) {
+      await env.SESSIONS.delete(key.name);
+      console.log(`[Reset] 削除: ${key.name}`);
+    }
+    
+    // メモリキャッシュもクリア
+    sessionCache.clear();
+    
+    console.log('[Reset] ✅ セッション全削除完了');
+  } catch (error) {
+    console.error('[Reset] ❌ セッション削除エラー:', error);
+    throw error;
   }
 }
 

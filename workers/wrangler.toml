@@ -20,11 +20,12 @@ id = "5a8f67abf49546b58f6113e18a5b2443"
 binding = "RESERVATIONS"
 id = "6e26433ee30b4ad0bc0a8749a67038be"
 
-# Cron Triggers (フェーズ1: 無料プラン案A - 1分間隔)
+# Cron Triggers (フェーズ1: 無料プラン案A - 1分間隔 + 5:00一斉処理)
 # 通常監視: 1分間隔
 # 集中監視: 10分刻み(10:10, 10:20...)前後2分間は自動的に高頻度チェック
+# 5:00一斉処理: 毎日5:00に実行（溜まった枠を一斉予約）
 [triggers]
-crons = ["*/1 * * * *"]
+crons = ["*/1 * * * *", "0 5 * * *"]
 
 # Environment variables (Production)
 [vars]
@@ -58,7 +59,7 @@ id = "272a3a9914bd407e9389ca2d8ef907db"
 
 # Cron Triggers (Development) - 本番と同じ設定
 [env.development.triggers]
-crons = ["*/1 * * * *"]
+crons = ["*/1 * * * *", "0 5 * * *"]
 
 # Environment variables (Development)
 [env.development.vars]

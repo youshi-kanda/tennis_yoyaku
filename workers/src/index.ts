@@ -398,9 +398,24 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     const now = new Date();
     const minutes = now.getMinutes();
+    const hours = now.getHours();
     const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000); // JST変換
+    const jstHours = jstTime.getHours();
+    const jstMinutes = jstTime.getMinutes();
     
     console.log('[Cron] Started:', jstTime.toISOString(), `(JST: ${jstTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`);
+    
+    // 🌅 5:00一斉処理（毎日5:00:00に実行）
+    if (jstHours === 5 && jstMinutes === 0) {
+      console.log('[Cron] 🌅 5:00一斉処理開始');
+      try {
+        await handle5AMBatchReservation(env);
+        console.log('[Cron] ✅ 5:00一斉処理完了');
+      } catch (error) {
+        console.error('[Cron] ❌ 5:00一斉処理失敗:', error);
+      }
+      return; // 5:00処理後は通常監視をスキップ
+    }
     
     // ⏰ 深夜早朝時間帯チェック（品川区の制約）
     const timeRestrictions = checkTimeRestrictions(now);
@@ -1037,6 +1052,60 @@ async function resetAllSessions(env: Env): Promise<void> {
     console.log('[Reset] ✅ セッション全削除完了');
   } catch (error) {
     console.error('[Reset] ❌ セッション削除エラー:', error);
+    throw error;
+  }
+}
+
+/**
+ * 5:00一斉処理: 溜まった対象枠（×→○）を一斉に予約
+ */
+async function handle5AMBatchReservation(env: Env): Promise<void> {
+  console.log('[5AM] 🌅 5:00一斉処理開始');
+  
+  try {
+    // すべてのアクティブなターゲットを取得
+    const allTargets = await getAllActiveTargets(env);
+    console.log(`[5AM] アクティブなターゲット: ${allTargets.length}件`);
+    
+    if (allTargets.length === 0) {
+      console.log('[5AM] 処理対象なし');
+      return;
+    }
+    
+    // 優先度順にソート（priorityが高い順、同じなら作成日時が古い順）
+    const sortedTargets = allTargets.sort((a, b) => {
+      const priorityA = a.priority || 3;
+      const priorityB = b.priority || 3;
+      if (priorityB !== priorityA) {
+        return priorityB - priorityA; // 優先度が高い順
+      }
+      return a.createdAt - b.createdAt; // 作成日時が古い順
+    });
+    
+    console.log(`[5AM] 優先度順にソート完了: 最高優先度=${sortedTargets[0].priority || 3}`);
+    
+    // 各ターゲットをチェック・予約
+    let reservedCount = 0;
+    let failedCount = 0;
+    
+    for (const target of sortedTargets) {
+      try {
+        console.log(`[5AM] チェック: ${target.facilityName} (${target.site}) priority=${target.priority || 3}`);
+        
+        // 空き状況をチェックして即座に予約
+        await checkAndNotify(target, env, false);
+        
+        reservedCount++;
+      } catch (error) {
+        console.error(`[5AM] ❌ エラー: ${target.facilityName}`, error);
+        failedCount++;
+      }
+    }
+    
+    console.log(`[5AM] ✅ 処理完了: 成功=${reservedCount}件, 失敗=${failedCount}件`);
+    
+  } catch (error) {
+    console.error('[5AM] ❌ 5:00一斉処理エラー:', error);
     throw error;
   }
 }

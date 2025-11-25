@@ -6,6 +6,7 @@ import 'react-calendar/dist/Calendar.css';
 import { MonitoringTarget } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { isHoliday } from '@/lib/utils/holidays';
 
 interface MonitoringCalendarProps {
   targets: MonitoringTarget[];
@@ -100,15 +101,23 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
     const dateStr = date.toISOString().split('T')[0];
     const status = dateStatusMap.get(dateStr);
     
-    if (!status) return '';
+    const classes: string[] = [];
+    
+    // 土日祝を赤文字に
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6 || isHoliday(date)) {
+      classes.push('text-red-600');
+    }
+    
+    if (!status) return classes.join(' ');
 
     // 優先度: failed > reserved > detected > monitoring
-    if (status.failed > 0) return 'bg-red-100 text-red-800 font-semibold';
-    if (status.reserved > 0) return 'bg-blue-100 text-blue-800 font-semibold';
-    if (status.detected > 0) return 'bg-yellow-100 text-yellow-800 font-semibold';
-    if (status.monitoring > 0) return 'bg-green-100 text-green-800 font-semibold';
+    if (status.failed > 0) classes.push('bg-red-100 font-semibold');
+    else if (status.reserved > 0) classes.push('bg-blue-100 font-semibold');
+    else if (status.detected > 0) classes.push('bg-yellow-100 font-semibold');
+    else if (status.monitoring > 0) classes.push('bg-green-100 font-semibold');
     
-    return '';
+    return classes.join(' ');
   };
 
   // タイルの内容をカスタマイズ

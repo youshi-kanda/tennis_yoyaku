@@ -1386,7 +1386,6 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
           target.intensiveMonitoringUntil = undefined;
           await updateMonitoringTargetOptimized(target, 'intensive_mode_ended', env.MONITORING);
         }
-      }
     }
     
     // モードB（priority_first）: 収集した空き枠から優先度の高い1枚のみ予約

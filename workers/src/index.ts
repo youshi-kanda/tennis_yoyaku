@@ -140,6 +140,7 @@ export interface MonitoringTarget {
   includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
   status: 'active' | 'pending' | 'completed' | 'failed';
   autoReserve: boolean;
+  reservationStrategy?: 'all' | 'priority_first'; // 予約戦略: 'all'=全取得, 'priority_first'=優先度1枚のみ（デフォルトは'all'）
   lastCheck?: number;
   lastStatus?: string; // '×' or '○' or '取'
   detectedStatus?: '×' | '取' | '○'; // 検知したステータス（集中監視用）
@@ -1198,6 +1199,12 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // チェックする時間帯のリスト
     const timeSlotsToCheck = target.timeSlots || [target.timeSlot];
 
+    // 予約戦略の取得（デフォルトは'all'）
+    const strategy = target.reservationStrategy || 'all';
+    
+    // 空き枠を収集（priority_firstの場合に使用）
+    const availableSlots: Array<{date: string; timeSlot: string}> = [];
+
     // 各日付・時間帯の組み合わせをチェック
     for (const date of datesToCheck) {
       for (const timeSlot of timeSlotsToCheck) {
@@ -1271,11 +1278,17 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
             target.intensiveMonitoringUntil = undefined;
           }
 
-          // 自動予約が有効な場合は予約を試みる
+          // 予約戦略に応じて処理
           if (target.autoReserve) {
-            // 一時的にtargetの日付と時間帯を変更して予約
-            const tempTarget = { ...target, date, timeSlot };
-            await attemptReservation(tempTarget, env);
+            if (strategy === 'priority_first') {
+              // モードB: 空き枠を収集（後でまとめて優先度順に1枚だけ予約）
+              availableSlots.push({ date, timeSlot });
+              console.log(`[Alert] 📌 空き枠収集: ${date} ${timeSlot} (priority_first モード)`);
+            } else {
+              // モードA: 即座に予約（全取得）
+              const tempTarget = { ...target, date, timeSlot };
+              await attemptReservation(tempTarget, env);
+            }
           }
         }
         
@@ -1287,6 +1300,18 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
           await updateMonitoringTargetOptimized(target, 'intensive_mode_ended', env.MONITORING);
         }
       }
+    }
+    
+    // モードB（priority_first）: 収集した空き枠から優先度の高い1枚のみ予約
+    if (strategy === 'priority_first' && availableSlots.length > 0 && target.autoReserve) {
+      console.log(`[Alert] 🎯 priority_firstモード: ${availableSlots.length}枚の空きから1枚選択`);
+      
+      // 最初の枠（最も早い日付・時間帯）を選択
+      const selectedSlot = availableSlots[0];
+      console.log(`[Alert] ✅ 選択: ${selectedSlot.date} ${selectedSlot.timeSlot}`);
+      
+      const tempTarget = { ...target, date: selectedSlot.date, timeSlot: selectedSlot.timeSlot };
+      await attemptReservation(tempTarget, env);
     }
 
     // 最適化された書き込み（ステータス変更時のみwrite）

@@ -35,11 +35,13 @@ export default function DashboardHome() {
       
       // 監視ターゲットを取得
       const monitoringResponse = await apiClient.getMonitoringList();
+      console.log('[Dashboard] APIレスポンス全体:', monitoringResponse);
       const monitoringTargets = monitoringResponse.data || [];
       console.log('[Dashboard] 取得した監視ターゲット:', monitoringTargets);
+      console.log('[Dashboard] ターゲット数:', monitoringTargets.length);
       setTargets(monitoringTargets);
       
-      const activeCount = monitoringTargets.filter((t: MonitoringTarget) => t.status === 'monitoring').length;
+      const activeCount = monitoringTargets.filter((t: MonitoringTarget) => t.status === 'active' || t.status === 'monitoring').length;
       
       // 予約履歴を取得
       const historyResponse = await apiClient.getReservationHistory(100);

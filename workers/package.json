@@ -2,9 +2,12 @@
   "name": "tennis-yoyaku-workers",
   "version": "1.0.0",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "dev": "wrangler dev --env development",
+    "dev:prod": "wrangler dev",
+    "deploy": "wrangler deploy --compatibility-date=2024-01-01",
+    "deploy:dev": "wrangler deploy --env development --compatibility-date=2024-01-01",
+    "tail": "wrangler tail",
+    "tail:dev": "wrangler tail --env development"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",

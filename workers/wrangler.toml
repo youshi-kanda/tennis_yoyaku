@@ -2,6 +2,7 @@ name = "tennis-yoyaku-api"
 main = "src/index.ts"
 compatibility_date = "2024-11-20"
 
+# ===== Production Environment =====
 # KV Namespaces (Production)
 [[kv_namespaces]]
 binding = "USERS"
@@ -25,7 +26,7 @@ id = "6e26433ee30b4ad0bc0a8749a67038be"
 [triggers]
 crons = ["*/1 * * * *"]
 
-# Environment variables
+# Environment variables (Production)
 [vars]
 ENVIRONMENT = "production"
 JWT_SECRET = "your-jwt-secret-here-change-in-production"
@@ -33,3 +34,37 @@ ADMIN_KEY = "tennis_admin_2025"
 VAPID_PUBLIC_KEY = "BJl4G42CTnBBIz0YBhm2yZSPEgyNjXjBnjEXZwT1g0hCiHIGYesl8ePExqj9zcl7kBqRqug9rvg9qLTEtC1KjyQ"
 VAPID_PRIVATE_KEY = "M3GGZhN2hN2Df1GlKD8cLBQGqU3JBdVW4whF7hb_aTI"
 VAPID_SUBJECT = "mailto:youshi.kanda@example.com"
+
+# ===== Development Environment =====
+[env.development]
+name = "tennis-yoyaku-api-dev"
+
+# KV Namespaces (Development)
+[[env.development.kv_namespaces]]
+binding = "USERS"
+id = "c0d3c217a6544bcabe55d2a489d35158"
+
+[[env.development.kv_namespaces]]
+binding = "SESSIONS"
+id = "940200cc91dc45af854bde2ff274ea94"
+
+[[env.development.kv_namespaces]]
+binding = "MONITORING"
+id = "29eca291199b4570a451fe20775f11ee"
+
+[[env.development.kv_namespaces]]
+binding = "RESERVATIONS"
+id = "272a3a9914bd407e9389ca2d8ef907db"
+
+# Cron Triggers (Development) - 本番と同じ設定
+[env.development.triggers]
+crons = ["*/1 * * * *"]
+
+# Environment variables (Development)
+[env.development.vars]
+ENVIRONMENT = "development"
+JWT_SECRET = "dev-jwt-secret-for-testing-only"
+ADMIN_KEY = "tennis_admin_2025"
+VAPID_PUBLIC_KEY = "BJl4G42CTnBBIz0YBhm2yZSPEgyNjXjBnjEXZwT1g0hCiHIGYesl8ePExqj9zcl7kBqRqug9rvg9qLTEtC1KjyQ"
+VAPID_PRIVATE_KEY = "M3GGZhN2hN2Df1GlKD8cLBQGqU3JBdVW4whF7hb_aTI"
+VAPID_SUBJECT = "mailto:youshi.kanda+dev@example.com"

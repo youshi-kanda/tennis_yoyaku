@@ -1322,10 +1322,20 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       }
     }
     
-    // すべてのチェックを並列実行
-    console.log(`[Check] 🚀 並列実行: ${checkPromises.length}件の空き状況チェック`);
-    const checkResults = await Promise.all(checkPromises);
-    console.log(`[Check] ✅ 並列実行完了`);
+    // 並列数を制限してバッチ処理（無料プランのCPU時間制限対策）
+    const BATCH_SIZE = 5; // 5件ずつ処理
+    const checkResults: Array<{ date: string; timeSlot: string; result: any }> = [];
+    
+    console.log(`[Check] 🚀 並列実行: ${checkPromises.length}件の空き状況チェック（バッチサイズ: ${BATCH_SIZE}）`);
+    
+    for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
+      const batch = checkPromises.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(batch);
+      checkResults.push(...batchResults);
+      console.log(`[Check] 📦 バッチ ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(checkPromises.length / BATCH_SIZE)} 完了 (${batchResults.length}件)`);
+    }
+    
+    console.log(`[Check] ✅ 並列実行完了: ${checkResults.length}件処理`);
     
     // 結果を処理
     for (const { date, timeSlot, result } of checkResults) {

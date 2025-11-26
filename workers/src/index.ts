@@ -15,6 +15,30 @@ import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './rese
 import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
 import { encryptPassword, decryptPassword, isEncrypted } from './crypto';
 
+// ===== サブリクエスト計測（無料プラン制限: 50/実行） =====
+let subrequestCount = 0;
+const SUBREQUEST_LIMIT = 50; // 無料プラン制限
+
+// オリジナルのfetchを保存
+const originalFetch = fetch;
+
+// fetchをラップしてカウント
+function countedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  subrequestCount++;
+  
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  console.log(`[Subrequest ${subrequestCount}/${SUBREQUEST_LIMIT}] ${url}`);
+  
+  if (subrequestCount > SUBREQUEST_LIMIT) {
+    console.warn(`⚠️ サブリクエスト制限超過: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+  }
+  
+  return originalFetch(input, init);
+}
+
+// グローバルfetchを置き換え
+(globalThis as any).fetch = countedFetch;
+
 // ===== メモリキャッシュ（KV使用量削減のため） =====
 interface SessionCacheEntry {
   sessionId: string;
@@ -411,8 +435,21 @@ export default {
       try {
         await handle5AMBatchReservation(env);
         console.log('[Cron] ✅ 5:00一斉処理完了');
+        
+        // 📊 サブリクエスト数をログ出力
+        console.log(`\n📊 [Subrequest Metrics] (5:00一斉処理)`);
+        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        if (subrequestCount > SUBREQUEST_LIMIT) {
+          console.error(`   ❌ 無料プラン制限超過: ${subrequestCount - SUBREQUEST_LIMIT}リクエスト over`);
+        } else {
+          console.log(`   ✅ 無料プラン制限内: 残り${SUBREQUEST_LIMIT - subrequestCount}リクエスト`);
+        }
+        subrequestCount = 0;
       } catch (error) {
         console.error('[Cron] ❌ 5:00一斉処理失敗:', error);
+        console.log(`\n📊 [Subrequest Metrics] (エラー発生)`);
+        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        subrequestCount = 0;
       }
       return; // 5:00処理後は通常監視をスキップ
     }
@@ -430,8 +467,16 @@ export default {
         // 全ユーザーのセッションをクリア
         await resetAllSessions(env);
         console.log('[Cron] ✅ セッションリセット完了');
+        
+        // 📊 サブリクエスト数をログ出力
+        console.log(`\n📊 [Subrequest Metrics] (セッションリセット)`);
+        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        subrequestCount = 0;
       } catch (error) {
         console.error('[Cron] ❌ セッションリセット失敗:', error);
+        console.log(`\n📊 [Subrequest Metrics] (エラー発生)`);
+        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        subrequestCount = 0;
       }
       return; // リセット後は監視処理をスキップ
     }
@@ -496,8 +541,26 @@ export default {
       
       // KVメトリクスをログ出力
       logKVMetrics();
+      
+      // 📊 サブリクエスト数をログ出力
+      console.log(`\n📊 [Subrequest Metrics]`);
+      console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+      if (subrequestCount > SUBREQUEST_LIMIT) {
+        console.error(`   ❌ 無料プラン制限超過: ${subrequestCount - SUBREQUEST_LIMIT}リクエスト over`);
+        console.error(`   💡 対策: 実装最適化 or Workers Paid ($5/月) へアップグレード`);
+      } else {
+        console.log(`   ✅ 無料プラン制限内: 残り${SUBREQUEST_LIMIT - subrequestCount}リクエスト`);
+      }
+      
+      // カウンターリセット（次回Cron実行用）
+      subrequestCount = 0;
     } catch (error) {
       console.error('[Cron] Error:', error);
+      
+      // エラー時もサブリクエスト数を出力
+      console.log(`\n📊 [Subrequest Metrics] (エラー発生)`);
+      console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+      subrequestCount = 0;
     }
   },
 };

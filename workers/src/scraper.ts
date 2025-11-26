@@ -63,6 +63,9 @@ export async function loginToShinagawa(userId: string, password: string): Promis
       redirect: 'manual',
     });
     
+    // Response Bodyを読み切る（stalled警告を回避）
+    await initResponse.text().catch(() => {});
+    
     const setCookieHeader = initResponse.headers.get('set-cookie');
     if (!setCookieHeader) {
       console.error('Shinagawa: No session cookie received');
@@ -289,13 +292,15 @@ export async function makeShinagawaReservation(
     
     const applyParams = new URLSearchParams({ instNo, dateNo, timeNo });
     
-    await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do?${applyParams}`, {
+    const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do?${applyParams}`, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Cookie': `JSESSIONID=${sessionId}`,
       },
     });
+    // Response Bodyを読み切る
+    await applyResponse.text().catch(() => {});
     
     const confirmParams = new URLSearchParams({
       'rsvWOpeReservedApplyForm.instNo': instNo,
@@ -304,7 +309,7 @@ export async function makeShinagawaReservation(
       'rsvWOpeReservedApplyForm.agree': 'on',
     });
     
-    await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
+    const confirmResponse = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
       method: 'POST',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -314,6 +319,8 @@ export async function makeShinagawaReservation(
       },
       body: confirmParams.toString(),
     });
+    // Response Bodyを読み切る
+    await confirmResponse.text().catch(() => {});
     
     const reserveParams = new URLSearchParams({
       'rsvWOpeReservedConfirmForm.instNo': instNo,
@@ -614,6 +621,9 @@ export async function loginToMinato(userId: string, password: string): Promise<s
       },
       redirect: 'manual',
     });
+    
+    // Response Bodyを読み切る（stalled警告を回避）
+    await initResponse.text().catch(() => {});
     
     const setCookieHeader = initResponse.headers.get('set-cookie');
     if (!setCookieHeader) {

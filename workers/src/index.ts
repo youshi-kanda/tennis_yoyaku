@@ -19,25 +19,23 @@ import { encryptPassword, decryptPassword, isEncrypted } from './crypto';
 let subrequestCount = 0;
 const SUBREQUEST_LIMIT = 50; // 無料プラン制限
 
-// オリジナルのfetchを保存
-const originalFetch = fetch;
+// オリジナルのfetchを保存（モジュールロード時点で退避）
+const originalFetch = globalThis.fetch;
 
-// fetchをラップしてカウント
-function countedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+// fetchをラップしてカウント（型安全）
+globalThis.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
   subrequestCount++;
   
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const input = args[0];
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
   console.log(`[Subrequest ${subrequestCount}/${SUBREQUEST_LIMIT}] ${url}`);
   
   if (subrequestCount > SUBREQUEST_LIMIT) {
     console.warn(`⚠️ サブリクエスト制限超過: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
   }
   
-  return originalFetch(input, init);
-}
-
-// グローバルfetchを置き換え
-(globalThis as any).fetch = countedFetch;
+  return originalFetch(...args);
+};
 
 // ===== メモリキャッシュ（KV使用量削減のため） =====
 interface SessionCacheEntry {
@@ -1342,6 +1340,32 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     }
     
     console.log(`[Check] Dates to check after filtering: ${datesToCheck.length} days`);
+    
+    // 🔄 ローテーション機能: 1回のCronで3日分のみチェック
+    const DAYS_PER_CRON = 3; // 1実行あたり3日分
+    
+    // カーソル位置を取得（KVから）
+    const cursorKey = `CURSOR:${target.userId}:${target.id}`;
+    const cursorData = await env.MONITORING.get(cursorKey);
+    let cursorIndex = cursorData ? parseInt(cursorData, 10) : 0;
+    
+    // カーソルが範囲外なら0にリセット
+    if (cursorIndex >= datesToCheck.length) {
+      cursorIndex = 0;
+    }
+    
+    // 今回チェックする日付（3日分）
+    const datesToCheckThisRun = datesToCheck.slice(cursorIndex, cursorIndex + DAYS_PER_CRON);
+    
+    // 次回のカーソル位置を計算
+    const nextCursorIndex = (cursorIndex + DAYS_PER_CRON) % datesToCheck.length;
+    
+    // カーソルをKVに保存
+    await env.MONITORING.put(cursorKey, nextCursorIndex.toString(), { expirationTtl: 86400 * 7 }); // 7日間有効
+    
+    console.log(`[Check] 🔄 ローテーション: ${cursorIndex}日目〜${cursorIndex + datesToCheckThisRun.length - 1}日目をチェック (全${datesToCheck.length}日中)`);
+    console.log(`[Check] 📅 今回チェック: ${datesToCheckThisRun.join(', ')}`);
+    console.log(`[Check] ➡️  次回開始: ${nextCursorIndex}日目から`);
 
     // チェックする時間帯のリスト
     const timeSlotsToCheck = target.timeSlots || [target.timeSlot];
@@ -1352,10 +1376,10 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // 空き枠を収集（priority_firstの場合に使用）
     const availableSlots: Array<{date: string; timeSlot: string}> = [];
 
-    // 🚀 並列処理で高速化: すべてのチェックを同時実行
+    // 🚀 並列処理で高速化: 今回の3日分のチェックを同時実行
     const checkPromises: Promise<{date: string; timeSlot: string; result: AvailabilityResult}>[] = [];
     
-    for (const date of datesToCheck) {
+    for (const date of datesToCheckThisRun) {
       for (const timeSlot of timeSlotsToCheck) {
         const promise = (async () => {
           let result: AvailabilityResult;

@@ -30,6 +30,10 @@ export interface Facility {
   facilityName: string;
   category: string;
   isTennisCourt: boolean;
+  buildingId?: string;  // 館ID (例: "1010")
+  buildingName?: string; // 館名 (例: "しながわ中央公園")
+  areaCode?: string;     // 地区コード (例: "1400")
+  areaName?: string;     // 地区名 (例: "品川地区")
 }
 
 export interface ReservationHistory {
@@ -125,15 +129,11 @@ export async function checkShinagawaAvailability(
   facilityId: string,
   date: string,
   timeSlot: string,
-  credentials?: SiteCredentials,
+  credentials: SiteCredentials,
   existingReservations?: ReservationHistory[]
 ): Promise<AvailabilityResult> {
   try {
     console.log(`[Shinagawa] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
-    
-    if (!credentials) {
-      throw new Error('Credentials required');
-    }
     
     // 既に予約済み（キャンセル済み除く）かチェック
     const isAlreadyReserved = existingReservations?.some(
@@ -157,6 +157,7 @@ export async function checkShinagawaAvailability(
       };
     }
     
+    // 自動ログイン
     const sessionId = await loginToShinagawa(credentials.username, credentials.password);
     if (!sessionId) {
       throw new Error('Login failed');
@@ -179,6 +180,11 @@ export async function checkShinagawaAvailability(
     });
     
     const htmlText = await searchResponse.text();
+    
+    // ログイン失敗チェック
+    if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
+      throw new Error('Login failed or session expired');
+    }
     
     const statusMatch = htmlText.match(new RegExp(`${timeSlot}[^<]*([○×取])`));
     const currentStatus = statusMatch ? statusMatch[1] : '×';
@@ -206,7 +212,7 @@ export async function checkMinatoAvailability(
   facilityId: string,
   date: string,
   timeSlot: string,
-  credentials?: SiteCredentials,
+  credentials: SiteCredentials,
   existingReservations?: ReservationHistory[]
 ): Promise<AvailabilityResult> {
   try {
@@ -234,16 +240,50 @@ export async function checkMinatoAvailability(
       };
     }
     
-    const isAvailable = Math.random() > 0.7;
+    // 自動ログイン
+    const sessionId = await loginToMinato(credentials.username, credentials.password);
+    if (!sessionId) {
+      throw new Error('Login failed');
+    }
+    
+    const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
+    const searchParams = new URLSearchParams({
+      'rsvWOpeInstSrchVacantForm.instCd': facilityId,
+      'rsvWOpeInstSrchVacantForm.srchDate': date,
+    });
+    
+    const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do?${searchParams}`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Referer': `${baseUrl}/rsvWOpeInstMenuAction.do`,
+      },
+    });
+    
+    const htmlText = await searchResponse.text();
+    
+    // ログイン失敗チェック
+    if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
+      throw new Error('Login failed or session expired');
+    }
+    
+    // 港区は「○×」のみ（「取」なし）
+    const statusMatch = htmlText.match(new RegExp(`${timeSlot}[^<]*([○×])`));
+    const currentStatus = statusMatch ? statusMatch[1] : '×';
+    const isAvailable = currentStatus === '○';
+    
+    console.log(`[Minato] Status for ${timeSlot}: ${currentStatus}`);
     
     return {
       available: isAvailable,
       facilityId,
-      facilityName: '青山公園テニスコート',
+      facilityName: '港区施設',
       date,
       timeSlot,
-      currentStatus: isAvailable ? '○' : '×',
-      changedToAvailable: false,
+      currentStatus,
+      changedToAvailable: isAvailable,
     };
   } catch (error: any) {
     console.error('[Minato] Scraping error:', error);
@@ -260,6 +300,7 @@ export async function makeShinagawaReservation(
   try {
     console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
     
+    // 自動ログイン
     const sessionId = await loginToShinagawa(credentials.username, credentials.password);
     if (!sessionId) {
       return { success: false, message: 'ログインに失敗しました' };
@@ -469,139 +510,289 @@ export async function getOrCreateSession(
 }
 
 /**
- * 品川区の施設一覧を取得
+ * 品川区の施設一覧を動的に取得
  */
 export async function getShinagawaFacilities(
-  sessionId: string,
+  credentials: SiteCredentials,
   kv: KVNamespace
 ): Promise<Facility[]> {
   try {
-    console.log('[Facilities] Returning pre-configured Shinagawa facilities');
+    // KVキャッシュをチェック（24時間有効）
+    const cacheKey = 'shinagawa:facilities:cache';
+    const cached = await kv.get(cacheKey, 'json');
     
-    // 品川区のサイトは施設IDの直接取得が困難なため、
-    // 既知の施設を返す（実際の予約時に空き状況ページから詳細情報を取得）
-    // 注: 実際のfacilityIdは品川区サイトから取得した値に置き換える必要がある
-    const facilities: Facility[] = [
-      // しながわ中央公園（コートA〜E）
-      {
-        facilityId: 'shinagawa-chuo-a',
-        facilityName: 'しながわ中央公園 庭球場A',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      {
-        facilityId: 'shinagawa-chuo-b',
-        facilityName: 'しながわ中央公園 庭球場B',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      {
-        facilityId: 'shinagawa-chuo-c',
-        facilityName: 'しながわ中央公園 庭球場C',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      {
-        facilityId: 'shinagawa-chuo-d',
-        facilityName: 'しながわ中央公園 庭球場D',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      {
-        facilityId: 'shinagawa-chuo-e',
-        facilityName: 'しながわ中央公園 庭球場E',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      // 東品川公園（コートA）
-      {
-        facilityId: 'higashi-shinagawa-a',
-        facilityName: '東品川公園 庭球場A',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      // しながわ区民公園（複数コート - 実際の数は要確認）
-      {
-        facilityId: 'shinagawa-kumin-a',
-        facilityName: 'しながわ区民公園 庭球場A',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      {
-        facilityId: 'shinagawa-kumin-b',
-        facilityName: 'しながわ区民公園 庭球場B',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      // 八潮北公園（複数コート - 実際の数は要確認）
-      {
-        facilityId: 'yashio-kita-a',
-        facilityName: '八潮北公園 庭球場A',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-      {
-        facilityId: 'yashio-kita-b',
-        facilityName: '八潮北公園 庭球場B',
-        category: 'tennis',
-        isTennisCourt: true,
-      },
-    ];
+    if (cached) {
+      console.log('[Facilities] Returning cached Shinagawa facilities');
+      return cached as Facility[];
+    }
+
+    console.log('[Facilities] Fetching Shinagawa facilities dynamically');
     
-    console.log(`[Facilities] Facilities count: ${facilities.length}`);
+    // ログイン
+    const sessionId = await loginToShinagawa(credentials.username, credentials.password);
     
-    // KVにキャッシュ（1時間）
-    await kv.put('facilities:shinagawa', JSON.stringify(facilities), {
-      expirationTtl: 3600,
-    });
-    
-    return facilities;
-    
-    /* 以下はコメントアウト - 施設一覧ページへの直接アクセスはエラーになる
-    const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
-    
-    // まずホームページにアクセス（セッションを初期化）
-    console.log('[Facilities] Accessing home page...');
-    const homeResponse = await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
-      method: 'GET',
-      headers: {
-        'Cookie': `JSESSIONID=${sessionId}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-      },
-    });
-    
-    if (homeResponse.status !== 200) {
-      console.error('[Facilities] Home page access failed:', homeResponse.status);
-      return [];
+    if (!sessionId) {
+      console.error('[Facilities] Failed to login to Shinagawa');
+      return getShinagawaFacilitiesFallback();
     }
     
-    console.log('[Facilities] Accessing facility list page...');
+    const facilities: Facility[] = [];
     
-    // 施設一覧トップページにアクセス
-    const instListResponse = await fetch(`${baseUrl}/rsvWTransInstListAction.do`, {
-      method: 'GET',
-      headers: {
-        'Cookie': `JSESSIONID=${sessionId}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-      },
+    // 地区リスト（大井、品川、八潮）
+    const areas = [
+      { code: '1200', name: '大井地区' },
+      { code: '1400', name: '品川地区' },
+      { code: '1500', name: '八潮地区' },
+    ];
+    
+    for (const area of areas) {
+      try {
+        // 各地区のテニスコート検索
+        const areaFacilities = await fetchShinagawaAreaFacilities(
+          sessionId,
+          area.code,
+          area.name
+        );
+        facilities.push(...areaFacilities);
+      } catch (error) {
+        console.error(`[Facilities] Error fetching ${area.name}:`, error);
+      }
+    }
+    
+    // 施設が取得できなかった場合はフォールバック
+    if (facilities.length === 0) {
+      console.warn('[Facilities] No facilities fetched, using fallback');
+      return getShinagawaFacilitiesFallback();
+    }
+    
+    // KVにキャッシュ（24時間）
+    await kv.put(cacheKey, JSON.stringify(facilities), {
+      expirationTtl: 86400, // 24時間
     });
     
-    const response = instListResponse;
-    */
+    console.log(`[Facilities] Fetched ${facilities.length} Shinagawa facilities`);
+    return facilities;
   } catch (error) {
-    console.error('[Facilities] Error fetching facilities:', error);
-    return [];
+    console.error('[Facilities] Error fetching Shinagawa facilities:', error);
+    
+    // エラー時はフォールバック
+    return getShinagawaFacilitiesFallback();
   }
 }
 
 /**
+ * 品川区の特定地区の施設を取得
+ */
+async function fetchShinagawaAreaFacilities(
+  sessionId: string,
+  areaCode: string,
+  areaName: string
+): Promise<Facility[]> {
+  const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+  
+  // まずホーム画面にアクセスしてセッションを確立
+  const homeUrl = `${baseUrl}/rsvWOpeHomeAction.do`;
+  await fetch(homeUrl, {
+    method: 'GET',
+    headers: {
+      'Cookie': `JSESSIONID=${sessionId}`,
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    },
+  });
+  
+  // 空き検索画面にアクセス（テニスで検索）
+  const searchUrl = `${baseUrl}/rsvWOpeInstSrchVacantAction.do`;
+  
+  const today = new Date().toISOString().split('T')[0];
+  
+  const formData = new URLSearchParams({
+    'date': '4',  // 1か月表示
+    'daystart': today,
+    'days': '31',  // 1か月
+    'dayofweekClearFlg': '1',
+    'timezoneClearFlg': '1',
+    'selectAreaBcd': `${areaCode}_0`,  // 地区すべて
+    'selectIcd': '',  // 空文字
+    'selectPpsClPpscd': '31000000_31011700',  // テニス
+    'displayNo': 'pawab2000',
+    'displayNoFrm': 'pawab2000',
+  });
+  
+  const response = await fetch(searchUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': `JSESSIONID=${sessionId}`,
+      'Referer': `${baseUrl}/rsvWOpeHomeAction.do`,
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    },
+    body: formData.toString(),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to fetch area facilities: ${response.status}`);
+  }
+  
+  const html = await response.text();
+  
+  // デバッグ: HTMLの詳細を出力
+  console.log(`[Parser] Area: ${areaName} (${areaCode})`);
+  console.log(`[Parser] HTML length: ${html.length}`);
+  console.log(`[Parser] Has mansion-select: ${html.includes('mansion-select')}`);
+  console.log(`[Parser] Has facility-select: ${html.includes('facility-select')}`);
+  console.log(`[Parser] HTML preview:`, html.substring(0, 1000));
+  
+  // HTMLから施設・コート情報を抽出
+  return parseShinagawaFacilitiesFromHtml(html, areaCode, areaName);
+}
+
+/**
+ * 品川区のHTMLから施設情報をパース
+ */
+function parseShinagawaFacilitiesFromHtml(
+  html: string,
+  areaCode: string,
+  areaName: string
+): Facility[] {
+  const facilities: Facility[] = [];
+  
+  // 館セレクトボックスをパース
+  const mansionSelectMatch = html.match(
+    /<select[^>]*id="mansion-select"[^>]*>([\s\S]*?)<\/select>/i
+  );
+  
+  if (!mansionSelectMatch) {
+    console.warn('[Parser] Could not find mansion-select');
+    return facilities;
+  }
+  
+  const mansionOptions = mansionSelectMatch[1];
+  
+  // 各館のオプションを抽出
+  const optionRegex = /<option[^>]*value="(\d+)"[^>]*>([^<]+)<\/option>/gi;
+  let match;
+  
+  const buildings: Array<{id: string; name: string}> = [];
+  
+  while ((match = optionRegex.exec(mansionOptions)) !== null) {
+    const buildingId = match[1];
+    const buildingName = match[2];
+    buildings.push({ id: buildingId, name: buildingName });
+  }
+  
+  // 施設セレクトボックスをパース
+  const facilitySelectMatch = html.match(
+    /<select[^>]*id="facility-select"[^>]*>([\s\S]*?)<\/select>/i
+  );
+  
+  if (!facilitySelectMatch) {
+    console.warn('[Parser] Could not find facility-select');
+    return facilities;
+  }
+  
+  const facilityOptions = facilitySelectMatch[1];
+  
+  // 各コートのオプションを抽出
+  const facilityRegex = /<option[^>]*value="(\d+)"[^>]*>([^<]+)<\/option>/gi;
+  
+  while ((match = facilityRegex.exec(facilityOptions)) !== null) {
+    const courtId = match[1];
+    const courtName = match[2];
+    
+    // コートIDから館IDを抽出（最初の4桁）
+    const buildingId = courtId.substring(0, 4);
+    const building = buildings.find(b => b.id === buildingId);
+    
+    if (building && courtName.includes('庭球')) {
+      facilities.push({
+        facilityId: courtId,
+        facilityName: `${building.name} ${courtName}`,
+        category: 'tennis',
+        isTennisCourt: true,
+        buildingId: buildingId,
+        buildingName: building.name,
+        areaCode: areaCode,
+        areaName: areaName,
+      });
+    }
+  }
+  
+  return facilities;
+}
+
+/**
+ * フォールバック用のハードコードされた施設一覧
+ */
+function getShinagawaFacilitiesFallback(): Facility[] {
+  console.log('[Facilities] Using fallback Shinagawa facilities');
+  
+  const facilities: Facility[] = [
+    // しながわ中央公園（コートA〜B）
+    {
+      facilityId: '10100010',
+      facilityName: 'しながわ中央公園 庭球場Ａ',
+      category: 'tennis',
+      isTennisCourt: true,
+      buildingId: '1010',
+      buildingName: 'しながわ中央公園',
+      areaCode: '1400',
+      areaName: '品川地区',
+    },
+    {
+      facilityId: '10100020',
+      facilityName: 'しながわ中央公園 庭球場Ｂ',
+      category: 'tennis',
+      isTennisCourt: true,
+      buildingId: '1010',
+      buildingName: 'しながわ中央公園',
+      areaCode: '1400',
+      areaName: '品川地区',
+    },
+    // 東品川公園
+    {
+      facilityId: '10200010',
+      facilityName: '東品川公園 庭球場Ａ',
+      category: 'tennis',
+      isTennisCourt: true,
+      buildingId: '1020',
+      buildingName: '東品川公園',
+      areaCode: '1400',
+      areaName: '品川地区',
+    },
+    // しながわ区民公園
+    {
+      facilityId: '10400010',
+      facilityName: 'しながわ区民公園 庭球場Ａ',
+      category: 'tennis',
+      isTennisCourt: true,
+      buildingId: '1040',
+      buildingName: 'しながわ区民公園',
+      areaCode: '1200',
+      areaName: '大井地区',
+    },
+    // 八潮北公園
+    {
+      facilityId: '10300010',
+      facilityName: '八潮北公園 庭球場Ａ',
+      category: 'tennis',
+      isTennisCourt: true,
+      buildingId: '1030',
+      buildingName: '八潮北公園',
+      areaCode: '1500',
+      areaName: '八潮地区',
+    },
+  ];
+  
+  
+  return facilities;
+}/**
  * 品川区のテニスコートのみを取得
  */
 export async function getShinagawaTennisCourts(
-  sessionId: string,
+  credentials: SiteCredentials,
   kv: KVNamespace
 ): Promise<Facility[]> {
-  const allFacilities = await getShinagawaFacilities(sessionId, kv);
+  const allFacilities = await getShinagawaFacilities(credentials, kv);
   return allFacilities.filter(f => f.isTennisCourt);
 }
 
@@ -787,9 +978,10 @@ export async function makeMinatoReservation(
   credentials: SiteCredentials
 ): Promise<{ success: boolean; reservationId?: string; error?: string }> {
   try {
+    // 自動ログイン
     const sessionId = await loginToMinato(credentials.username, credentials.password);
     if (!sessionId) {
-      return { success: false, error: 'Login failed' };
+      return { success: false, error: 'ログインに失敗しました' };
     }
 
     const baseUrl = 'https://web101.rsv.ws-scs.jp/web';

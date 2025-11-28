@@ -154,10 +154,14 @@ class ApiClient {
 
   // 設定API
   async saveSettings(settings: {
-    shinagawaUserId?: string;
-    shinagawaPassword?: string;
-    minatoUserId?: string;
-    minatoPassword?: string;
+    shinagawa?: {
+      username: string;
+      password: string;
+    };
+    minato?: {
+      username: string;
+      password: string;
+    };
     reservationLimits?: {
       perWeek?: number;
       perMonth?: number;

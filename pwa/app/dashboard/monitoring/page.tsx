@@ -66,21 +66,21 @@ export default function MonitoringPage() {
 
   // 施設リスト（ハードコードで初期表示、API取得で上書き）
   const [facilities, setFacilities] = useState<{
-    shinagawa: Array<{ id: string; name: string; courts?: string }>;
-    minato: Array<{ id: string; name: string; courts?: string }>;
+    shinagawa: Array<{ id: string; name: string; courts?: string; facilityIds?: string[] }>;
+    minato: Array<{ id: string; name: string; courts?: string; facilityIds?: string[] }>;
   }>({
     shinagawa: [
-      { id: 'shinagawa-chuo', name: 'しながわ中央公園', courts: 'A〜E（5コート）' },
+      { id: 'shinagawa-chuo', name: 'しながわ中央公園', courts: 'A、B（2コート）' },
       { id: 'higashi-shinagawa', name: '東品川公園', courts: 'A（1コート）' },
-      { id: 'shinagawa-kumin', name: 'しながわ区民公園', courts: '複数コート' },
-      { id: 'yashio-kita', name: '八潮北公園', courts: '複数コート' },
+      { id: 'shinagawa-kumin', name: 'しながわ区民公園', courts: 'A（1コート）' },
+      { id: 'yashio-kita', name: '八潮北公園', courts: 'A（1コート）' },
     ],
     minato: [
-      { id: 'azabu', name: '麻布運動公園', courts: 'A〜D（4コート）' },
-      { id: 'aoyama-ground', name: '青山運動場', courts: 'A〜D（4コート）' },
-      { id: 'aoyama-jhs', name: '青山中学校', courts: 'A〜D（4コート）' },
-      { id: 'takamatsu-jhs', name: '高松中学校', courts: 'A〜D（4コート）' },
-      { id: 'shibaura-chuo', name: '芝浦中央公園運動場', courts: 'A〜D（4コート）' },
+      { id: 'azabu-a', name: '麻布運動公園', courts: 'A、B、C、D（4コート）' },
+      { id: 'aoyama-ground-a', name: '青山運動場', courts: 'A、B、C、D（4コート）' },
+      { id: 'aoyama-jhs-a', name: '青山中学校', courts: 'A、B、C、D（4コート）' },
+      { id: 'takamatsu-jhs-a', name: '高松中学校', courts: 'A、B、C、D（4コート）' },
+      { id: 'shibaura-chuo-a', name: '芝浦中央公園運動場', courts: 'A、B、C、D（4コート）' },
     ],
   });
 
@@ -191,22 +191,95 @@ export default function MonitoringPage() {
     }
   };
 
+  // 施設をグループ化してコンパクト表示用のデータを生成
+  const groupFacilitiesByBuilding = (facilities: Array<{ id: string; name: string; courts?: string }>) => {
+    const grouped = new Map<string, { baseName: string; courts: string[]; ids: string[] }>();
+    
+    facilities.forEach(facility => {
+      // 施設名から基本名とコート名を抽出（例: "しながわ中央公園 庭球場Ａ" → "しながわ中央公園", "Ａ"）
+      const match = facility.name.match(/^(.+?)\s+(?:庭球場|テニスコート)\s*([A-ZＡ-Ｚa-zａ-ｚ０-９0-9]+)$/);
+      
+      if (match) {
+        const [, baseName, courtName] = match;
+        const existing = grouped.get(baseName);
+        
+        if (existing) {
+          existing.courts.push(courtName);
+          existing.ids.push(facility.id);
+        } else {
+          grouped.set(baseName, {
+            baseName,
+            courts: [courtName],
+            ids: [facility.id],
+          });
+        }
+      } else {
+        // パターンにマッチしない場合はそのまま表示
+        grouped.set(facility.id, {
+          baseName: facility.name,
+          courts: [],
+          ids: [facility.id],
+        });
+      }
+    });
+    
+    return Array.from(grouped.values()).map(group => ({
+      id: group.ids.join(','), // 複数IDをカンマ区切りで保存
+      name: group.courts.length > 0 
+        ? `${group.baseName} 庭球場${group.courts.join('、')}`
+        : group.baseName,
+      facilityIds: group.ids, // 個別のIDを保持
+    }));
+  };
+
   const loadFacilities = async () => {
     try {
+      console.log('[loadFacilities] 施設取得開始...');
       const [shinagawaRes, minatoRes] = await Promise.all([
         apiClient.getShinagawaFacilities(),
         apiClient.getMinatoFacilities(),
       ]);
 
-      // API取得成功時のみ上書き
+      console.log('[loadFacilities] 品川区レスポンス:', {
+        success: shinagawaRes.success,
+        dataLength: shinagawaRes.data?.length,
+        data: shinagawaRes.data,
+      });
+      console.log('[loadFacilities] 港区レスポンス:', {
+        success: minatoRes.success,
+        dataLength: minatoRes.data?.length,
+        data: minatoRes.data,
+      });
+
+      // API取得成功時のみ上書き（データ構造を変換してグループ化）
       if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
-        setFacilities(prev => ({ ...prev, shinagawa: shinagawaRes.data }));
+        console.log('[loadFacilities] ✅ 品川区の施設を更新:', shinagawaRes.data);
+        const transformedData = shinagawaRes.data.map((f: any) => ({
+          id: f.facilityId || f.id,
+          name: f.facilityName || f.name,
+          courts: f.courts,
+        }));
+        const groupedData = groupFacilitiesByBuilding(transformedData);
+        console.log('[loadFacilities] グループ化後のデータ:', groupedData);
+        setFacilities(prev => ({ ...prev, shinagawa: groupedData }));
+      } else {
+        console.log('[loadFacilities] ⚠️ 品川区の施設更新スキップ');
       }
       if (minatoRes.success && minatoRes.data?.length > 0) {
-        setFacilities(prev => ({ ...prev, minato: minatoRes.data }));
+        console.log('[loadFacilities] ✅ 港区の施設を更新:', minatoRes.data);
+        const transformedData = minatoRes.data.map((f: any) => ({
+          id: f.facilityId || f.id,
+          name: f.facilityName || f.name,
+          courts: f.courts,
+        }));
+        const groupedData = groupFacilitiesByBuilding(transformedData);
+        console.log('[loadFacilities] グループ化後のデータ:', groupedData);
+        setFacilities(prev => ({ ...prev, minato: groupedData }));
+      } else {
+        console.log('[loadFacilities] ⚠️ 港区の施設更新スキップ');
       }
     } catch (err) {
-      console.log('Using default facilities (API call failed):', err);
+      console.log('[loadFacilities] ❌ API呼び出しエラー:', err);
       // エラー時はハードコードされた施設リストをそのまま使用
     }
   };
@@ -727,19 +800,34 @@ export default function MonitoringPage() {
                             checked={config.selectedFacilities.some(f => f.site === 'shinagawa' && f.id === facility.id)}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setConfig({
-                                  ...config,
-                                  selectedFacilities: [...config.selectedFacilities, {
-                                    site: 'shinagawa',
-                                    id: facility.id,
+                                // facilityIdsがある場合は個別に追加
+                                if (facility.facilityIds && facility.facilityIds.length > 1) {
+                                  const newFacilities = facility.facilityIds.map(fid => ({
+                                    site: 'shinagawa' as const,
+                                    id: fid,
                                     name: facility.name,
-                                  }],
-                                });
+                                  }));
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: [...config.selectedFacilities, ...newFacilities],
+                                  });
+                                } else {
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: [...config.selectedFacilities, {
+                                      site: 'shinagawa',
+                                      id: facility.facilityIds?.[0] || facility.id,
+                                      name: facility.name,
+                                    }],
+                                  });
+                                }
                               } else {
+                                // facilityIdsに含まれる全てのIDを削除
+                                const idsToRemove = facility.facilityIds || [facility.id];
                                 setConfig({
                                   ...config,
                                   selectedFacilities: config.selectedFacilities.filter(
-                                    f => !(f.site === 'shinagawa' && f.id === facility.id)
+                                    f => !(f.site === 'shinagawa' && idsToRemove.includes(f.id))
                                   ),
                                 });
                               }
@@ -805,19 +893,34 @@ export default function MonitoringPage() {
                             checked={config.selectedFacilities.some(f => f.site === 'minato' && f.id === facility.id)}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setConfig({
-                                  ...config,
-                                  selectedFacilities: [...config.selectedFacilities, {
-                                    site: 'minato',
-                                    id: facility.id,
+                                // facilityIdsがある場合は個別に追加
+                                if (facility.facilityIds && facility.facilityIds.length > 1) {
+                                  const newFacilities = facility.facilityIds.map(fid => ({
+                                    site: 'minato' as const,
+                                    id: fid,
                                     name: facility.name,
-                                  }],
-                                });
+                                  }));
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: [...config.selectedFacilities, ...newFacilities],
+                                  });
+                                } else {
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: [...config.selectedFacilities, {
+                                      site: 'minato',
+                                      id: facility.facilityIds?.[0] || facility.id,
+                                      name: facility.name,
+                                    }],
+                                  });
+                                }
                               } else {
+                                // facilityIdsに含まれる全てのIDを削除
+                                const idsToRemove = facility.facilityIds || [facility.id];
                                 setConfig({
                                   ...config,
                                   selectedFacilities: config.selectedFacilities.filter(
-                                    f => !(f.site === 'minato' && f.id === facility.id)
+                                    f => !(f.site === 'minato' && idsToRemove.includes(f.id))
                                   ),
                                 });
                               }

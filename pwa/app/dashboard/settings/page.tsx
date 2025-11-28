@@ -11,15 +11,10 @@ export default function SettingsPage() {
   const { user } = useAuthStore();
   const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotification();
   
-  const [shinagawaCredentials, setShinagawaCredentials] = useState({
-    username: '',
-    password: '',
-  });
-  
-  const [minatoCredentials, setMinatoCredentials] = useState({
-    username: '',
-    password: '',
-  });
+  const [shinagawaId, setShinagawaId] = useState('');
+  const [shinagawaPassword, setShinagawaPassword] = useState('');
+  const [minatoId, setMinatoId] = useState('');
+  const [minatoPassword, setMinatoPassword] = useState('');
 
   const [reservationLimits, setReservationLimits] = useState({
     perWeek: 0,  // 0 = 制限なし
@@ -32,17 +27,14 @@ export default function SettingsPage() {
       try {
         const response = await apiClient.getSettings();
         if (response.success && response.data) {
-          if (response.data.shinagawa) {
-            setShinagawaCredentials({
-              username: response.data.shinagawa.username || '',
-              password: response.data.shinagawa.password || '', // 保存済みパスワードを読み込み（マスク表示）
-            });
+          if (response.data.shinagawa?.username) {
+            setShinagawaId(response.data.shinagawa.username);
+            // パスワードは暗号化されているので表示用に●●●表示
+            setShinagawaPassword('••••••••');
           }
-          if (response.data.minato) {
-            setMinatoCredentials({
-              username: response.data.minato.username || '',
-              password: response.data.minato.password || '', // 保存済みパスワードを読み込み（マスク表示）
-            });
+          if (response.data.minato?.username) {
+            setMinatoId(response.data.minato.username);
+            setMinatoPassword('••••••••');
           }
           if (response.data.reservationLimits) {
             setReservationLimits({
@@ -59,44 +51,42 @@ export default function SettingsPage() {
   }, []);
 
   const handleSaveShinagawa = async () => {
+    if (!shinagawaId || !shinagawaPassword) {
+      alert('利用者IDとパスワードを入力してください');
+      return;
+    }
+
     try {
-      if (!shinagawaCredentials.username) {
-        alert('利用者番号を入力してください');
-        return;
-      }
-      if (!shinagawaCredentials.password) {
-        alert('パスワードを入力してください');
-        return;
-      }
       await apiClient.saveSettings({
-        shinagawaUserId: shinagawaCredentials.username,
-        shinagawaPassword: shinagawaCredentials.password,
+        shinagawa: {
+          username: shinagawaId,
+          password: shinagawaPassword,
+        },
       });
-      alert('品川区のログイン情報を保存しました');
-    } catch (err) {
+      alert('品川区の認証情報を保存しました');
+    } catch (err: any) {
       console.error('Save error:', err);
-      alert('保存に失敗しました');
+      alert(`保存に失敗しました: ${err.message}`);
     }
   };
 
   const handleSaveMinato = async () => {
+    if (!minatoId || !minatoPassword) {
+      alert('利用者IDとパスワードを入力してください');
+      return;
+    }
+
     try {
-      if (!minatoCredentials.username) {
-        alert('利用者番号を入力してください');
-        return;
-      }
-      if (!minatoCredentials.password) {
-        alert('パスワードを入力してください');
-        return;
-      }
       await apiClient.saveSettings({
-        minatoUserId: minatoCredentials.username,
-        minatoPassword: minatoCredentials.password,
+        minato: {
+          username: minatoId,
+          password: minatoPassword,
+        },
       });
-      alert('港区のログイン情報を保存しました');
-    } catch (err) {
+      alert('港区の認証情報を保存しました');
+    } catch (err: any) {
       console.error('Save error:', err);
-      alert('保存に失敗しました');
+      alert(`保存に失敗しました: ${err.message}`);
     }
   };
 
@@ -157,103 +147,127 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* 品川区ログイン情報 */}
+        {/* 品川区認証情報設定 */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">
-            品川区予約サイト ログイン情報
+            品川区予約サイト 認証情報
           </h2>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-blue-800">
+              ℹ️ 自動ログイン方式を使用します。1回保存すれば自動で監視・予約を行います。
+            </p>
+          </div>
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                利用者番号
+                利用者ID
               </label>
               <input
                 type="text"
-                value={shinagawaCredentials.username}
-                onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, username: e.target.value })}
+                value={shinagawaId}
+                onChange={(e) => setShinagawaId(e.target.value)}
+                placeholder="84005349"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder="利用者番号（例: 84005349）"
-                autoComplete="off"
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 パスワード
               </label>
               <input
                 type="password"
-                value={shinagawaCredentials.password}
-                onChange={(e) => setShinagawaCredentials({ ...shinagawaCredentials, password: e.target.value })}
+                value={shinagawaPassword}
+                onChange={(e) => setShinagawaPassword(e.target.value)}
+                placeholder="パスワードを入力"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder={shinagawaCredentials.password ? "●●●●●●●● (保存済み)" : "パスワード"}
-                autoComplete="new-password"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                パスワードは暗号化して安全に保存されます
+              </p>
             </div>
+
             <button
               onClick={handleSaveShinagawa}
               className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
             >
               保存
             </button>
-            {shinagawaCredentials.username && (
-              <p className="text-sm text-emerald-600 font-medium">
-                ✓ 利用者番号 {shinagawaCredentials.username} で保存済み
-                {shinagawaCredentials.password && ' (パスワードも保存済み)'}
-              </p>
+
+            {shinagawaId && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm text-green-800 font-medium">
+                  ✓ 認証情報設定済み
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  ログインに失敗する場合はプッシュ通知でお知らせします
+                </p>
+              </div>
             )}
-            <p className="text-xs text-gray-500 mt-2">
-              ※ 自動予約を有効にするには、品川区予約サイトのログイン情報が必要です
-            </p>
           </div>
         </div>
 
-        {/* 港区ログイン情報 */}
+        {/* 港区認証情報設定 */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">
-            港区予約サイト ログイン情報
+            港区予約サイト 認証情報
           </h2>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-blue-800">
+              ℹ️ 自動ログイン方式を使用します。1回保存すれば自動で監視・予約を行います。
+            </p>
+          </div>
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                利用者番号
+                利用者ID
               </label>
               <input
                 type="text"
-                value={minatoCredentials.username}
-                onChange={(e) => setMinatoCredentials({ ...minatoCredentials, username: e.target.value })}
+                value={minatoId}
+                onChange={(e) => setMinatoId(e.target.value)}
+                placeholder="利用者IDを入力"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder="利用者番号"
-                autoComplete="off"
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 パスワード
               </label>
               <input
                 type="password"
-                value={minatoCredentials.password}
-                onChange={(e) => setMinatoCredentials({ ...minatoCredentials, password: e.target.value })}
+                value={minatoPassword}
+                onChange={(e) => setMinatoPassword(e.target.value)}
+                placeholder="パスワードを入力"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                placeholder={minatoCredentials.password ? "●●●●●●●● (保存済み)" : "パスワード"}
-                autoComplete="new-password"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                パスワードは暗号化して安全に保存されます
+              </p>
             </div>
+
             <button
               onClick={handleSaveMinato}
               className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
             >
               保存
             </button>
-            {minatoCredentials.username && (
-              <p className="text-sm text-emerald-600 font-medium">
-                ✓ 利用者番号 {minatoCredentials.username} で保存済み
-                {minatoCredentials.password && ' (パスワードも保存済み)'}
-              </p>
+
+            {minatoId && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm text-green-800 font-medium">
+                  ✓ 認証情報設定済み
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  ログインに失敗する場合はプッシュ通知でお知らせします
+                </p>
+              </div>
             )}
-            <p className="text-xs text-gray-500 mt-2">
-              ※ 自動予約を有効にするには、港区予約サイトのログイン情報が必要です
-            </p>
           </div>
         </div>
 

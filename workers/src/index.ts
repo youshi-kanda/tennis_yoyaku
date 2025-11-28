@@ -10,10 +10,12 @@ import {
   loginToMinato,
   type AvailabilityResult,
   type ReservationHistory,
+  type SiteCredentials,
 } from './scraper';
 import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './reservationPeriod';
 import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
 import { encryptPassword, decryptPassword, isEncrypted } from './crypto';
+import { sendPushNotification, savePushSubscription, deletePushSubscription } from './pushNotification';
 
 // ===== サブリクエスト計測（無料プラン制限: 50/実行） =====
 let subrequestCount = 0;
@@ -135,6 +137,9 @@ export interface Env {
   ENCRYPTION_KEY: string;
   JWT_SECRET: string;
   ADMIN_KEY: string;
+  VAPID_PUBLIC_KEY: string;
+  VAPID_PRIVATE_KEY: string;
+  VAPID_SUBJECT: string;
 }
 
 export interface User {
@@ -377,6 +382,14 @@ export default {
 
       if (path === '/api/settings' && request.method === 'POST') {
         return handleSaveSettings(request, env);
+      }
+
+      if (path === '/api/push/subscribe' && request.method === 'POST') {
+        return handlePushSubscribe(request, env);
+      }
+
+      if (path === '/api/push/unsubscribe' && request.method === 'POST') {
+        return handlePushUnsubscribe(request, env);
       }
 
       if (path === '/api/facilities/shinagawa') {
@@ -918,8 +931,10 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     const body = await request.json() as {
       shinagawaUserId?: string;
       shinagawaPassword?: string;
+      shinagawaSessionId?: string;  // セッションID（新規）
       minatoUserId?: string;
       minatoPassword?: string;
+      minatoSessionId?: string;     // セッションID（新規）
       reservationLimits?: {
         perWeek?: number;  // 週あたりの予約上限
         perMonth?: number; // 月あたりの予約上限
@@ -935,25 +950,49 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     const updatedSettings: any = { ...existingSettings };
 
     // 品川区の設定を更新（指定された場合のみ）
-    if (body.shinagawaUserId !== undefined || body.shinagawaPassword !== undefined) {
-      updatedSettings.shinagawa = {
-        username: body.shinagawaUserId || existingSettings.shinagawa?.username || '',
-        // パスワードを暗号化して保存
-        password: body.shinagawaPassword 
-          ? await encryptPassword(body.shinagawaPassword, env.ENCRYPTION_KEY)
-          : existingSettings.shinagawa?.password || '',
-      };
+    if (body.shinagawaUserId !== undefined || body.shinagawaPassword !== undefined || body.shinagawaSessionId !== undefined) {
+      updatedSettings.shinagawa = updatedSettings.shinagawa || {};
+      
+      // ユーザーID（後方互換性のため保持）
+      if (body.shinagawaUserId !== undefined) {
+        updatedSettings.shinagawa.username = body.shinagawaUserId;
+      }
+      
+      // パスワード（後方互換性のため保持、非推奨）
+      if (body.shinagawaPassword !== undefined) {
+        updatedSettings.shinagawa.password = await encryptPassword(body.shinagawaPassword, env.ENCRYPTION_KEY);
+      }
+      
+      // セッションID（推奨方式）
+      if (body.shinagawaSessionId !== undefined) {
+        updatedSettings.shinagawa.sessionId = body.shinagawaSessionId;
+        updatedSettings.shinagawa.lastUpdated = Date.now();
+        updatedSettings.shinagawa.expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 推定24時間
+        console.log('[SaveSettings] Shinagawa session saved');
+      }
     }
 
     // 港区の設定を更新（指定された場合のみ）
-    if (body.minatoUserId !== undefined || body.minatoPassword !== undefined) {
-      updatedSettings.minato = {
-        username: body.minatoUserId || existingSettings.minato?.username || '',
-        // パスワードを暗号化して保存
-        password: body.minatoPassword 
-          ? await encryptPassword(body.minatoPassword, env.ENCRYPTION_KEY)
-          : existingSettings.minato?.password || '',
-      };
+    if (body.minatoUserId !== undefined || body.minatoPassword !== undefined || body.minatoSessionId !== undefined) {
+      updatedSettings.minato = updatedSettings.minato || {};
+      
+      // ユーザーID（後方互換性のため保持）
+      if (body.minatoUserId !== undefined) {
+        updatedSettings.minato.username = body.minatoUserId;
+      }
+      
+      // パスワード（後方互換性のため保持、非推奨）
+      if (body.minatoPassword !== undefined) {
+        updatedSettings.minato.password = await encryptPassword(body.minatoPassword, env.ENCRYPTION_KEY);
+      }
+      
+      // セッションID（推奨方式）
+      if (body.minatoSessionId !== undefined) {
+        updatedSettings.minato.sessionId = body.minatoSessionId;
+        updatedSettings.minato.lastUpdated = Date.now();
+        updatedSettings.minato.expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 推定24時間
+        console.log('[SaveSettings] Minato session saved');
+      }
     }
 
     // 予約上限の設定を更新（指定された場合のみ）
@@ -966,6 +1005,48 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
 
     return jsonResponse({ success: true, message: 'Settings saved successfully' });
   } catch (error: any) {
+    return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
+  }
+}
+
+async function handlePushSubscribe(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const body = await request.json() as {
+      endpoint: string;
+      keys: {
+        p256dh: string;
+        auth: string;
+      };
+    };
+
+    if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+      return jsonResponse({ error: 'Invalid subscription data' }, 400);
+    }
+
+    await savePushSubscription(userId, body, env);
+    console.log('[Push] Subscription saved for user:', userId);
+
+    return jsonResponse({ success: true, message: 'Push subscription saved' });
+  } catch (error: any) {
+    console.error('[Push] Subscribe error:', error);
+    return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
+  }
+}
+
+async function handlePushUnsubscribe(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    await deletePushSubscription(userId, env);
+    console.log('[Push] Subscription deleted for user:', userId);
+
+    return jsonResponse({ success: true, message: 'Push subscription removed' });
+  } catch (error: any) {
+    console.error('[Push] Unsubscribe error:', error);
     return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
   }
 }
@@ -989,9 +1070,8 @@ async function handleGetShinagawaFacilities(request: Request, env: Env): Promise
       return jsonResponse({ error: 'Shinagawa credentials not found' }, 400);
     }
 
-    // ログインしてsessionIdを取得
-    console.log('[Facilities] Attempting login to Shinagawa...');
-    // パスワードを復号化（平文パスワードの場合はそのまま使用）
+    // パスワードを復号化
+    console.log('[Facilities] Decrypting password...');
     let decryptedPassword = settings.shinagawa.password;
     if (isEncrypted(settings.shinagawa.password)) {
       try {
@@ -1001,14 +1081,15 @@ async function handleGetShinagawaFacilities(request: Request, env: Env): Promise
         return jsonResponse({ error: 'Failed to decrypt password' }, 500);
       }
     }
-    const sessionId = await loginToShinagawa(settings.shinagawa.username, decryptedPassword);
-    console.log('[Facilities] Login result, sessionId:', sessionId ? 'obtained' : 'failed');
-    if (!sessionId) {
-      return jsonResponse({ error: 'Failed to login to Shinagawa' }, 500);
-    }
 
-    console.log('[Facilities] Fetching facilities with sessionId...');
-    const facilities = await getShinagawaFacilities(sessionId, env.MONITORING);
+    // 認証情報を準備
+    const credentials = {
+      username: settings.shinagawa.username,
+      password: decryptedPassword,
+    };
+
+    console.log('[Facilities] Fetching facilities with credentials...');
+    const facilities = await getShinagawaFacilities(credentials, env.MONITORING);
     console.log('[Facilities] Facilities count:', facilities.length);
 
     return jsonResponse({ success: true, data: facilities });
@@ -1228,26 +1309,33 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // 認証情報を取得
     const settingsData = await env.USERS.get(`settings:${target.userId}`);
     if (!settingsData) {
-      console.error(`[Check] No credentials found for user ${target.userId}`);
+      console.error(`[Check] No settings found for user ${target.userId}`);
       return;
     }
     const settings = JSON.parse(settingsData);
     const siteSettings = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
     
-    // パスワードを復号化（平文パスワードの場合はそのまま使用）
-    let decryptedPassword = siteSettings.password;
-    if (isEncrypted(siteSettings.password)) {
-      try {
-        decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
-      } catch (error) {
-        console.error(`[Check] Failed to decrypt password for user ${target.userId}:`, error);
-        return;
-      }
+    if (!siteSettings) {
+      console.error(`[Check] No ${target.site} settings found for user ${target.userId}`);
+      return;
     }
     
-    const credentials = {
+    // ID/パスワードチェック
+    if (!siteSettings.username || !siteSettings.password) {
+      console.error(`[Check] No credentials found for ${target.site}, user ${target.userId}`);
+      // プッシュ通知を送信（認証情報未設定）
+      await sendPushNotification(target.userId, {
+        title: `${target.site === 'shinagawa' ? '品川区' : '港区'}の認証情報が未設定です`,
+        body: '設定画面でID・パスワードを保存してください',
+      }, env);
+      return;
+    }
+    
+    // 認証情報の復号化
+    const decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
+    const credentials: SiteCredentials = {
       username: siteSettings.username,
-      password: decryptedPassword
+      password: decryptedPassword,
     };
 
     // 年ごとの祝日キャッシュを準備
@@ -1384,22 +1472,34 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         const promise = (async () => {
           let result: AvailabilityResult;
 
-          if (target.site === 'shinagawa') {
-            result = await checkShinagawaAvailability(
-              target.facilityId,
-              date,
-              timeSlot,
-              credentials,
-              existingReservations
-            );
-          } else {
-            result = await checkMinatoAvailability(
-              target.facilityId,
-              date,
-              timeSlot,
-              credentials,
-              existingReservations
-            );
+          try {
+            if (target.site === 'shinagawa') {
+              result = await checkShinagawaAvailability(
+                target.facilityId,
+                date,
+                timeSlot,
+                credentials,
+                existingReservations
+              );
+            } else {
+              result = await checkMinatoAvailability(
+                target.facilityId,
+                date,
+                timeSlot,
+                credentials,
+                existingReservations
+              );
+            }
+          } catch (error: any) {
+            // ログイン失敗をキャッチしてプッシュ通知
+            if (error.message.includes('Login failed')) {
+              console.error(`[Check] Login failed for ${target.site}: ${error.message}`);
+              await sendPushNotification(target.userId, {
+                title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
+                body: 'ID・パスワードを確認してください',
+              }, env);
+            }
+            throw error;
           }
           
           return { date, timeSlot, result };
@@ -1582,37 +1682,57 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
     const settings = JSON.parse(settingsData);
     const siteSettings = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
     
-    // パスワードを復号化（平文パスワードの場合はそのまま使用）
-    let decryptedPassword = siteSettings.password;
-    if (isEncrypted(siteSettings.password)) {
-      try {
-        decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
-      } catch (error) {
-        console.error(`[Reserve] Failed to decrypt password for user ${target.userId}:`, error);
-        return;
-      }
+    // ID/パスワードを取得（自動ログイン方式）
+    if (!siteSettings?.username || !siteSettings?.password) {
+      console.error(`[Reserve] No credentials for ${target.site}, user ${target.userId}`);
+      await sendPushNotification(target.userId, {
+        title: `${target.site === 'shinagawa' ? '品川区' : '港区'}の認証情報が未設定です`,
+        body: '設定画面でID・パスワードを保存してください',
+      }, env);
+      return;
     }
     
-    const credentials = {
+    // パスワード復号化
+    const decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
+    const credentials: SiteCredentials = {
       username: siteSettings.username,
-      password: decryptedPassword
+      password: decryptedPassword,
     };
 
     let result;
-    if (target.site === 'shinagawa') {
-      result = await makeShinagawaReservation(
-        target.facilityId,
-        target.date,
-        target.timeSlot,
-        credentials
-      );
-    } else {
-      result = await makeMinatoReservation(
-        target.facilityId,
-        target.date,
-        target.timeSlot,
-        credentials
-      );
+    try {
+      if (target.site === 'shinagawa') {
+        result = await makeShinagawaReservation(
+          target.facilityId,
+          target.date,
+          target.timeSlot,
+          credentials
+        );
+      } else {
+        result = await makeMinatoReservation(
+          target.facilityId,
+          target.date,
+          target.timeSlot,
+          credentials
+        );
+      }
+      
+      // ログイン失敗チェック
+      if (!result.success && ('message' in result ? result.message?.includes('ログイン') : result.error?.includes('ログイン'))) {
+        await sendPushNotification(target.userId, {
+          title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
+          body: 'ID・パスワードを確認してください',
+        }, env);
+      }
+    } catch (error: any) {
+      console.error(`[Reserve] Error: ${error.message}`);
+      if (error.message.includes('Login failed')) {
+        await sendPushNotification(target.userId, {
+          title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
+          body: 'ID・パスワードを確認してください',
+        }, env);
+      }
+      return;
     }
 
     // 履歴に保存（配列管理）
@@ -1651,6 +1771,33 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
     console.log(`[Reserve] Result: ${result.success ? 'SUCCESS' : 'FAILED'} - ${resultMessage}`);
   } catch (error) {
     console.error(`[Reserve] Error:`, error);
+  }
+}
+
+/**
+ * セッション期限切れ通知を送信
+ */
+async function sendSessionExpiredNotification(userId: string, site: 'shinagawa' | 'minato', env: Env): Promise<void> {
+  try {
+    const siteName = site === 'shinagawa' ? '品川区' : '港区';
+    const siteUrl = site === 'shinagawa' 
+      ? 'https://www.cm9.eprs.jp/shinagawa/web/' 
+      : 'https://web101.rsv.ws-scs.jp/web/';
+    
+    // プッシュ通知を送信
+    await sendPushNotification(userId, {
+      title: `${siteName}: セッション期限切れ`,
+      body: `${siteName}の予約サイトに再ログインしてセッションを更新してください`,
+      data: { 
+        type: 'session_expired', 
+        site,
+        url: siteUrl
+      }
+    }, env);
+    
+    console.log(`[SessionExpired] Notification sent to user ${userId} for ${site}`);
+  } catch (error) {
+    console.error('[SessionExpired] Failed to send notification:', error);
   }
 }
 

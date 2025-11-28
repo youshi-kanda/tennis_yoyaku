@@ -239,7 +239,6 @@ export default function MonitoringPage() {
         apiClient.getMinatoFacilities(),
       ]);
 
-      // API取得成功時のみ上書き（データ構造を変換してグループ化）
       if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
         const transformedData = shinagawaRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
@@ -260,7 +259,6 @@ export default function MonitoringPage() {
       }
     } catch (err) {
       console.error('Failed to load facilities:', err);
-      // エラー時はハードコードされた施設リストをそのまま使用
     }
   };
 

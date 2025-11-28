@@ -225,9 +225,8 @@ export default function MonitoringPage() {
     
     return Array.from(grouped.values()).map(group => ({
       id: group.ids.join(','), // 複数IDをカンマ区切りで保存
-      name: group.courts.length > 0 
-        ? `${group.baseName} 庭球場${group.courts.join('、')}`
-        : group.baseName,
+      name: group.baseName,
+      courts: group.courts.length > 0 ? `${group.courts.join('、')}（${group.courts.length}コート）` : undefined,
       facilityIds: group.ids, // 個別のIDを保持
     }));
   };

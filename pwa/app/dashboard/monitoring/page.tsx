@@ -113,7 +113,7 @@ export default function MonitoringPage() {
     })(),
     selectedWeekdays: [0, 1, 2, 3, 4, 5, 6] as number[], // 曜日指定（デフォルトは全曜日）
     includeHolidays: true as boolean | 'only', // 祝日の扱い（true=含める, false=除外, 'only'=祝日のみ）
-    timeSlots: TIME_SLOTS.map(t => t.id), // デフォルトは全時間帯
+    timeSlots: [] as string[], // 初期状態は未選択
   });
 
   useEffect(() => {
@@ -1461,13 +1461,13 @@ export default function MonitoringPage() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-gray-700">日時設定</span>
-                      {config.timeSlots.length > 0 ? (
+                      {currentStep >= 2 && config.timeSlots.length > 0 ? (
                         <span className="text-xs bg-emerald-600 text-white px-2 py-1 rounded-full">✓ 設定済み</span>
                       ) : (
                         <span className="text-xs bg-gray-300 text-gray-600 px-2 py-1 rounded-full">未設定</span>
                       )}
                     </div>
-                    {config.dateMode && config.timeSlots.length > 0 ? (
+                    {currentStep >= 2 && config.dateMode && config.timeSlots.length > 0 ? (
                       <div className="bg-white rounded-lg p-3 text-sm space-y-2">
                         <div>
                           <span className="text-gray-600">期間:</span>
@@ -1511,7 +1511,7 @@ export default function MonitoringPage() {
                         <span className="text-xs bg-gray-300 text-gray-600 px-2 py-1 rounded-full">未設定</span>
                       )}
                     </div>
-                    {config.dateMode === 'continuous' ? (
+                    {currentStep >= 3 && config.dateMode === 'continuous' ? (
                       <div className="bg-white rounded-lg p-3 text-sm space-y-2">
                         {config.selectedWeekdays && config.selectedWeekdays.length > 0 ? (
                           <div>

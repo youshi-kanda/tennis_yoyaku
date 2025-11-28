@@ -1467,36 +1467,42 @@ export default function MonitoringPage() {
                         <span className="text-xs bg-gray-300 text-gray-600 px-2 py-1 rounded-full">未設定</span>
                       )}
                     </div>
-                    {currentStep >= 2 && config.dateMode && config.timeSlots.length > 0 ? (
-                      <div className="bg-white rounded-lg p-3 text-sm space-y-2">
-                        <div>
-                          <span className="text-gray-600">期間:</span>
-                          <span className="ml-2 font-medium text-gray-800">
-                            {config.dateMode === 'single' && '特定日'}
-                            {config.dateMode === 'range' && '期間指定'}
-                            {config.dateMode === 'continuous' && '毎週曜日'}
-                          </span>
-                        </div>
-                        {config.dateMode === 'single' && config.startDate && (
-                          <div className="text-xs text-gray-600">
-                            {config.startDate}
+                    {currentStep >= 2 ? (
+                      config.timeSlots.length > 0 ? (
+                        <div className="bg-white rounded-lg p-3 text-sm space-y-2">
+                          <div>
+                            <span className="text-gray-600">期間:</span>
+                            <span className="ml-2 font-medium text-gray-800">
+                              {config.dateMode === 'single' && '特定日'}
+                              {config.dateMode === 'range' && '期間指定'}
+                              {config.dateMode === 'continuous' && '毎週曜日'}
+                            </span>
                           </div>
-                        )}
-                        {config.dateMode === 'range' && config.startDate && config.endDate && (
-                          <div className="text-xs text-gray-600">
-                            {config.startDate} 〜 {config.endDate}
+                          {config.dateMode === 'single' && config.startDate && (
+                            <div className="text-xs text-gray-600">
+                              {config.startDate}
+                            </div>
+                          )}
+                          {config.dateMode === 'range' && config.startDate && config.endDate && (
+                            <div className="text-xs text-gray-600">
+                              {config.startDate} 〜 {config.endDate}
+                            </div>
+                          )}
+                          <div>
+                            <span className="text-gray-600">時間帯:</span>
+                            <span className="ml-2 font-medium text-gray-800">
+                              {config.timeSlots.length}枠
+                            </span>
                           </div>
-                        )}
-                        <div>
-                          <span className="text-gray-600">時間帯:</span>
-                          <span className="ml-2 font-medium text-gray-800">
-                            {config.timeSlots.length}枠
-                          </span>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="bg-white rounded-lg p-3 text-sm text-gray-500 italic">
+                          日時と時間帯を設定してください
+                        </div>
+                      )
                     ) : (
                       <div className="bg-white rounded-lg p-3 text-sm text-gray-500 italic">
-                        日時と時間帯を設定してください
+                        ステップ2で設定してください
                       </div>
                     )}
                   </div>

@@ -635,13 +635,6 @@ async function fetchShinagawaAreaFacilities(
   
   const html = await response.text();
   
-  // デバッグ: HTMLの詳細を出力
-  console.log(`[Parser] Area: ${areaName} (${areaCode})`);
-  console.log(`[Parser] HTML length: ${html.length}`);
-  console.log(`[Parser] Has mansion-select: ${html.includes('mansion-select')}`);
-  console.log(`[Parser] Has facility-select: ${html.includes('facility-select')}`);
-  console.log(`[Parser] HTML preview:`, html.substring(0, 1000));
-  
   // HTMLから施設・コート情報を抽出
   return parseShinagawaFacilitiesFromHtml(html, areaCode, areaName);
 }

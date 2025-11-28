@@ -35,7 +35,6 @@ export default function DashboardHome() {
       
       // 監視ターゲットを取得
       const monitoringResponse = await apiClient.getMonitoringList();
-      console.log('[Dashboard] APIレスポンス全体:', monitoringResponse);
       const monitoringTargets = monitoringResponse.data || [];
       console.log('[Dashboard] 取得した監視ターゲット:', monitoringTargets);
       console.log('[Dashboard] ターゲット数:', monitoringTargets.length);

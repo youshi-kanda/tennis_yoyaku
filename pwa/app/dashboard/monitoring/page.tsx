@@ -234,52 +234,32 @@ export default function MonitoringPage() {
 
   const loadFacilities = async () => {
     try {
-      console.log('[loadFacilities] 施設取得開始...');
       const [shinagawaRes, minatoRes] = await Promise.all([
         apiClient.getShinagawaFacilities(),
         apiClient.getMinatoFacilities(),
       ]);
 
-      console.log('[loadFacilities] 品川区レスポンス:', {
-        success: shinagawaRes.success,
-        dataLength: shinagawaRes.data?.length,
-        data: shinagawaRes.data,
-      });
-      console.log('[loadFacilities] 港区レスポンス:', {
-        success: minatoRes.success,
-        dataLength: minatoRes.data?.length,
-        data: minatoRes.data,
-      });
-
       // API取得成功時のみ上書き（データ構造を変換してグループ化）
       if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
-        console.log('[loadFacilities] ✅ 品川区の施設を更新:', shinagawaRes.data);
-        const transformedData = shinagawaRes.data.map((f: any) => ({
-          id: f.facilityId || f.id,
-          name: f.facilityName || f.name,
+        const transformedData = shinagawaRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
+          id: f.facilityId || f.id || '',
+          name: f.facilityName || f.name || '',
           courts: f.courts,
         }));
         const groupedData = groupFacilitiesByBuilding(transformedData);
-        console.log('[loadFacilities] グループ化後のデータ:', groupedData);
         setFacilities(prev => ({ ...prev, shinagawa: groupedData }));
-      } else {
-        console.log('[loadFacilities] ⚠️ 品川区の施設更新スキップ');
       }
       if (minatoRes.success && minatoRes.data?.length > 0) {
-        console.log('[loadFacilities] ✅ 港区の施設を更新:', minatoRes.data);
-        const transformedData = minatoRes.data.map((f: any) => ({
-          id: f.facilityId || f.id,
-          name: f.facilityName || f.name,
+        const transformedData = minatoRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
+          id: f.facilityId || f.id || '',
+          name: f.facilityName || f.name || '',
           courts: f.courts,
         }));
         const groupedData = groupFacilitiesByBuilding(transformedData);
-        console.log('[loadFacilities] グループ化後のデータ:', groupedData);
         setFacilities(prev => ({ ...prev, minato: groupedData }));
-      } else {
-        console.log('[loadFacilities] ⚠️ 港区の施設更新スキップ');
       }
     } catch (err) {
-      console.log('[loadFacilities] ❌ API呼び出しエラー:', err);
+      console.error('Failed to load facilities:', err);
       // エラー時はハードコードされた施設リストをそのまま使用
     }
   };

@@ -30,11 +30,11 @@ crons = ["*/1 * * * *", "0 5 * * *"]  # 1分間隔 + 5:00一斉処理
 # Environment variables (Production)
 [vars]
 ENVIRONMENT = "production"
-JWT_SECRET = "your-jwt-secret-here-change-in-production"
+JWT_SECRET = "prod_jwt_secret_8f9a3b2c1d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z"
 ADMIN_KEY = "tennis_admin_2025"
 VAPID_PUBLIC_KEY = "BJl4G42CTnBBIz0YBhm2yZSPEgyNjXjBnjEXZwT1g0hCiHIGYesl8ePExqj9zcl7kBqRqug9rvg9qLTEtC1KjyQ"
 VAPID_PRIVATE_KEY = "M3GGZhN2hN2Df1GlKD8cLBQGqU3JBdVW4whF7hb_aTI"
-VAPID_SUBJECT = "mailto:youshi.kanda@example.com"
+VAPID_SUBJECT = "mailto:youshi.kanda@gmail.com"
 
 # ===== Development Environment =====
 [env.development]
@@ -68,4 +68,4 @@ JWT_SECRET = "dev-jwt-secret-for-testing-only"
 ADMIN_KEY = "tennis_admin_2025"
 VAPID_PUBLIC_KEY = "BJl4G42CTnBBIz0YBhm2yZSPEgyNjXjBnjEXZwT1g0hCiHIGYesl8ePExqj9zcl7kBqRqug9rvg9qLTEtC1KjyQ"
 VAPID_PRIVATE_KEY = "M3GGZhN2hN2Df1GlKD8cLBQGqU3JBdVW4whF7hb_aTI"
-VAPID_SUBJECT = "mailto:youshi.kanda+dev@example.com"
+VAPID_SUBJECT = "mailto:youshi.kanda+dev@gmail.com"

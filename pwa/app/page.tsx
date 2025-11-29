@@ -18,7 +18,7 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-50 to-teal-50 px-4 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-emerald-50 to-teal-50 px-4 py-12">
       <div className="w-full max-w-md">
         {/* ロゴ・ヘッダー */}
         <div className="text-center mb-8">
@@ -82,13 +82,6 @@ export default function Login() {
               />
             </div>
 
-            {/* パスワード忘れ */}
-            <div className="text-right">
-              <Link href="/forgot-password" className="text-sm text-emerald-600 hover:text-emerald-700">
-                パスワードをお忘れですか？
-              </Link>
-            </div>
-
             {/* ログインボタン */}
             <button
               type="submit"
@@ -98,23 +91,6 @@ export default function Login() {
               {isLoading ? 'ログイン中...' : 'ログイン'}
             </button>
           </form>
-
-          {/* 新規登録リンク */}
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              アカウントをお持ちでない方は{' '}
-              <Link href="/register" className="text-emerald-600 font-semibold hover:text-emerald-700">
-                新規登録
-              </Link>
-            </p>
-          </div>
-
-          {/* 管理者登録リンク */}
-          <div className="mt-3 text-center">
-            <Link href="/admin" className="text-xs text-purple-600 hover:text-purple-700">
-              管理者アカウント登録
-            </Link>
-          </div>
         </div>
 
         {/* 機能紹介 */}

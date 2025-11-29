@@ -64,24 +64,13 @@ export default function MonitoringPage() {
     { id: 6, label: '土', fullLabel: '土曜日' },
   ];
 
-  // 施設リスト（ハードコードで初期表示、API取得で上書き）
+  // 施設リスト（API取得で動的に設定）
   const [facilities, setFacilities] = useState<{
     shinagawa: Array<{ id: string; name: string; courts?: string; facilityIds?: string[] }>;
     minato: Array<{ id: string; name: string; courts?: string; facilityIds?: string[] }>;
   }>({
-    shinagawa: [
-      { id: 'shinagawa-chuo', name: 'しながわ中央公園', courts: 'A、B（2コート）' },
-      { id: 'higashi-shinagawa', name: '東品川公園', courts: 'A（1コート）' },
-      { id: 'shinagawa-kumin', name: 'しながわ区民公園', courts: 'A（1コート）' },
-      { id: 'yashio-kita', name: '八潮北公園', courts: 'A（1コート）' },
-    ],
-    minato: [
-      { id: 'azabu-a', name: '麻布運動公園', courts: 'A、B、C、D（4コート）' },
-      { id: 'aoyama-ground-a', name: '青山運動場', courts: 'A、B、C、D（4コート）' },
-      { id: 'aoyama-jhs-a', name: '青山中学校', courts: 'A、B、C、D（4コート）' },
-      { id: 'takamatsu-jhs-a', name: '高松中学校', courts: 'A、B、C、D（4コート）' },
-      { id: 'shibaura-chuo-a', name: '芝浦中央公園運動場', courts: 'A、B、C、D（4コート）' },
-    ],
+    shinagawa: [],
+    minato: [],
   });
 
   // 予約可能期間情報（初期値はnull、取得後に設定）
@@ -196,20 +185,27 @@ export default function MonitoringPage() {
     const grouped = new Map<string, { baseName: string; courts: string[]; ids: string[] }>();
     
     facilities.forEach(facility => {
-      // 施設名から基本名とコート名を抽出（例: "しながわ中央公園 庭球場Ａ" → "しながわ中央公園", "Ａ"）
+      // 施設名から基本名とコート名を抽出
+      // パターン1: "しながわ中央公園 庭球場Ａ" → baseName: "しながわ中央公園", court: "Ａ"
+      // パターン2: "麻布運動公園 テニスコートＡ" → baseName: "麻布運動公園", court: "Ａ"
       const match = facility.name.match(/^(.+?)\s+(?:庭球場|テニスコート)\s*([A-ZＡ-Ｚa-zａ-ｚ０-９0-9]+)$/);
       
       if (match) {
         const [, baseName, courtName] = match;
+        // 全角英数字を半角に変換
+        const normalizedCourtName = courtName
+          .replace(/[Ａ-Ｚ]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+          .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+        
         const existing = grouped.get(baseName);
         
         if (existing) {
-          existing.courts.push(courtName);
+          existing.courts.push(normalizedCourtName);
           existing.ids.push(facility.id);
         } else {
           grouped.set(baseName, {
             baseName,
-            courts: [courtName],
+            courts: [normalizedCourtName],
             ids: [facility.id],
           });
         }
@@ -223,12 +219,29 @@ export default function MonitoringPage() {
       }
     });
     
-    return Array.from(grouped.values()).map(group => ({
-      id: group.ids.join(','), // 複数IDをカンマ区切りで保存
-      name: group.baseName,
-      courts: group.courts.length > 0 ? `${group.courts.join('、')}（${group.courts.length}コート）` : undefined,
-      facilityIds: group.ids, // 個別のIDを保持
-    }));
+    return Array.from(grouped.values()).map(group => {
+      // コート名をソート（A, B, C, D...の順）
+      const sortedCourts = group.courts.sort((a, b) => {
+        // 数字部分と文字部分を分離してソート
+        const aMatch = a.match(/([A-Z]+)(\d*)/);
+        const bMatch = b.match(/([A-Z]+)(\d*)/);
+        if (aMatch && bMatch) {
+          const letterCompare = aMatch[1].localeCompare(bMatch[1]);
+          if (letterCompare !== 0) return letterCompare;
+          return (parseInt(aMatch[2]) || 0) - (parseInt(bMatch[2]) || 0);
+        }
+        return a.localeCompare(b);
+      });
+      
+      return {
+        id: group.ids.join(','), // 複数IDをカンマ区切りで保存
+        name: group.baseName,
+        courts: sortedCourts.length > 0 
+          ? `${sortedCourts.join('、')}（${sortedCourts.length}コート）` 
+          : undefined,
+        facilityIds: group.ids, // 個別のIDを保持
+      };
+    });
   };
 
   const loadFacilities = async () => {
@@ -239,21 +252,27 @@ export default function MonitoringPage() {
       ]);
 
       if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
+        console.log('品川区APIレスポンス:', shinagawaRes.data);
         const transformedData = shinagawaRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
           name: f.facilityName || f.name || '',
           courts: f.courts,
         }));
+        console.log('変換後データ:', transformedData);
         const groupedData = groupFacilitiesByBuilding(transformedData);
+        console.log('グループ化後:', groupedData);
         setFacilities(prev => ({ ...prev, shinagawa: groupedData }));
       }
       if (minatoRes.success && minatoRes.data?.length > 0) {
+        console.log('港区APIレスポンス:', minatoRes.data);
         const transformedData = minatoRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
           name: f.facilityName || f.name || '',
           courts: f.courts,
         }));
+        console.log('変換後データ:', transformedData);
         const groupedData = groupFacilitiesByBuilding(transformedData);
+        console.log('グループ化後:', groupedData);
         setFacilities(prev => ({ ...prev, minato: groupedData }));
       }
     } catch (err) {
@@ -926,7 +945,7 @@ export default function MonitoringPage() {
 
             {/* 予約可能期間の情報 */}
             {config.selectedFacilities.length > 0 && (
-              <div className="p-3 bg-gradient-to-r from-emerald-50 to-blue-50 border border-emerald-200 rounded-lg">
+              <div className="p-3 bg-linear-to-r from-emerald-50 to-blue-50 border border-emerald-200 rounded-lg">
                 <p className="text-xs font-semibold text-gray-700 mb-2">📅 予約可能期間</p>
                 <div className="space-y-1">
                   {config.selectedFacilities.some(f => f.site === 'shinagawa') && reservationPeriods.shinagawa && (
@@ -1414,7 +1433,7 @@ export default function MonitoringPage() {
 
             {/* 右側: 設定プレビュー */}
             <div className="lg:col-span-1">
-              <div className="sticky top-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-6 border-2 border-emerald-200 shadow-lg">
+              <div className="sticky top-4 bg-linear-to-br from-emerald-50 to-teal-50 rounded-xl p-6 border-2 border-emerald-200 shadow-lg">
                 <h3 className="text-lg font-bold text-emerald-900 mb-4 flex items-center gap-2">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />

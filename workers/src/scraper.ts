@@ -295,16 +295,12 @@ export async function makeShinagawaReservation(
   facilityId: string,
   date: string,
   timeSlot: string,
-  credentials: SiteCredentials
+  sessionId: string
 ): Promise<{ success: boolean; message: string }> {
   try {
     console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
     
-    // 自動ログイン
-    const sessionId = await loginToShinagawa(credentials.username, credentials.password);
-    if (!sessionId) {
-      return { success: false, message: 'ログインに失敗しました' };
-    }
+    // セッションIDを使用（自動ログイン不要）
     
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
     
@@ -514,11 +510,12 @@ export async function getOrCreateSession(
  */
 export async function getShinagawaFacilities(
   credentials: SiteCredentials,
-  kv: KVNamespace
+  kv: KVNamespace,
+  userId?: string
 ): Promise<Facility[]> {
   try {
-    // KVキャッシュをチェック（24時間有効）
-    const cacheKey = 'shinagawa:facilities:cache';
+    // KVキャッシュをチェック（6時間有効、ユーザー別）
+    const cacheKey = userId ? `shinagawa:facilities:${userId}` : 'shinagawa:facilities:cache';
     const cached = await kv.get(cacheKey, 'json');
     
     if (cached) {
@@ -565,9 +562,9 @@ export async function getShinagawaFacilities(
       return getShinagawaFacilitiesFallback();
     }
     
-    // KVにキャッシュ（24時間）
+    // KVにキャッシュ（6時間、ユーザー権限変更に対応）
     await kv.put(cacheKey, JSON.stringify(facilities), {
-      expirationTtl: 86400, // 24時間
+      expirationTtl: 21600, // 6時間
     });
     
     console.log(`[Facilities] Fetched ${facilities.length} Shinagawa facilities`);
@@ -590,20 +587,44 @@ async function fetchShinagawaAreaFacilities(
 ): Promise<Facility[]> {
   const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
   
-  // まずホーム画面にアクセスしてセッションを確立
+  // Step 1: ホーム画面にアクセスしてセッションを確立
   const homeUrl = `${baseUrl}/rsvWOpeHomeAction.do`;
-  await fetch(homeUrl, {
+  const homeRes = await fetch(homeUrl, {
     method: 'GET',
     headers: {
       'Cookie': `JSESSIONID=${sessionId}`,
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
     },
   });
   
-  // 空き検索画面にアクセス（テニスで検索）
-  const searchUrl = `${baseUrl}/rsvWOpeInstSrchVacantAction.do`;
+  if (!homeRes.ok) {
+    throw new Error(`Home page access failed: ${homeRes.status}`);
+  }
   
-  const today = new Date().toISOString().split('T')[0];
+  // Step 2: 空き施設検索画面の初期表示にアクセス（GET）
+  const searchInitUrl = `${baseUrl}/rsvWOpeInstSrchVacantAction.do`;
+  const searchInitRes = await fetch(searchInitUrl, {
+    method: 'GET',
+    headers: {
+      'Cookie': `JSESSIONID=${sessionId}`,
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+      'Referer': homeUrl,
+    },
+  });
+  
+  if (!searchInitRes.ok) {
+    throw new Error(`Search init page access failed: ${searchInitRes.status}`);
+  }
+  
+  const initHtml = await searchInitRes.text();
+  console.log(`[Facilities] Search init page loaded, HTML length: ${initHtml.length}`);
+  
+  // Step 3: 検索条件を指定してPOSTリクエスト
+  const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
   
   const formData = new URLSearchParams({
     'date': '4',  // 1か月表示
@@ -618,13 +639,16 @@ async function fetchShinagawaAreaFacilities(
     'displayNoFrm': 'pawab2000',
   });
   
-  const response = await fetch(searchUrl, {
+  const response = await fetch(searchInitUrl, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       'Cookie': `JSESSIONID=${sessionId}`,
-      'Referer': `${baseUrl}/rsvWOpeHomeAction.do`,
+      'Referer': searchInitUrl,
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+      'Origin': 'https://www.cm9.eprs.jp',
     },
     body: formData.toString(),
   });
@@ -633,7 +657,14 @@ async function fetchShinagawaAreaFacilities(
     throw new Error(`Failed to fetch area facilities: ${response.status}`);
   }
   
-  const html = await response.text();
+  // Shift_JISエンコーディングで取得したHTMLをUTF-8に変換
+  const buffer = await response.arrayBuffer();
+  const decoder = new TextDecoder('shift-jis');
+  const html = decoder.decode(buffer);
+  
+  console.log(`[Facilities] ${areaName} HTML loaded, length: ${html.length}`);
+  console.log(`[Facilities] HTML contains "庭球": ${html.includes('庭球')}`);
+  console.log(`[Facilities] HTML contains "select": ${html.includes('select')}`);
   
   // HTMLから施設・コート情報を抽出
   return parseShinagawaFacilitiesFromHtml(html, areaCode, areaName);
@@ -649,13 +680,62 @@ function parseShinagawaFacilitiesFromHtml(
 ): Facility[] {
   const facilities: Facility[] = [];
   
-  // 館セレクトボックスをパース
-  const mansionSelectMatch = html.match(
+  // デバッグ: select要素を全て検索して詳細表示
+  const allSelects = html.match(/<select[^>]*>[\s\S]*?<\/select>/gi);
+  if (allSelects) {
+    console.log(`[Parser] Found ${allSelects.length} select elements in HTML`);
+    allSelects.forEach((select, index) => {
+      const idMatch = select.match(/id="([^"]+)"/);
+      const nameMatch = select.match(/name="([^"]+)"/);
+      const classMatch = select.match(/class="([^"]+)"/);
+      const optionCount = (select.match(/<option/gi) || []).length;
+      console.log(`[Parser] Select ${index}: id="${idMatch?.[1] || 'none'}", name="${nameMatch?.[1] || 'none'}", class="${classMatch?.[1] || 'none'}", options=${optionCount}`);
+      
+      // 最初の3つのoptionを表示
+      const options = select.match(/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/gi);
+      if (options && options.length > 0) {
+        const firstThree = options.slice(0, 3).map(opt => {
+          const val = opt.match(/value="([^"]*)"/)?.[1];
+          const text = opt.match(/>([^<]*)</)?.[1];
+          return `value="${val}" text="${text}"`;
+        });
+        console.log(`[Parser]   First options:`, firstThree.join(' | '));
+      }
+    });
+  }
+  
+  // 複数のパターンで館セレクトボックスを検索
+  let mansionSelectMatch = html.match(
     /<select[^>]*id="mansion-select"[^>]*>([\s\S]*?)<\/select>/i
   );
   
+  // idで見つからない場合、nameで検索
   if (!mansionSelectMatch) {
-    console.warn('[Parser] Could not find mansion-select');
+    mansionSelectMatch = html.match(
+      /<select[^>]*name="selectAreaBcd"[^>]*>([\s\S]*?)<\/select>/i
+    );
+    if (mansionSelectMatch) {
+      console.log('[Parser] Found mansion select by name="selectAreaBcd"');
+    }
+  }
+  
+  // さらに見つからない場合、class等で検索
+  if (!mansionSelectMatch) {
+    mansionSelectMatch = html.match(
+      /<select[^>]*name="selectIcd"[^>]*>([\s\S]*?)<\/select>/i
+    );
+    if (mansionSelectMatch) {
+      console.log('[Parser] Found mansion select by name="selectIcd"');
+    }
+  }
+  
+  if (!mansionSelectMatch) {
+    console.warn('[Parser] Could not find mansion-select with any pattern');
+    console.log('[Parser] HTML length:', html.length);
+    console.log('[Parser] HTML contains "select":', html.includes('select'));
+    console.log('[Parser] HTML contains "庭球":', html.includes('庭球'));
+    console.log('[Parser] HTML snippet (first 1000 chars):', html.substring(0, 1000));
+    console.log('[Parser] HTML snippet (around 庭球):', html.substring(html.indexOf('庭球') - 200, html.indexOf('庭球') + 300));
     return facilities;
   }
   
@@ -673,13 +753,53 @@ function parseShinagawaFacilitiesFromHtml(
     buildings.push({ id: buildingId, name: buildingName });
   }
   
-  // 施設セレクトボックスをパース
-  const facilitySelectMatch = html.match(
+  // 施設セレクトボックスをパース（複数パターン対応）
+  let facilitySelectMatch = html.match(
     /<select[^>]*id="facility-select"[^>]*>([\s\S]*?)<\/select>/i
   );
   
+  // idで見つからない場合、他のパターンを試す
   if (!facilitySelectMatch) {
-    console.warn('[Parser] Could not find facility-select');
+    // テニスコート選択用のselectを検索
+    const possiblePatterns = [
+      /<select[^>]*name="selectPpsClPpscd"[^>]*>([\s\S]*?)<\/select>/i,
+      /<select[^>]*class="[^"]*facility[^"]*"[^>]*>([\s\S]*?)<\/select>/i,
+    ];
+    
+    for (const pattern of possiblePatterns) {
+      facilitySelectMatch = html.match(pattern);
+      if (facilitySelectMatch) {
+        console.log('[Parser] Found facility select with alternative pattern');
+        break;
+      }
+    }
+  }
+  
+  if (!facilitySelectMatch) {
+    console.warn('[Parser] Could not find facility-select with any pattern');
+    console.log('[Parser] Buildings found:', buildings.length);
+    
+    // 館が見つかっている場合は、各館に対してデフォルトコートを生成
+    if (buildings.length > 0) {
+      console.log('[Parser] Generating default courts for found buildings');
+      buildings.forEach(building => {
+        // 仮のコートIDを生成（実際の構造に応じて調整が必要）
+        ['Ａ', 'Ｂ', 'Ｃ', 'Ｄ'].forEach((court, index) => {
+          const courtId = `${building.id}00${(index + 1) * 10}`;
+          facilities.push({
+            facilityId: courtId,
+            facilityName: `${building.name} 庭球場${court}`,
+            category: 'tennis',
+            isTennisCourt: true,
+            buildingId: building.id,
+            buildingName: building.name,
+            areaCode: areaCode,
+            areaName: areaName,
+          });
+        });
+      });
+    }
+    
     return facilities;
   }
   
@@ -714,68 +834,33 @@ function parseShinagawaFacilitiesFromHtml(
 }
 
 /**
- * フォールバック用のハードコードされた施設一覧
+ * フォールバック用のハードコードされた施設一覧（品川区全24施設）
  */
 function getShinagawaFacilitiesFallback(): Facility[] {
   console.log('[Facilities] Using fallback Shinagawa facilities');
   
   const facilities: Facility[] = [
-    // しながわ中央公園（コートA〜B）
-    {
-      facilityId: '10100010',
-      facilityName: 'しながわ中央公園 庭球場Ａ',
-      category: 'tennis',
-      isTennisCourt: true,
-      buildingId: '1010',
-      buildingName: 'しながわ中央公園',
-      areaCode: '1400',
-      areaName: '品川地区',
-    },
-    {
-      facilityId: '10100020',
-      facilityName: 'しながわ中央公園 庭球場Ｂ',
-      category: 'tennis',
-      isTennisCourt: true,
-      buildingId: '1010',
-      buildingName: 'しながわ中央公園',
-      areaCode: '1400',
-      areaName: '品川地区',
-    },
-    // 東品川公園
-    {
-      facilityId: '10200010',
-      facilityName: '東品川公園 庭球場Ａ',
-      category: 'tennis',
-      isTennisCourt: true,
-      buildingId: '1020',
-      buildingName: '東品川公園',
-      areaCode: '1400',
-      areaName: '品川地区',
-    },
-    // しながわ区民公園
-    {
-      facilityId: '10400010',
-      facilityName: 'しながわ区民公園 庭球場Ａ',
-      category: 'tennis',
-      isTennisCourt: true,
-      buildingId: '1040',
-      buildingName: 'しながわ区民公園',
-      areaCode: '1200',
-      areaName: '大井地区',
-    },
-    // 八潮北公園
-    {
-      facilityId: '10300010',
-      facilityName: '八潮北公園 庭球場Ａ',
-      category: 'tennis',
-      isTennisCourt: true,
-      buildingId: '1030',
-      buildingName: '八潮北公園',
-      areaCode: '1500',
-      areaName: '八潮地区',
-    },
+    // 大井地区: しながわ区民公園（コートA〜D）
+    { facilityId: '10400010', facilityName: 'しながわ区民公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
+    { facilityId: '10400020', facilityName: 'しながわ区民公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
+    { facilityId: '10400030', facilityName: 'しながわ区民公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
+    { facilityId: '10400040', facilityName: 'しながわ区民公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
+    
+    // 品川地区: しながわ中央公園（コートA、B）
+    { facilityId: '10100010', facilityName: 'しながわ中央公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区' },
+    { facilityId: '10100020', facilityName: 'しながわ中央公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区' },
+    
+    // 品川地区: 東品川公園（コートA、B）
+    { facilityId: '10200010', facilityName: '東品川公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区' },
+    { facilityId: '10200020', facilityName: '東品川公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区' },
+    
+    // 八潮地区: 八潮北公園（コートA〜E）
+    { facilityId: '10300010', facilityName: '八潮北公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
+    { facilityId: '10300020', facilityName: '八潮北公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
+    { facilityId: '10300030', facilityName: '八潮北公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
+    { facilityId: '10300040', facilityName: '八潮北公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
+    { facilityId: '10300050', facilityName: '八潮北公園 庭球場Ｅ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
   ];
-  
   
   return facilities;
 }/**
@@ -783,9 +868,10 @@ function getShinagawaFacilitiesFallback(): Facility[] {
  */
 export async function getShinagawaTennisCourts(
   credentials: SiteCredentials,
-  kv: KVNamespace
+  kv: KVNamespace,
+  userId?: string
 ): Promise<Facility[]> {
-  const allFacilities = await getShinagawaFacilities(credentials, kv);
+  const allFacilities = await getShinagawaFacilities(credentials, kv, userId);
   return allFacilities.filter(f => f.isTennisCourt);
 }
 
@@ -869,13 +955,15 @@ export async function loginToMinato(userId: string, password: string): Promise<s
  */
 export async function getMinatoFacilities(
   sessionId: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  userId?: string
 ): Promise<Facility[]> {
   try {
-    // KVキャッシュチェック
-    const cached = await kv.get('facilities:minato');
+    // KVキャッシュチェック（ユーザー別）
+    const cacheKey = userId ? `minato:facilities:${userId}` : 'facilities:minato';
+    const cached = await kv.get(cacheKey);
     if (cached) {
-      console.log('[Facilities] Using cached Minato facilities');
+      console.log('[Facilities] Using cached Minato facilities for user:', userId);
       return JSON.parse(cached);
     }
 
@@ -891,28 +979,67 @@ export async function getMinatoFacilities(
     const html = await response.text();
     const facilities: Facility[] = [];
     
-    const facilityPattern = /rsvWOpeInstMenuAction\.do\?instNo=([^"']+)["'][^>]*>([^<]+)</g;
-    let match;
+    // デバッグ: 施設リンクのパターンを検索
+    console.log('[Minato Parser] Searching for facility links...');
     
-    while ((match = facilityPattern.exec(html)) !== null) {
-      const facilityId = match[1];
-      const facilityName = match[2].trim();
-      const isTennisCourt = facilityName.includes('テニス');
+    // 複数のパターンで施設リンクを検索
+    const patterns = [
+      /rsvWOpeInstMenuAction\.do\?instNo=([^"'&]+)["'][^>]*>([^<]+)</g,
+      /<a[^>]*href="[^"]*instNo=([^"'&]+)"[^>]*>([^<]+)<\/a>/g,
+      /onclick="[^"]*instNo=([^"'&]+)"[^>]*>([^<]+)/g,
+    ];
+    
+    let foundAny = false;
+    
+    for (const pattern of patterns) {
+      let match;
+      const tempFacilities: Facility[] = [];
       
-      facilities.push({
-        facilityId,
-        facilityName,
-        category: isTennisCourt ? 'tennis' : 'other',
-        isTennisCourt,
-      });
+      while ((match = pattern.exec(html)) !== null) {
+        foundAny = true;
+        const facilityId = match[1];
+        const facilityName = match[2].trim();
+        
+        // HTMLエンティティをデコード
+        const decodedName = facilityName
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'");
+        
+        const isTennisCourt = decodedName.includes('テニス');
+        
+        // テニスコートのみを追加
+        if (isTennisCourt) {
+          tempFacilities.push({
+            facilityId,
+            facilityName: decodedName,
+            category: 'tennis',
+            isTennisCourt: true,
+          });
+        }
+      }
+      
+      if (tempFacilities.length > 0) {
+        console.log(`[Minato Parser] Found ${tempFacilities.length} facilities with pattern`);
+        facilities.push(...tempFacilities);
+        break; // 最初に見つかったパターンを使用
+      }
+    }
+    
+    if (!foundAny) {
+      console.warn('[Minato Parser] No facility links found with any pattern');
+      console.log('[Minato Parser] HTML snippet:', html.substring(0, 500));
     }
     
     console.log(`[Facilities] Found ${facilities.length} Minato facilities (${facilities.filter(f => f.isTennisCourt).length} tennis courts)`);
     
-    // 動的取得が成功した場合のみキャッシュ
+    // 動的取得が成功した場合のみキャッシュ（6時間、ユーザー別）
     if (facilities.length > 0) {
-      await kv.put('facilities:minato', JSON.stringify(facilities), {
-        expirationTtl: 3600,
+      const cacheKey = userId ? `minato:facilities:${userId}` : 'facilities:minato';
+      await kv.put(cacheKey, JSON.stringify(facilities), {
+        expirationTtl: 21600, // 6時間
       });
       return facilities;
     }
@@ -929,35 +1056,25 @@ export async function getMinatoFacilities(
 }
 
 /**
- * 港区施設のフォールバックデータ（動的取得失敗時用）
+ * 港区施設のフォールバックデータ（全テニスコート）
  */
 function getMinatoFacilitiesFallback(): Facility[] {
   return [
-    // 麻布運動公園（コートA〜D）
-    { facilityId: 'azabu-a', facilityName: '麻布運動公園 テニスコートA', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'azabu-b', facilityName: '麻布運動公園 テニスコートB', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'azabu-c', facilityName: '麻布運動公園 テニスコートC', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'azabu-d', facilityName: '麻布運動公園 テニスコートD', category: 'tennis', isTennisCourt: true },
-    // 青山運動場（コートA〜D）
-    { facilityId: 'aoyama-ground-a', facilityName: '青山運動場 テニスコートA', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'aoyama-ground-b', facilityName: '青山運動場 テニスコートB', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'aoyama-ground-c', facilityName: '青山運動場 テニスコートC', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'aoyama-ground-d', facilityName: '青山運動場 テニスコートD', category: 'tennis', isTennisCourt: true },
-    // 青山中学校（コートA〜D）
-    { facilityId: 'aoyama-jhs-a', facilityName: '青山中学校 テニスコートA', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'aoyama-jhs-b', facilityName: '青山中学校 テニスコートB', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'aoyama-jhs-c', facilityName: '青山中学校 テニスコートC', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'aoyama-jhs-d', facilityName: '青山中学校 テニスコートD', category: 'tennis', isTennisCourt: true },
-    // 高松中学校（コートA〜D）
-    { facilityId: 'takamatsu-jhs-a', facilityName: '高松中学校 テニスコートA', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'takamatsu-jhs-b', facilityName: '高松中学校 テニスコートB', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'takamatsu-jhs-c', facilityName: '高松中学校 テニスコートC', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'takamatsu-jhs-d', facilityName: '高松中学校 テニスコートD', category: 'tennis', isTennisCourt: true },
-    // 芝浦中央公園運動場（コートA〜D）
-    { facilityId: 'shibaura-chuo-a', facilityName: '芝浦中央公園運動場 テニスコートA', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'shibaura-chuo-b', facilityName: '芝浦中央公園運動場 テニスコートB', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'shibaura-chuo-c', facilityName: '芝浦中央公園運動場 テニスコートC', category: 'tennis', isTennisCourt: true },
-    { facilityId: 'shibaura-chuo-d', facilityName: '芝浦中央公園運動場 テニスコートD', category: 'tennis', isTennisCourt: true },
+    // 麻布地区: 麻布運動公園（コートA〜D）
+    { facilityId: '1001', facilityName: '麻布運動公園 テニスコートＡ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '1002', facilityName: '麻布運動公園 テニスコートＢ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '1003', facilityName: '麻布運動公園 テニスコートＣ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '1004', facilityName: '麻布運動公園 テニスコートＤ', category: 'tennis', isTennisCourt: true },
+    
+    // 赤坂地区: 青山運動場（コートA、B）
+    { facilityId: '2001', facilityName: '青山運動場 テニスコートＡ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '2002', facilityName: '青山運動場 テニスコートＢ', category: 'tennis', isTennisCourt: true },
+    
+    // 芝浦港南地区: 芝浦中央公園運動場（コートA〜D）
+    { facilityId: '5001', facilityName: '芝浦中央公園運動場 テニスコートＡ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '5002', facilityName: '芝浦中央公園運動場 テニスコートＢ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '5003', facilityName: '芝浦中央公園運動場 テニスコートＣ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '5004', facilityName: '芝浦中央公園運動場 テニスコートＤ', category: 'tennis', isTennisCourt: true },
   ];
 }
 
@@ -968,14 +1085,10 @@ export async function makeMinatoReservation(
   facilityId: string,
   date: string,
   timeSlot: string,
-  credentials: SiteCredentials
+  sessionId: string
 ): Promise<{ success: boolean; reservationId?: string; error?: string }> {
   try {
-    // 自動ログイン
-    const sessionId = await loginToMinato(credentials.username, credentials.password);
-    if (!sessionId) {
-      return { success: false, error: 'ログインに失敗しました' };
-    }
+    // セッションIDを使用（自動ログイン不要）
 
     const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
 

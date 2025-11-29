@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import { MonitoringTarget } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { isHoliday } from '@/lib/utils/holidays';
+import { apiClient } from '@/lib/api/client';
 
 interface MonitoringCalendarProps {
   targets: MonitoringTarget[];
@@ -19,10 +20,36 @@ type DateStatus = {
   failed: number;
 };
 
+interface ReservationHistory {
+  id: string;
+  site: 'shinagawa' | 'minato';
+  facilityName: string;
+  date: string;
+  timeSlot: string;
+  status: 'success' | 'failed';
+  createdAt: number;
+}
+
 export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [reservations, setReservations] = useState<ReservationHistory[]>([]);
 
-  // 日付ごとのステータスを集計
+  // 予約履歴を取得
+  useEffect(() => {
+    const loadReservations = async () => {
+      try {
+        const response = await apiClient.getReservationHistory(100);
+        if (response.success && response.data) {
+          setReservations(response.data);
+        }
+      } catch (error) {
+        console.error('Failed to load reservations:', error);
+      }
+    };
+    loadReservations();
+  }, []);
+
+  // 日付ごとのステータスを集計（監視ターゲット + 予約履歴）
   const dateStatusMap = useMemo(() => {
     const map = new Map<string, DateStatus>();
 
@@ -69,10 +96,38 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
       });
     });
 
-    return map;
-  }, [targets]);
+    // 予約履歴からステータスを追加
+    reservations.forEach((reservation) => {
+      const status = map.get(reservation.date) || {
+        monitoring: 0,
+        detected: 0,
+        reserved: 0,
+        failed: 0,
+      };
 
-  // 選択された日付のターゲット一覧
+      if (reservation.status === 'success') {
+        status.reserved++;
+      } else if (reservation.status === 'failed') {
+        status.failed++;
+      }
+
+      map.set(reservation.date, status);
+    });
+
+    return map;
+  }, [targets, reservations]);
+
+  // 選択された日付の予約成功リスト（予約成功のみ表示）
+  const selectedDateReservations = useMemo(() => {
+    if (!selectedDate) return [];
+
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    return reservations.filter(
+      (r) => r.date === dateStr && r.status === 'success'
+    );
+  }, [selectedDate, reservations]);
+
+  // 選択された日付のターゲット一覧（参考用、非表示）
   const selectedDateTargets = useMemo(() => {
     if (!selectedDate) return [];
 
@@ -112,10 +167,10 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
     if (!status) return classes.join(' ');
 
     // 優先度: failed > reserved > detected > monitoring
-    if (status.failed > 0) classes.push('bg-red-100 font-semibold');
-    else if (status.reserved > 0) classes.push('bg-blue-100 font-semibold');
-    else if (status.detected > 0) classes.push('bg-yellow-100 font-semibold');
-    else if (status.monitoring > 0) classes.push('bg-green-100 font-semibold');
+    if (status.failed > 0) classes.push('bg-red-100 font-semibold border border-red-300');
+    else if (status.reserved > 0) classes.push('bg-green-100 font-semibold border border-green-300');
+    else if (status.detected > 0) classes.push('bg-yellow-100 font-semibold border border-yellow-300');
+    else if (status.monitoring > 0) classes.push('bg-blue-100 font-semibold border border-blue-300');
     
     return classes.join(' ');
   };
@@ -169,20 +224,20 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
             {/* 凡例 */}
             <div className="flex flex-wrap gap-3 text-sm">
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
-                <span>監視中</span>
+                <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
+                <span>🔵 監視中</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-yellow-100 border border-yellow-300 rounded"></div>
-                <span>検知</span>
+                <span>🟡 空き検知</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
-                <span>予約済</span>
+                <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
+                <span>🟢 予約成功</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
-                <span>失敗</span>
+                <span>🔴 予約失敗</span>
               </div>
             </div>
 
@@ -256,36 +311,72 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
         </CardContent>
       </Card>
 
-      {/* 選択日の詳細 */}
+      {/* 選択日の予約成功詳細 */}
       <Card className="lg:col-span-1">
         <CardHeader>
           <CardTitle>
             {selectedDate
-              ? `${selectedDate.getMonth() + 1}/${selectedDate.getDate()} の監視`
+              ? `${selectedDate.getMonth() + 1}/${selectedDate.getDate()} の予約結果`
               : '日付を選択してください'}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {selectedDateTargets.length === 0 ? (
+          {!selectedDate ? (
             <p className="text-sm text-gray-500 text-center py-8">
-              {selectedDate
-                ? 'この日の監視はありません'
-                : 'カレンダーから日付を選択してください'}
+              カレンダーから日付を選択してください
             </p>
+          ) : selectedDateReservations.length === 0 ? (
+            <div className="text-center py-8">
+              <svg
+                className="w-12 h-12 text-gray-300 mx-auto mb-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <p className="text-sm text-gray-500">
+                この日の予約成功はありません
+              </p>
+            </div>
           ) : (
             <div className="space-y-3">
-              {selectedDateTargets.map((target) => (
+              {selectedDateReservations.map((reservation) => (
                 <div
-                  key={target.id}
-                  className="p-3 border rounded-lg hover:bg-gray-50 transition-colors"
+                  key={reservation.id}
+                  className="p-4 border-2 border-green-200 bg-green-50 rounded-lg"
                 >
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-medium text-sm">{target.facilityName}</h4>
-                    {getStatusBadge(target.status)}
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="font-semibold text-sm text-green-900">
+                      ✅ {reservation.facilityName}
+                    </h4>
+                    <Badge variant="success">予約成功</Badge>
                   </div>
-                  <div className="space-y-1 text-xs text-gray-600">
-                    <p>📍 {target.site === 'shinagawa' ? '品川区' : '港区'}</p>
-                    <p>⏰ {target.timeSlots?.join(', ')}</p>
+                  <div className="space-y-1 text-sm text-green-800">
+                    <p className="flex items-center gap-2">
+                      <span className="font-medium">📍 地区:</span>
+                      <span>{reservation.site === 'shinagawa' ? '品川区' : '港区'}</span>
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <span className="font-medium">⏰ 時間:</span>
+                      <span>{reservation.timeSlot}</span>
+                    </p>
+                    <p className="flex items-center gap-2 text-xs text-green-600">
+                      <span className="font-medium">🕐 予約日時:</span>
+                      <span>
+                        {new Date(reservation.createdAt).toLocaleString('ja-JP', {
+                          month: 'numeric',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </p>
                   </div>
                 </div>
               ))}

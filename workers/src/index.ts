@@ -929,15 +929,25 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     const userId = payload.userId;
 
     const body = await request.json() as {
+      // 旧形式（後方互換性）
       shinagawaUserId?: string;
       shinagawaPassword?: string;
-      shinagawaSessionId?: string;  // セッションID（新規）
       minatoUserId?: string;
       minatoPassword?: string;
-      minatoSessionId?: string;     // セッションID（新規）
+      // 新形式
+      shinagawa?: {
+        username: string;
+        password: string;
+      };
+      shinagawaSessionId?: string;
+      minato?: {
+        username: string;
+        password: string;
+      };
+      minatoSessionId?: string;
       reservationLimits?: {
-        perWeek?: number;  // 週あたりの予約上限
-        perMonth?: number; // 月あたりの予約上限
+        perWeek?: number;
+        perMonth?: number;
       };
     };
 
@@ -950,16 +960,24 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
     const updatedSettings: any = { ...existingSettings };
 
     // 品川区の設定を更新（指定された場合のみ）
-    if (body.shinagawaUserId !== undefined || body.shinagawaPassword !== undefined || body.shinagawaSessionId !== undefined) {
+    if (body.shinagawa || body.shinagawaUserId !== undefined || body.shinagawaPassword !== undefined || body.shinagawaSessionId !== undefined) {
       updatedSettings.shinagawa = updatedSettings.shinagawa || {};
       
-      // ユーザーID（後方互換性のため保持）
+      // 新形式の処理
+      if (body.shinagawa) {
+        if (body.shinagawa.username) {
+          updatedSettings.shinagawa.username = body.shinagawa.username;
+        }
+        if (body.shinagawa.password && body.shinagawa.password !== '••••••••') {
+          updatedSettings.shinagawa.password = await encryptPassword(body.shinagawa.password, env.ENCRYPTION_KEY);
+        }
+      }
+      
+      // 旧形式（後方互換性）
       if (body.shinagawaUserId !== undefined) {
         updatedSettings.shinagawa.username = body.shinagawaUserId;
       }
-      
-      // パスワード（後方互換性のため保持、非推奨）
-      if (body.shinagawaPassword !== undefined) {
+      if (body.shinagawaPassword !== undefined && body.shinagawaPassword !== '••••••••') {
         updatedSettings.shinagawa.password = await encryptPassword(body.shinagawaPassword, env.ENCRYPTION_KEY);
       }
       
@@ -967,22 +985,30 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
       if (body.shinagawaSessionId !== undefined) {
         updatedSettings.shinagawa.sessionId = body.shinagawaSessionId;
         updatedSettings.shinagawa.lastUpdated = Date.now();
-        updatedSettings.shinagawa.expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 推定24時間
+        updatedSettings.shinagawa.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
         console.log('[SaveSettings] Shinagawa session saved');
       }
     }
 
     // 港区の設定を更新（指定された場合のみ）
-    if (body.minatoUserId !== undefined || body.minatoPassword !== undefined || body.minatoSessionId !== undefined) {
+    if (body.minato || body.minatoUserId !== undefined || body.minatoPassword !== undefined || body.minatoSessionId !== undefined) {
       updatedSettings.minato = updatedSettings.minato || {};
       
-      // ユーザーID（後方互換性のため保持）
+      // 新形式の処理
+      if (body.minato) {
+        if (body.minato.username) {
+          updatedSettings.minato.username = body.minato.username;
+        }
+        if (body.minato.password && body.minato.password !== '••••••••') {
+          updatedSettings.minato.password = await encryptPassword(body.minato.password, env.ENCRYPTION_KEY);
+        }
+      }
+      
+      // 旧形式（後方互換性）
       if (body.minatoUserId !== undefined) {
         updatedSettings.minato.username = body.minatoUserId;
       }
-      
-      // パスワード（後方互換性のため保持、非推奨）
-      if (body.minatoPassword !== undefined) {
+      if (body.minatoPassword !== undefined && body.minatoPassword !== '••••••••') {
         updatedSettings.minato.password = await encryptPassword(body.minatoPassword, env.ENCRYPTION_KEY);
       }
       
@@ -990,7 +1016,7 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
       if (body.minatoSessionId !== undefined) {
         updatedSettings.minato.sessionId = body.minatoSessionId;
         updatedSettings.minato.lastUpdated = Date.now();
-        updatedSettings.minato.expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 推定24時間
+        updatedSettings.minato.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
         console.log('[SaveSettings] Minato session saved');
       }
     }
@@ -1089,7 +1115,7 @@ async function handleGetShinagawaFacilities(request: Request, env: Env): Promise
     };
 
     console.log('[Facilities] Fetching facilities with credentials...');
-    const facilities = await getShinagawaFacilities(credentials, env.MONITORING);
+    const facilities = await getShinagawaFacilities(credentials, env.MONITORING, userId);
     console.log('[Facilities] Facilities count:', facilities.length);
 
     return jsonResponse({ success: true, data: facilities });
@@ -1103,39 +1129,56 @@ async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Re
   try {
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
+    console.log('[Facilities] Fetching Minato facilities for user:', userId);
 
     // 認証情報を取得
     const settingsData = await env.USERS.get(`settings:${userId}`);
     if (!settingsData) {
+      console.log('[Facilities] No settings found for user:', userId);
       return jsonResponse({ error: 'Credentials not found. Please save your settings first.' }, 400);
     }
 
     const settings = JSON.parse(settingsData);
+    console.log('[Facilities] Settings loaded, has minato:', !!settings.minato);
     if (!settings.minato) {
       return jsonResponse({ error: 'Minato credentials not found' }, 400);
     }
 
-    // ログインしてsessionIdを取得
-    // パスワードを復号化（平文パスワードの場合はそのまま使用）
-    let decryptedPassword = settings.minato.password;
-    if (isEncrypted(settings.minato.password)) {
-      try {
-        decryptedPassword = await decryptPassword(settings.minato.password, env.ENCRYPTION_KEY);
-      } catch (error) {
-        console.error('[Facilities] Failed to decrypt password:', error);
-        return jsonResponse({ error: 'Failed to decrypt password' }, 500);
+    let sessionId: string | null = null;
+
+    // 優先順位1: 保存されたセッションIDを使用
+    if (settings.minato.sessionId) {
+      console.log('[Facilities] Using stored sessionId for Minato');
+      sessionId = settings.minato.sessionId;
+    } 
+    // 優先順位2: ID/パスワードでログイン
+    else if (settings.minato.username && settings.minato.password) {
+      console.log('[Facilities] Logging in with credentials for Minato');
+      // パスワードを復号化
+      let decryptedPassword = settings.minato.password;
+      if (isEncrypted(settings.minato.password)) {
+        try {
+          decryptedPassword = await decryptPassword(settings.minato.password, env.ENCRYPTION_KEY);
+        } catch (error) {
+          console.error('[Facilities] Failed to decrypt password:', error);
+          return jsonResponse({ error: 'Failed to decrypt password' }, 500);
+        }
       }
-    }
-    const sessionId = await loginToMinato(settings.minato.username, decryptedPassword);
-    if (!sessionId) {
-      return jsonResponse({ error: 'Failed to login to Minato' }, 500);
+      sessionId = await loginToMinato(settings.minato.username, decryptedPassword);
+      if (!sessionId) {
+        return jsonResponse({ error: 'Failed to login to Minato' }, 500);
+      }
+    } else {
+      return jsonResponse({ error: 'No Minato credentials or sessionId found' }, 400);
     }
 
-    const facilities = await getMinatoFacilities(sessionId, env.MONITORING);
+    console.log('[Facilities] Fetching facilities with sessionId...');
+    const facilities = await getMinatoFacilities(sessionId, env.MONITORING, userId);
+    console.log('[Facilities] Facilities count:', facilities.length);
 
     return jsonResponse({ success: true, data: facilities });
   } catch (error: any) {
-    console.error('Get Minato facilities error:', error);
+    console.error('[Facilities] Error:', error);
     return jsonResponse({ error: error.message || 'Failed to fetch facilities' }, 500);
   }
 }
@@ -1676,28 +1719,59 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
     // ユーザーの認証情報を取得
     const settingsData = await env.USERS.get(`settings:${target.userId}`);
     if (!settingsData) {
-      console.error(`[Reserve] No credentials found for user ${target.userId}`);
+      console.error(`[Reserve] No settings found for user ${target.userId}`);
       return;
     }
     const settings = JSON.parse(settingsData);
     const siteSettings = target.site === 'shinagawa' ? settings.shinagawa : settings.minato;
     
-    // ID/パスワードを取得（自動ログイン方式）
-    if (!siteSettings?.username || !siteSettings?.password) {
-      console.error(`[Reserve] No credentials for ${target.site}, user ${target.userId}`);
-      await sendPushNotification(target.userId, {
-        title: `${target.site === 'shinagawa' ? '品川区' : '港区'}の認証情報が未設定です`,
-        body: '設定画面でID・パスワードを保存してください',
-      }, env);
+    if (!siteSettings) {
+      console.error(`[Reserve] No ${target.site} settings for user ${target.userId}`);
       return;
     }
     
-    // パスワード復号化
-    const decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
-    const credentials: SiteCredentials = {
-      username: siteSettings.username,
-      password: decryptedPassword,
-    };
+    // セッションIDを取得（優先順位1: 保存されたセッションID、優先順位2: ID/パスワードでログイン）
+    let sessionId = siteSettings.sessionId;
+    
+    if (!sessionId && siteSettings.username && siteSettings.password) {
+      console.log(`[Reserve] No sessionId, attempting login for ${target.site}`);
+      
+      // パスワードを復号化
+      let decryptedPassword = siteSettings.password;
+      if (isEncrypted(siteSettings.password)) {
+        try {
+          decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
+        } catch (error) {
+          console.error('[Reserve] Failed to decrypt password:', error);
+          return;
+        }
+      }
+      
+      // ログインしてセッションIDを取得
+      if (target.site === 'shinagawa') {
+        sessionId = await loginToShinagawa(siteSettings.username, decryptedPassword);
+      } else {
+        sessionId = await loginToMinato(siteSettings.username, decryptedPassword);
+      }
+      
+      if (!sessionId) {
+        console.error(`[Reserve] Failed to login for ${target.site}`);
+        await sendPushNotification(target.userId, {
+          title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
+          body: 'ID・パスワードまたはセッションIDを確認してください',
+        }, env);
+        return;
+      }
+    }
+    
+    if (!sessionId) {
+      console.error(`[Reserve] No credentials available for ${target.site}, user ${target.userId}`);
+      await sendPushNotification(target.userId, {
+        title: `${target.site === 'shinagawa' ? '品川区' : '港区'}の認証情報が未設定です`,
+        body: '設定画面でID・パスワードまたはセッションIDを設定してください',
+      }, env);
+      return;
+    }
 
     let result;
     try {
@@ -1706,14 +1780,14 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
           target.facilityId,
           target.date,
           target.timeSlot,
-          credentials
+          sessionId
         );
       } else {
         result = await makeMinatoReservation(
           target.facilityId,
           target.date,
           target.timeSlot,
-          credentials
+          sessionId
         );
       }
       

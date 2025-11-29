@@ -74,7 +74,7 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
       <div className="space-y-2 mb-4">
         {/* 時間帯 */}
         <div className="flex items-start gap-2 text-sm">
-          <Clock className="w-4 h-4 mt-0.5 text-gray-500 flex-shrink-0" />
+          <Clock className="w-4 h-4 mt-0.5 text-gray-500 shrink-0" />
           <div className="flex-1">
             <div className="flex flex-wrap gap-1">
               {target.timeSlots?.map((slot, idx) => (
@@ -92,9 +92,9 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
         {/* スケジュール */}
         <div className="flex items-center gap-2 text-sm">
           {target.dateMode === 'continuous' ? (
-            <CalendarWeek className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <CalendarWeek className="w-4 h-4 text-gray-500 shrink-0" />
           ) : (
-            <Calendar className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <Calendar className="w-4 h-4 text-gray-500 shrink-0" />
           )}
           <span className="text-gray-700">{getScheduleText()}</span>
         </div>
@@ -102,8 +102,23 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
         {/* 祝日設定 */}
         {getHolidayText() && (
           <div className="flex items-center gap-2 text-sm">
-            <PartyPopper className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <PartyPopper className="w-4 h-4 text-gray-500 shrink-0" />
             <span className="text-gray-700">{getHolidayText()}</span>
+          </div>
+        )}
+
+        {/* 最終チェック日時 */}
+        {target.updatedAt && (
+          <div className="flex items-center gap-2 text-xs text-gray-500 pt-2 border-t">
+            <Clock className="w-3 h-3 shrink-0" />
+            <span>
+              最終チェック: {new Date(target.updatedAt).toLocaleString('ja-JP', {
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
           </div>
         )}
       </div>

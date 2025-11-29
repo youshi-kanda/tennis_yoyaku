@@ -13,8 +13,13 @@ export default function SettingsPage() {
   
   const [shinagawaId, setShinagawaId] = useState('');
   const [shinagawaPassword, setShinagawaPassword] = useState('');
+  const [shinagawaSessionId, setShinagawaSessionId] = useState('');
+  const [shinagawaSessionUpdated, setShinagawaSessionUpdated] = useState<number | null>(null);
+  
   const [minatoId, setMinatoId] = useState('');
   const [minatoPassword, setMinatoPassword] = useState('');
+  const [minatoSessionId, setMinatoSessionId] = useState('');
+  const [minatoSessionUpdated, setMinatoSessionUpdated] = useState<number | null>(null);
 
   const [reservationLimits, setReservationLimits] = useState({
     perWeek: 0,  // 0 = 制限なし
@@ -32,9 +37,17 @@ export default function SettingsPage() {
             // パスワードは暗号化されているので表示用に●●●表示
             setShinagawaPassword('••••••••');
           }
+          if (response.data.shinagawa?.sessionId) {
+            setShinagawaSessionId(response.data.shinagawa.sessionId);
+            setShinagawaSessionUpdated(response.data.shinagawa.lastUpdated || null);
+          }
           if (response.data.minato?.username) {
             setMinatoId(response.data.minato.username);
             setMinatoPassword('••••••••');
+          }
+          if (response.data.minato?.sessionId) {
+            setMinatoSessionId(response.data.minato.sessionId);
+            setMinatoSessionUpdated(response.data.minato.lastUpdated || null);
           }
           if (response.data.reservationLimits) {
             setReservationLimits({
@@ -49,6 +62,38 @@ export default function SettingsPage() {
     };
     loadSettings();
   }, []);
+
+  const handleGetShinagawaSession = async () => {
+    try {
+      // Cookie Store APIでJSESSIONIDを取得
+      if (!('cookieStore' in window)) {
+        alert('このブラウザはCookie Store APIに対応していません。Chrome/Edge の最新版をお使いください。');
+        return;
+      }
+
+      const cookies = await (window as any).cookieStore.getAll();
+      const jsessionCookie = cookies.find(
+        (c: any) => c.name === 'JSESSIONID' && c.domain?.includes('cm9.eprs.jp')
+      );
+
+      if (!jsessionCookie) {
+        alert('品川区サイトのセッションが見つかりません。先に品川区サイトでログインしてください。');
+        window.open('https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do', '_blank');
+        return;
+      }
+
+      await apiClient.saveSettings({
+        shinagawaSessionId: jsessionCookie.value,
+      });
+
+      setShinagawaSessionId(jsessionCookie.value);
+      setShinagawaSessionUpdated(Date.now());
+      alert('品川区のセッションIDを保存しました');
+    } catch (err: any) {
+      console.error('Session fetch error:', err);
+      alert(`セッション取得に失敗しました: ${err.message}`);
+    }
+  };
 
   const handleSaveShinagawa = async () => {
     if (!shinagawaId || !shinagawaPassword) {
@@ -67,6 +112,38 @@ export default function SettingsPage() {
     } catch (err: any) {
       console.error('Save error:', err);
       alert(`保存に失敗しました: ${err.message}`);
+    }
+  };
+
+  const handleGetMinatoSession = async () => {
+    try {
+      // Cookie Store APIでJSESSIONIDを取得
+      if (!('cookieStore' in window)) {
+        alert('このブラウザはCookie Store APIに対応していません。Chrome/Edge の最新版をお使いください。');
+        return;
+      }
+
+      const cookies = await (window as any).cookieStore.getAll();
+      const jsessionCookie = cookies.find(
+        (c: any) => c.name === 'JSESSIONID' && c.domain?.includes('rsv.ws-scs.jp')
+      );
+
+      if (!jsessionCookie) {
+        alert('港区サイトのセッションが見つかりません。先に港区サイトでログインしてください。');
+        window.open('https://web101.rsv.ws-scs.jp/web/', '_blank');
+        return;
+      }
+
+      await apiClient.saveSettings({
+        minatoSessionId: jsessionCookie.value,
+      });
+
+      setMinatoSessionId(jsessionCookie.value);
+      setMinatoSessionUpdated(Date.now());
+      alert('港区のセッションIDを保存しました');
+    } catch (err: any) {
+      console.error('Session fetch error:', err);
+      alert(`セッション取得に失敗しました: ${err.message}`);
     }
   };
 
@@ -150,14 +227,71 @@ export default function SettingsPage() {
         {/* 品川区認証情報設定 */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">
-            品川区予約サイト 認証情報
+            品川区予約サイト セッション設定（推奨）
           </h2>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-blue-800">
-              ℹ️ 自動ログイン方式を使用します。1回保存すれば自動で監視・予約を行います。
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-emerald-800 font-medium mb-2">
+              ✨ セッション方式（推奨）
+            </p>
+            <p className="text-xs text-gray-700">
+              将来的なreCAPTCHA導入にも対応できる方式です。手動ログイン後にセッションを取得するだけで監視・予約が可能になります。
             </p>
           </div>
+
+          <div className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-blue-900 mb-2">セットアップ手順</p>
+              <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
+                <li>
+                  <a 
+                    href="https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do" 
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-600 underline hover:text-emerald-700"
+                  >
+                    品川区予約サイト
+                  </a>
+                  を新しいタブで開く
+                </li>
+                <li>利用者IDとパスワードを入力してログイン</li>
+                <li>ログイン成功後、下の「セッション取得」ボタンをクリック</li>
+              </ol>
+            </div>
+
+            <button
+              onClick={handleGetShinagawaSession}
+              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
+            >
+              セッション取得
+            </button>
+
+            {shinagawaSessionId && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm text-green-800 font-medium">
+                  ✓ セッションID設定済み
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  セッションID: {shinagawaSessionId.substring(0, 20)}...
+                </p>
+                {shinagawaSessionUpdated && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    最終更新: {new Date(shinagawaSessionUpdated).toLocaleString('ja-JP')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">
+              ID/パスワード方式（非推奨・後方互換性のみ）
+            </h3>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+              <p className="text-xs text-yellow-800">
+                ⚠️ この方式は将来のreCAPTCHA導入時に動作しなくなる可能性があります。上記のセッション方式を推奨します。
+              </p>
+            </div>
 
           <div className="space-y-4">
             <div>
@@ -207,18 +341,80 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+          </div>
         </div>
 
         {/* 港区認証情報設定 */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">
-            港区予約サイト 認証情報
+            港区予約サイト セッション設定
           </h2>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-blue-800">
-              ℹ️ 自動ログイン方式を使用します。1回保存すれば自動で監視・予約を行います。
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-red-800 font-medium mb-2">
+              ⚠️ reCAPTCHA対応のためセッション方式必須
             </p>
+            <p className="text-xs text-gray-700">
+              港区サイトはreCAPTCHA（「私はロボットではありません」チェック）を実装しているため、自動ログインができません。
+              セッション方式のみ対応しています。
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-blue-900 mb-2">セットアップ手順</p>
+              <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
+                <li>
+                  <a 
+                    href="https://web101.rsv.ws-scs.jp/web/" 
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-600 underline hover:text-emerald-700"
+                  >
+                    港区予約サイト
+                  </a>
+                  を新しいタブで開く
+                </li>
+                <li>利用者IDとパスワードを入力</li>
+                <li className="font-medium text-red-700">reCAPTCHA（「私はロボットではありません」）をチェック</li>
+                <li>ログイン成功後、下の「セッション取得」ボタンをクリック</li>
+              </ol>
+            </div>
+
+            <button
+              onClick={handleGetMinatoSession}
+              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
+            >
+              セッション取得
+            </button>
+
+            {minatoSessionId && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm text-green-800 font-medium">
+                  ✓ セッションID設定済み
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  セッションID: {minatoSessionId.substring(0, 20)}...
+                </p>
+                {minatoSessionUpdated && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    最終更新: {new Date(minatoSessionUpdated).toLocaleString('ja-JP')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">
+              ID/パスワード方式（非対応）
+            </h3>
+            <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 mb-4">
+              <p className="text-xs text-gray-600">
+                ⚠️ 港区サイトはreCAPTCHAのため、ID/パスワードによる自動ログインは利用できません。
+                上記のセッション方式をご利用ください。
+              </p>
+            </div>
           </div>
 
           <div className="space-y-4">

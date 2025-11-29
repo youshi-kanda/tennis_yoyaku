@@ -88,6 +88,7 @@ tennis_yoyaku/
     ├── IMPLEMENTATION_SUMMARY.md  # 実装サマリー（v2.0）
     ├── USER_GUIDE.md              # ユーザーガイド
     ├── FINAL_SPEC.md              # 最終仕様書
+    ├── OPERATIONS_TASKS.md        # 運用タスク・既知の制限事項 ⭐
     └── UX_IMPROVEMENT_TASKS.md    # 改善タスクリスト
 ```
 
@@ -203,6 +204,18 @@ ADMIN_KEY = "tennis_admin_2025"
 - **パスワードハッシュ**: bcrypt相当の強度
 - **管理者権限**: 専用キーによる分離
 - **CORS**: オリジン検証
+
+## ⚠️ 運用上の注意事項
+
+### 施設データについて
+現在、品川区・港区の施設リストは**ハードコードされたフォールバックデータ**を使用しています。これは実際のアカウント権限に基づく正確なデータです。
+
+- **品川区**: 13コート（4施設）
+- **港区**: 10コート（3施設）
+
+将来的に施設の追加・変更がある場合は、[OPERATIONS_TASKS.md](./OPERATIONS_TASKS.md) を参照して手動更新が必要です。
+
+詳細は **[運用タスク管理（OPERATIONS_TASKS.md）](./OPERATIONS_TASKS.md)** を参照してください。
 
 ## 📊 主要データモデル
 

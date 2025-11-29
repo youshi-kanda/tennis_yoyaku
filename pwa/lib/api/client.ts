@@ -158,10 +158,12 @@ class ApiClient {
       username: string;
       password: string;
     };
+    shinagawaSessionId?: string;
     minato?: {
       username: string;
       password: string;
     };
+    minatoSessionId?: string;
     reservationLimits?: {
       perWeek?: number;
       perMonth?: number;

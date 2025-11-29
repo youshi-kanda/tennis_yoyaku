@@ -150,9 +150,18 @@ async function detectFromCalendar(
 
 /**
  * フォールバック: デフォルト値を使用
+ * 
+ * 予約可能期間のデフォルト値(実測値に基づく):
+ * - 品川区: 30日 (約1ヶ月) - 2025年11月実測
+ * - 港区: 60日 (約2ヶ月) - 2025年11月実測
+ * 
+ * 将来的に期間が変更された場合:
+ * 1. HTMLからの自動抽出が成功すれば自動更新される
+ * 2. 抽出失敗時はこのデフォルト値が使用される
+ * 3. 必要に応じてこの値を手動調整可能
  */
 function getFallbackPeriod(site: 'shinagawa' | 'minato'): ReservationPeriodInfo {
-  const defaultDays = 90; // 3ヶ月（保守的な値）
+  const defaultDays = site === 'shinagawa' ? 30 : 60;
   
   console.log(`[Period] Using fallback default for ${site}: ${defaultDays} days`);
   
@@ -160,7 +169,7 @@ function getFallbackPeriod(site: 'shinagawa' | 'minato'): ReservationPeriodInfo 
     maxDaysAhead: defaultDays,
     source: 'fallback',
     detectedAt: Date.now(),
-    rawInfo: 'Default value (90 days)',
+    rawInfo: `Default value (${defaultDays} days for ${site})`,
   };
 }
 

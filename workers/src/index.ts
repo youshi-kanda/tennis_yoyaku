@@ -17,24 +17,19 @@ import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
 import { encryptPassword, decryptPassword, isEncrypted } from './crypto';
 import { sendPushNotification, savePushSubscription, deletePushSubscription } from './pushNotification';
 
-// ===== サブリクエスト計測（無料プラン制限: 50/実行） =====
+// ===== サブリクエスト計測（有料プラン: 制限なし） =====
 let subrequestCount = 0;
-const SUBREQUEST_LIMIT = 50; // 無料プラン制限
 
 // オリジナルのfetchを保存（モジュールロード時点で退避）
 const originalFetch = globalThis.fetch;
 
-// fetchをラップしてカウント（型安全）
+// fetchをラップしてカウント（型安全・メトリクス用）
 globalThis.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
   subrequestCount++;
   
   const input = args[0];
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
-  console.log(`[Subrequest ${subrequestCount}/${SUBREQUEST_LIMIT}] ${url}`);
-  
-  if (subrequestCount > SUBREQUEST_LIMIT) {
-    console.warn(`⚠️ サブリクエスト制限超過: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
-  }
+  console.log(`[Subrequest ${subrequestCount}] ${url}`);
   
   return originalFetch(...args);
 };
@@ -368,8 +363,16 @@ export default {
         return handleMonitoringCreate(request, env);
       }
 
+      if (path === '/api/monitoring/create-batch') {
+        return handleMonitoringCreateBatch(request, env);
+      }
+
       if (path.startsWith('/api/monitoring/') && request.method === 'DELETE') {
         return handleMonitoringDelete(request, env, path);
+      }
+
+      if (path.startsWith('/api/monitoring/') && request.method === 'PATCH') {
+        return handleMonitoringUpdate(request, env, path);
       }
 
       if (path === '/api/reservations/history') {
@@ -449,17 +452,12 @@ export default {
         
         // 📊 サブリクエスト数をログ出力
         console.log(`\n📊 [Subrequest Metrics] (5:00一斉処理)`);
-        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
-        if (subrequestCount > SUBREQUEST_LIMIT) {
-          console.error(`   ❌ 無料プラン制限超過: ${subrequestCount - SUBREQUEST_LIMIT}リクエスト over`);
-        } else {
-          console.log(`   ✅ 無料プラン制限内: 残り${SUBREQUEST_LIMIT - subrequestCount}リクエスト`);
-        }
+        console.log(`   Total: ${subrequestCount}`);
         subrequestCount = 0;
       } catch (error) {
         console.error('[Cron] ❌ 5:00一斉処理失敗:', error);
         console.log(`\n📊 [Subrequest Metrics] (エラー発生)`);
-        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        console.log(`   Total: ${subrequestCount}`);
         subrequestCount = 0;
       }
       return; // 5:00処理後は通常監視をスキップ
@@ -481,12 +479,12 @@ export default {
         
         // 📊 サブリクエスト数をログ出力
         console.log(`\n📊 [Subrequest Metrics] (セッションリセット)`);
-        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        console.log(`   Total: ${subrequestCount}`);
         subrequestCount = 0;
       } catch (error) {
         console.error('[Cron] ❌ セッションリセット失敗:', error);
         console.log(`\n📊 [Subrequest Metrics] (エラー発生)`);
-        console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+        console.log(`   Total: ${subrequestCount}`);
         subrequestCount = 0;
       }
       return; // リセット後は監視処理をスキップ
@@ -511,6 +509,34 @@ export default {
     try {
       const targets = await getAllActiveTargets(env);
       console.log(`[Cron] Found ${targets.length} active monitoring targets`);
+      
+      // 🔄 予約可能期間を事前取得（サイトごとに1回のみ、キャッシュ活用）
+      const periodCache = new Map<string, ReservationPeriodInfo>();
+      const sitesNeeded = new Set<string>();
+      
+      // 継続監視モードのターゲットがあるサイトを特定
+      targets.forEach(t => {
+        if (t.dateMode === 'continuous') {
+          sitesNeeded.add(t.site);
+        }
+      });
+      
+      // サイトごとに予約可能期間を取得
+      for (const site of sitesNeeded) {
+        // 任意のユーザーのセッション情報を取得（site判定用）
+        const sampleTarget = targets.find(t => t.site === site);
+        if (sampleTarget) {
+          const sessionData = await env.SESSIONS.get(`session:${sampleTarget.userId}:${site}`);
+          const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
+          
+          const periodInfo = await getOrDetectReservationPeriod(site as 'shinagawa' | 'minato', sessionId, env.MONITORING);
+          periodCache.set(site, periodInfo);
+          console.log(`[Cron] ${site} 予約可能期間: ${periodInfo.maxDaysAhead}日 (${periodInfo.source})`);
+        }
+      }
+      
+      // グローバルキャッシュとして設定（checkAndNotify内で使用）
+      (globalThis as any).reservationPeriodCache = periodCache;
       
       // 集中監視対象をフィルタ（「取」検知済みのターゲット）
       const intensiveTargets = targets.filter(t => t.detectedStatus === '取' && t.intensiveMonitoringUntil && t.intensiveMonitoringUntil > Date.now());
@@ -570,7 +596,7 @@ export default {
       
       // エラー時もサブリクエスト数を出力
       console.log(`\n📊 [Subrequest Metrics] (エラー発生)`);
-      console.log(`   Total: ${subrequestCount}/${SUBREQUEST_LIMIT}`);
+      console.log(`   Total: ${subrequestCount}`);
       subrequestCount = 0;
     }
   },
@@ -754,6 +780,64 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       return jsonResponse({ error: 'date or startDate/endDate is required' }, 400);
     }
 
+    // 🔥 重複チェック（最終検証）
+    const state = await getUserMonitoringState(userId, env.MONITORING);
+    
+    // 重複判定ヘルパー関数
+    const isDuplicateDate = (existing: MonitoringTarget, newTarget: any): boolean => {
+      if (existing.startDate && existing.endDate && newTarget.startDate && newTarget.endDate) {
+        const existingStart = new Date(existing.startDate);
+        const existingEnd = new Date(existing.endDate);
+        const newStart = new Date(newTarget.startDate);
+        const newEnd = new Date(newTarget.endDate);
+        // 期間重複チェック
+        return (newStart <= existingEnd && newEnd >= existingStart);
+      }
+      // 単一日付の場合
+      return existing.date === newTarget.date;
+    };
+
+    const hasTimeSlotOverlap = (existingSlots: string[], newSlots: string[]): boolean => {
+      return existingSlots.some(slot => newSlots.includes(slot));
+    };
+
+    // 重複チェック実行
+    const isDuplicate = state.targets.some(existing => 
+      existing.facilityId === body.facilityId &&
+      existing.site === body.site &&
+      existing.status === 'active' && // activeな監視のみチェック
+      isDuplicateDate(existing, { date: targetDate, startDate, endDate }) &&
+      hasTimeSlotOverlap(existing.timeSlots || [existing.timeSlot], timeSlots)
+    );
+
+    if (isDuplicate) {
+      const existingTarget = state.targets.find(e => 
+        e.facilityId === body.facilityId &&
+        e.site === body.site &&
+        e.status === 'active' &&
+        isDuplicateDate(e, { date: targetDate, startDate, endDate })
+      );
+
+      console.log(`[MonitoringCreate] Duplicate detected for user ${userId}:`, {
+        facilityId: body.facilityId,
+        site: body.site,
+        existing: existingTarget?.id
+      });
+
+      return jsonResponse({
+        error: 'duplicate',
+        message: '同じ監視設定が既に存在します。重複する監視は登録されません。',
+        existing: {
+          id: existingTarget?.id,
+          facilityName: existingTarget?.facilityName,
+          date: existingTarget?.date,
+          startDate: existingTarget?.startDate,
+          endDate: existingTarget?.endDate,
+          timeSlots: existingTarget?.timeSlots,
+        }
+      }, 409); // 409 Conflict
+    }
+
     const target: MonitoringTarget = {
       id: crypto.randomUUID(),
       userId,
@@ -776,7 +860,6 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
 
     // 新形式：ユーザー単位で監視状態を保存（KV書き込み最適化）
     try {
-      const state = await getUserMonitoringState(userId, env.MONITORING);
       state.targets.push(target);
       await saveUserMonitoringState(userId, state, env.MONITORING);
       
@@ -784,7 +867,7 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
     } catch (err: any) {
       console.error(`[MonitoringCreate] KV write failed:`, err);
       if (err.message?.includes('429') || err.message?.includes('limit exceeded')) {
-        throw new Error('KV write limit exceeded. Please try again later or upgrade to paid plan.');
+        throw new Error('KV write limit exceeded. Please try again later.');
       }
       throw err;
     }
@@ -801,6 +884,206 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
     console.error('[MonitoringCreate] Error:', error);
     console.error('[MonitoringCreate] Stack:', error.stack);
     return jsonResponse({ 
+      error: error.message || 'Internal server error',
+      details: error.stack
+    }, 500);
+  }
+}
+
+async function handleMonitoringCreateBatch(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const body = await request.json() as {
+      targets: Array<{
+        site: 'shinagawa' | 'minato';
+        facilityId: string;
+        facilityName: string;
+        date?: string;
+        startDate?: string;
+        endDate?: string;
+        dateMode?: 'single' | 'range' | 'continuous';
+        timeSlot?: string;
+        timeSlots?: string[];
+        selectedWeekdays?: number[];
+        priority?: number;
+        includeHolidays?: boolean | 'only';
+        autoReserve: boolean;
+      }>;
+    };
+
+    if (!body.targets || body.targets.length === 0) {
+      return jsonResponse({ error: 'targets array is required and must not be empty' }, 400);
+    }
+
+    console.log(`[MonitoringCreateBatch] Processing ${body.targets.length} targets for user ${userId}`);
+
+    // 予約可能期間を事前取得（サイトごとに1回のみ）
+    const periodCache = new Map<string, ReservationPeriodInfo>();
+    const sitesNeeded = new Set<string>(body.targets.map(t => t.site));
+
+    for (const site of sitesNeeded) {
+      // セッション情報を取得
+      kvMetrics.reads++;
+      const sessionData = await env.SESSIONS.get(`session:${userId}:${site}`);
+      const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
+
+      // 予約可能期間を取得
+      const periodInfo = await getOrDetectReservationPeriod(site, sessionId, env.MONITORING);
+      periodCache.set(site, periodInfo);
+      console.log(`[MonitoringCreateBatch] ${site} の予約可能期間: ${periodInfo.maxDaysAhead}日 (source: ${periodInfo.source})`);
+    }
+
+    // ユーザーの監視状態を取得
+    const state = await getUserMonitoringState(userId, env.MONITORING);
+
+    // 新しい監視ターゲットを作成
+    const newTargets: MonitoringTarget[] = [];
+    const errors: Array<{ index: number; facilityName: string; error: string }> = [];
+
+    for (let i = 0; i < body.targets.length; i++) {
+      const targetData = body.targets[i];
+
+      try {
+        // timeSlots優先、なければtimeSlotを使用
+        const timeSlots = targetData.timeSlots || (targetData.timeSlot ? [targetData.timeSlot] : []);
+        if (timeSlots.length === 0) {
+          errors.push({ index: i, facilityName: targetData.facilityName, error: 'timeSlot or timeSlots is required' });
+          continue;
+        }
+
+        // 予約可能期間を取得
+        const periodInfo = periodCache.get(targetData.site)!;
+
+        // 日付の検証と設定
+        let targetDate = targetData.date || '';
+        let startDate = targetData.startDate;
+        let endDate = targetData.endDate;
+
+        // 継続監視モードの場合、終了日を動的設定
+        if (targetData.dateMode === 'continuous') {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const maxDate = new Date();
+          maxDate.setDate(maxDate.getDate() + periodInfo.maxDaysAhead);
+
+          startDate = tomorrow.toISOString().split('T')[0];
+          endDate = maxDate.toISOString().split('T')[0];
+          targetDate = startDate;
+        } else if (startDate && endDate) {
+          targetDate = startDate;
+
+          // 終了日が予約可能期間を超えていないかバリデーション
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const endDateObj = new Date(endDate);
+          const maxAllowedDate = new Date(today);
+          maxAllowedDate.setDate(maxAllowedDate.getDate() + periodInfo.maxDaysAhead);
+
+          if (endDateObj > maxAllowedDate) {
+            errors.push({
+              index: i,
+              facilityName: targetData.facilityName,
+              error: `終了日が予約可能期間を超えています。${targetData.site === 'shinagawa' ? '品川区' : '港区'}は${periodInfo.maxDaysAhead}日先まで予約可能です。`
+            });
+            continue;
+          }
+        } else if (!targetData.date && !startDate && !endDate) {
+          errors.push({ index: i, facilityName: targetData.facilityName, error: 'date or startDate/endDate is required' });
+          continue;
+        }
+
+        // 重複チェック
+        const isDuplicateDate = (existing: MonitoringTarget, newTarget: any): boolean => {
+          if (existing.startDate && existing.endDate && newTarget.startDate && newTarget.endDate) {
+            const existingStart = new Date(existing.startDate);
+            const existingEnd = new Date(existing.endDate);
+            const newStart = new Date(newTarget.startDate);
+            const newEnd = new Date(newTarget.endDate);
+            return (newStart <= existingEnd && newEnd >= existingStart);
+          }
+          return existing.date === newTarget.date;
+        };
+
+        const hasTimeSlotOverlap = (existingSlots: string[], newSlots: string[]): boolean => {
+          return existingSlots.some(slot => newSlots.includes(slot));
+        };
+
+        const isDuplicate = state.targets.some(existing =>
+          existing.facilityId === targetData.facilityId &&
+          existing.site === targetData.site &&
+          existing.status === 'active' &&
+          isDuplicateDate(existing, { date: targetDate, startDate, endDate }) &&
+          hasTimeSlotOverlap(existing.timeSlots || [existing.timeSlot], timeSlots)
+        );
+
+        if (isDuplicate) {
+          console.log(`[MonitoringCreateBatch] Duplicate detected for facility ${targetData.facilityName}, skipping`);
+          errors.push({ index: i, facilityName: targetData.facilityName, error: 'duplicate - already exists' });
+          continue;
+        }
+
+        // 新しい監視ターゲットを作成
+        const target: MonitoringTarget = {
+          id: crypto.randomUUID(),
+          userId,
+          site: targetData.site,
+          facilityId: targetData.facilityId,
+          facilityName: targetData.facilityName,
+          date: targetDate,
+          dateMode: targetData.dateMode || 'single',
+          startDate: startDate,
+          endDate: endDate,
+          timeSlot: timeSlots[0],
+          timeSlots: timeSlots,
+          selectedWeekdays: targetData.selectedWeekdays,
+          priority: targetData.priority || 3,
+          includeHolidays: targetData.includeHolidays,
+          status: 'active',
+          autoReserve: targetData.autoReserve,
+          createdAt: Date.now(),
+        };
+
+        newTargets.push(target);
+      } catch (error: any) {
+        console.error(`[MonitoringCreateBatch] Error processing target ${i}:`, error);
+        errors.push({ index: i, facilityName: targetData.facilityName, error: error.message });
+      }
+    }
+
+    // 新しいターゲットを追加
+    state.targets.push(...newTargets);
+
+    // 1回だけKV書き込み
+    try {
+      await saveUserMonitoringState(userId, state, env.MONITORING);
+      console.log(`[MonitoringCreateBatch] Successfully saved ${newTargets.length} targets for user ${userId}`);
+    } catch (err: any) {
+      console.error(`[MonitoringCreateBatch] KV write failed:`, err);
+      if (err.message?.includes('429') || err.message?.includes('limit exceeded')) {
+        throw new Error('KV write limit exceeded. Please try again later.');
+      }
+      throw err;
+    }
+
+    // 監視リストキャッシュを無効化
+    monitoringListCache.data = null;
+    monitoringListCache.expires = 0;
+
+    return jsonResponse({
+      success: true,
+      data: {
+        created: newTargets.length,
+        total: body.targets.length,
+        targets: newTargets,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    });
+  } catch (error: any) {
+    console.error('[MonitoringCreateBatch] Error:', error);
+    console.error('[MonitoringCreateBatch] Stack:', error.stack);
+    return jsonResponse({
       error: error.message || 'Internal server error',
       details: error.stack
     }, 500);
@@ -840,7 +1123,7 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
     } catch (error: any) {
       console.error(`[MonitoringDelete] KV write failed:`, error);
       if (error.message?.includes('429') || error.message?.includes('limit exceeded')) {
-        throw new Error('KV write limit exceeded. Please try again later or upgrade to paid plan.');
+        throw new Error('KV write limit exceeded. Please try again later.');
       }
       throw error;
     }
@@ -859,6 +1142,93 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
   } catch (error: any) {
     console.error('[MonitoringDelete] Error:', error);
     console.error('[MonitoringDelete] Stack:', error.stack);
+    return jsonResponse({ 
+      error: error.message || 'Internal server error',
+      details: error.stack
+    }, 500);
+  }
+}
+
+async function handleMonitoringUpdate(request: Request, env: Env, path: string): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    // パスから監視IDを取得 (/api/monitoring/:id)
+    const parts = path.split('/');
+    const targetId = parts[parts.length - 1];
+
+    if (!targetId) {
+      return jsonResponse({ error: 'Target ID is required' }, 400);
+    }
+
+    const body = await request.json();
+
+    // 新形式：ユーザー単位で取得（KV最適化）
+    const state = await getUserMonitoringState(userId, env.MONITORING);
+
+    // 指定されたIDの監視を探す
+    const targetIndex = state.targets.findIndex(t => t.id === targetId);
+
+    if (targetIndex === -1) {
+      return jsonResponse({ error: 'Monitoring target not found or unauthorized' }, 404);
+    }
+
+    const target = state.targets[targetIndex];
+
+    // 更新可能なフィールドのみを許可
+    const allowedUpdates = [
+      'status', 
+      'timeSlots', 
+      'selectedWeekdays', 
+      'includeHolidays',
+      'dateMode',
+      'date',
+      'startDate',
+      'endDate',
+      'autoReserve'
+    ];
+
+    let hasChanges = false;
+    for (const key of allowedUpdates) {
+      if (body[key] !== undefined) {
+        (target as any)[key] = body[key];
+        hasChanges = true;
+      }
+    }
+
+    if (!hasChanges) {
+      return jsonResponse({ error: 'No valid updates provided' }, 400);
+    }
+
+    target.updatedAt = Date.now();
+
+    // 新形式で保存（リトライなし - KV書き込み上限対策）
+    try {
+      await saveUserMonitoringState(userId, state, env.MONITORING);
+      console.log(`[MonitoringUpdate] Successfully updated target ${targetId}`);
+    } catch (error: any) {
+      console.error(`[MonitoringUpdate] KV write failed:`, error);
+      if (error.message?.includes('429') || error.message?.includes('limit exceeded')) {
+        throw new Error('KV write limit exceeded. Please try again later.');
+      }
+      throw error;
+    }
+
+    // 監視リストキャッシュを無効化
+    monitoringListCache.data = null;
+    monitoringListCache.expires = 0;
+
+    console.log(`[MonitoringUpdate] Updated monitoring: ${target.facilityName} for user ${userId}`, body);
+
+    return jsonResponse({
+      success: true,
+      message: 'Monitoring target updated successfully',
+      data: target,
+    });
+  } catch (error: any) {
+    console.error('[MonitoringUpdate] Error:', error);
+    console.error('[MonitoringUpdate] Stack:', error.stack);
     return jsonResponse({ 
       error: error.message || 'Internal server error',
       details: error.stack
@@ -1299,7 +1669,7 @@ async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
   // キャッシュされた監視リストを使用
   const cachedList = await getCachedMonitoringList(env.MONITORING);
   
-  // キャッシュにデータがある場合はそれを使用
+  // キャッシュにデータがある場合はそれを使用（pausedを除外）
   if (cachedList && cachedList.length > 0) {
     return cachedList.filter((t: MonitoringTarget) => t.status === 'active');
   }
@@ -1321,8 +1691,9 @@ async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
     }
   }
   
+  // status が 'active' のみを返す（'paused' は除外）
   const activeTargets = allTargets.filter((t: MonitoringTarget) => t.status === 'active');
-  console.log(`[getAllActiveTargets] 取得完了: ${allTargets.length}件中${activeTargets.length}件がアクティブ`);
+  console.log(`[getAllActiveTargets] 取得完了: ${allTargets.length}件中${activeTargets.length}件がアクティブ（paused除外済み）`);
   
   // 取得したデータをキャッシュに保存
   monitoringListCache.data = activeTargets;
@@ -1391,12 +1762,48 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       return holidaysCacheByYear.get(year)!;
     };
 
+    // 🔄 継続監視モードの場合、予約可能期間を動的取得して期間を再計算
+    let actualStartDate = target.startDate;
+    let actualEndDate = target.endDate;
+    
+    if (target.dateMode === 'continuous') {
+      // グローバルキャッシュから予約可能期間を取得（Cron開始時に取得済み）
+      const periodCache = (globalThis as any).reservationPeriodCache as Map<string, ReservationPeriodInfo> | undefined;
+      let periodInfo: ReservationPeriodInfo;
+      
+      if (periodCache && periodCache.has(target.site)) {
+        // キャッシュヒット
+        periodInfo = periodCache.get(target.site)!;
+        console.log(`[Check] 継続監視: 予約可能期間=${periodInfo.maxDaysAhead}日 (キャッシュ)`);
+      } else {
+        // キャッシュミス（フォールバック: 個別取得）
+        const sessionData = await env.SESSIONS.get(`session:${target.userId}:${target.site}`);
+        const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
+        periodInfo = await getOrDetectReservationPeriod(target.site, sessionId, env.MONITORING);
+        console.log(`[Check] 継続監視: 予約可能期間=${periodInfo.maxDaysAhead}日 (個別取得: ${periodInfo.source})`);
+      }
+      
+      // 明日から予約可能期間まで動的計算
+      const tomorrow = new Date();
+      tomorrow.setHours(0, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const maxDate = new Date();
+      maxDate.setHours(0, 0, 0, 0);
+      maxDate.setDate(maxDate.getDate() + periodInfo.maxDaysAhead);
+      
+      actualStartDate = tomorrow.toISOString().split('T')[0];
+      actualEndDate = maxDate.toISOString().split('T')[0];
+      
+      console.log(`[Check] 継続監視: 動的範囲=${actualStartDate} 〜 ${actualEndDate} (${periodInfo.maxDaysAhead}日)`);
+    }
+
     // チェックする日付のリストを生成
     const datesToCheck: string[] = [];
-    if (target.startDate && target.endDate) {
+    if (actualStartDate && actualEndDate) {
       // 期間指定の場合、開始日から終了日まで全日付を生成
-      const start = new Date(target.startDate);
-      const end = new Date(target.endDate);
+      const start = new Date(actualStartDate);
+      const end = new Date(actualEndDate);
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split('T')[0];
         
@@ -1472,31 +1879,16 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     
     console.log(`[Check] Dates to check after filtering: ${datesToCheck.length} days`);
     
-    // 🔄 ローテーション機能: 1回のCronで3日分のみチェック
-    const DAYS_PER_CRON = 3; // 1実行あたり3日分
+    // ✅ 全日チェック: 空きを見逃さないため、毎回全日程をチェック
+    const datesToCheckThisRun = datesToCheck;
     
-    // カーソル位置を取得（KVから）
-    const cursorKey = `CURSOR:${target.userId}:${target.id}`;
-    const cursorData = await env.MONITORING.get(cursorKey);
-    let cursorIndex = cursorData ? parseInt(cursorData, 10) : 0;
-    
-    // カーソルが範囲外なら0にリセット
-    if (cursorIndex >= datesToCheck.length) {
-      cursorIndex = 0;
+    console.log(`[Check] 📅 チェック対象: ${datesToCheckThisRun.length}日分`);
+    if (datesToCheckThisRun.length > 0) {
+      const preview = datesToCheckThisRun.length > 3 
+        ? `${datesToCheckThisRun.slice(0, 3).join(', ')} ... +${datesToCheckThisRun.length - 3}日`
+        : datesToCheckThisRun.join(', ');
+      console.log(`[Check] 📅 今回チェック: ${preview}`);
     }
-    
-    // 今回チェックする日付（3日分）
-    const datesToCheckThisRun = datesToCheck.slice(cursorIndex, cursorIndex + DAYS_PER_CRON);
-    
-    // 次回のカーソル位置を計算
-    const nextCursorIndex = (cursorIndex + DAYS_PER_CRON) % datesToCheck.length;
-    
-    // カーソルをKVに保存
-    await env.MONITORING.put(cursorKey, nextCursorIndex.toString(), { expirationTtl: 86400 * 7 }); // 7日間有効
-    
-    console.log(`[Check] 🔄 ローテーション: ${cursorIndex}日目〜${cursorIndex + datesToCheckThisRun.length - 1}日目をチェック (全${datesToCheck.length}日中)`);
-    console.log(`[Check] 📅 今回チェック: ${datesToCheckThisRun.join(', ')}`);
-    console.log(`[Check] ➡️  次回開始: ${nextCursorIndex}日目から`);
 
     // チェックする時間帯のリスト
     const timeSlotsToCheck = target.timeSlots || [target.timeSlot];
@@ -1506,6 +1898,92 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     
     // 空き枠を収集（priority_firstの場合に使用）
     const availableSlots: Array<{date: string; timeSlot: string}> = [];
+
+    // 🔥 集中監視モード: 「取」検知後の高頻度チェック
+    const now = Date.now();
+    const isIntensiveMode = target.detectedStatus === '取' && target.intensiveMonitoringUntil;
+    
+    if (isIntensiveMode) {
+      const jstNow = new Date(now + 9 * 60 * 60 * 1000);
+      const targetTime = new Date((target.intensiveMonitoringUntil! + 9 * 60 * 60 * 1000) - 2 * 60 * 1000); // 目標時刻-2分
+      const checkUntil = new Date((target.intensiveMonitoringUntil! + 9 * 60 * 60 * 1000) + 2 * 60 * 1000); // 目標時刻+2分
+      
+      // 集中監視期間中（目標時刻の前後2分）
+      if (jstNow >= targetTime && jstNow <= checkUntil) {
+        console.log(`[IntensiveCheck] 🔥 集中監視モード実行中: ${target.facilityName}`);
+        console.log(`[IntensiveCheck] 目標時刻: ${new Date(target.intensiveMonitoringUntil! + 9 * 60 * 60 * 1000).toLocaleTimeString('ja-JP')}`);
+        
+        // 1分間に3回チェック（20秒間隔）
+        for (let checkCount = 0; checkCount < 3; checkCount++) {
+          console.log(`[IntensiveCheck] チェック ${checkCount + 1}/3 実行中...`);
+          
+          // 対象日時の空き状況をチェック
+          for (const timeSlot of timeSlotsToCheck) {
+            let result: AvailabilityResult;
+            
+            try {
+              if (target.site === 'shinagawa') {
+                result = await checkShinagawaAvailability(
+                  target.facilityId,
+                  target.date,
+                  timeSlot,
+                  credentials,
+                  existingReservations
+                );
+              } else {
+                result = await checkMinatoAvailability(
+                  target.facilityId,
+                  target.date,
+                  timeSlot,
+                  credentials,
+                  existingReservations
+                );
+              }
+              
+              console.log(`[IntensiveCheck] ${timeSlot}: ${result.currentStatus}`);
+              
+              // 「○」に変わった！
+              if (result.currentStatus === '○') {
+                console.log(`[IntensiveCheck] 🎉 「取」→「○」検知！即座に予約実行`);
+                
+                // 集中監視モード終了
+                target.detectedStatus = '○';
+                target.intensiveMonitoringUntil = undefined;
+                await updateMonitoringTargetOptimized(target, 'intensive_success', env.MONITORING);
+                
+                // 即座に予約
+                const tempTarget = { ...target, date: target.date, timeSlot };
+                await attemptReservation(tempTarget, env);
+                
+                // プッシュ通知
+                await sendPushNotification(target.userId, {
+                  title: '🎉 予約成功！',
+                  body: `${target.facilityName} ${target.date} ${timeSlot}\n集中監視で「取」→「○」を検知し予約しました`,
+                  data: { targetId: target.id, type: 'intensive_success' }
+                }, env);
+                
+                // 集中監視成功、このターゲットの処理を終了
+                return;
+              }
+              
+            } catch (error: any) {
+              console.error(`[IntensiveCheck] エラー: ${error.message}`);
+            }
+          }
+          
+          // 最後のチェック以外は20秒待機
+          if (checkCount < 2) {
+            console.log(`[IntensiveCheck] 20秒待機中... (${checkCount + 1}/2)`);
+            await new Promise(resolve => setTimeout(resolve, 20000));
+          }
+        }
+        
+        console.log(`[IntensiveCheck] 3回チェック完了。まだ「○」にならず。次のCronで再チェック。`);
+        
+        // 集中監視期間中は通常チェックをスキップ
+        return;
+      }
+    }
 
     // 🚀 並列処理で高速化: 今回の3日分のチェックを同時実行
     const checkPromises: Promise<{date: string; timeSlot: string; result: AvailabilityResult}>[] = [];

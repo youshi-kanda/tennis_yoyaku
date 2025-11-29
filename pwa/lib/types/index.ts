@@ -57,7 +57,9 @@ export interface MonitoringTarget {
   selectedWeekdays?: number[];
   includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
   
-  status: 'active' | 'monitoring' | 'detected' | 'reserved' | 'failed';
+  autoReserve?: boolean; // 自動予約フラグ
+  
+  status: 'active' | 'paused' | 'monitoring' | 'detected' | 'reserved' | 'failed';
   createdAt: number;
   updatedAt?: number;
 }

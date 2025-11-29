@@ -38,8 +38,15 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
   useEffect(() => {
     const loadReservations = async () => {
       try {
+        console.log('[MonitoringCalendar] Loading reservations...');
         const response = await apiClient.getReservationHistory(100);
+        console.log('[MonitoringCalendar] API Response:', response);
         if (response.success && response.data) {
+          console.log('[MonitoringCalendar] Reservations loaded:', response.data.length, 'items');
+          console.log('[MonitoringCalendar] Status breakdown:', {
+            success: response.data.filter((r: any) => r.status === 'success').length,
+            failed: response.data.filter((r: any) => r.status === 'failed').length
+          });
           setReservations(response.data);
         }
       } catch (error) {
@@ -96,35 +103,40 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
       });
     });
 
-    // 予約履歴からステータスを追加
+    // 予約履歴からステータスを追加（成功のみカウント）
     reservations.forEach((reservation) => {
-      const status = map.get(reservation.date) || {
-        monitoring: 0,
-        detected: 0,
-        reserved: 0,
-        failed: 0,
-      };
-
       if (reservation.status === 'success') {
+        const status = map.get(reservation.date) || {
+          monitoring: 0,
+          detected: 0,
+          reserved: 0,
+          failed: 0,
+        };
         status.reserved++;
-      } else if (reservation.status === 'failed') {
-        status.failed++;
+        map.set(reservation.date, status);
       }
-
-      map.set(reservation.date, status);
     });
 
     return map;
   }, [targets, reservations]);
 
-  // 選択された日付の予約成功リスト（予約成功のみ表示）
+  // 選択された日付の予約成功リスト（成功のみ表示）
   const selectedDateReservations = useMemo(() => {
     if (!selectedDate) return [];
 
     const dateStr = selectedDate.toISOString().split('T')[0];
-    return reservations.filter(
-      (r) => r.date === dateStr && r.status === 'success'
-    );
+    console.log('[MonitoringCalendar] Selected date:', dateStr);
+    
+    const allForDate = reservations.filter((r) => r.date === dateStr);
+    const successOnly = allForDate.filter((r) => r.status === 'success');
+    
+    console.log('[MonitoringCalendar] Reservations for', dateStr, ':', {
+      total: allForDate.length,
+      success: successOnly.length,
+      failed: allForDate.length - successOnly.length
+    });
+    
+    return successOnly;
   }, [selectedDate, reservations]);
 
   // 選択された日付のターゲット一覧（参考用、非表示）
@@ -316,7 +328,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
         <CardHeader>
           <CardTitle>
             {selectedDate
-              ? `${selectedDate.getMonth() + 1}/${selectedDate.getDate()} の予約結果`
+              ? `${selectedDate.getMonth() + 1}/${selectedDate.getDate()} の予約成功`
               : '日付を選択してください'}
           </CardTitle>
         </CardHeader>

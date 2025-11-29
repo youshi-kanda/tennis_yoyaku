@@ -143,12 +143,12 @@ tennis-yoyaku-pwa/
 
 ```json
 {
-  "main": "Cloudflare Workers",
-  "intensive": "AWS Lambda",
+  "runtime": "Cloudflare Workers",
+  "plan": "Paid ($5/月)",
   "storage": "Workers KV",
-  "scheduler": "AWS EventBridge",
+  "scheduler": "Cron Triggers (1分間隔推奨)",
   "language": "TypeScript",
-  "framework": "Hono (Workers用軽量フレームワーク)"
+  "framework": "Native Workers API"
 }
 ```
 
@@ -225,12 +225,12 @@ workers/
 
 ### Phase 2: 集中監視とPWA (Week 3-4)
 
-#### Week 3: AWS Lambda
-- [ ] **Day 15-17**: Lambda関数実装
-  - 10秒間隔監視ロジック
-  - EventBridge設定
-  - Cloudflare API連携
-  - 取→○検知
+#### Week 3: 集中監視機能強化
+- [ ] **Day 15-17**: 集中監視実装（Cloudflare Workers）
+  - 「取」ステータス検知ロジック
+  - 10分刻み前後の高頻度チェック（1分間隔）
+  - Cron間隔の最適化
+  - 取→○即座予約
 
 - [ ] **Day 18-19**: 予約フロー実装
   - 品川区5段階フロー
@@ -464,15 +464,22 @@ export default {
 };
 ```
 
-### 5. AWS Lambda 集中監視実装
+### 5. 集中監視機能実装 (Cloudflare Workers)
 
-```bash
-# Lambda プロジェクト作成
-mkdir lambda
-cd lambda
-npm init -y
-npm install @types/node @types/aws-lambda
-npm install axios cheerio
+**目的**: 品川区の「取」ステータスが10分刻みで「○」に変わる瞬間を監視
+
+**実装方針**:
+```typescript
+// workers/src/index.ts に追加
+interface IntensiveMonitoringTarget {
+  nextCheckTime: number;  // 次の10分刻み時刻
+  isIntensive: boolean;   // 集中監視モード中
+}
+
+// Cron実行時に判定
+if (現在時刻が10分刻み前後2分) {
+  // 高頻度チェック（1分Cron）
+}
 ```
 
 ### 6. 予約フロー実装
@@ -544,7 +551,7 @@ Week 2: スクレイピングと監視
 └─ 成果物:    ×→○検知動作、セッション維持
 
 Week 3: 集中監視と予約
-├─ Day 15-17: AWS Lambda 10秒監視
+├─ Day 15-17: Workers集中監視機能
 ├─ Day 18-19: 予約フロー実装
 ├─ Day 20-21: 5:00特別対応
 └─ 成果物:    取→○検知、自動予約動作
@@ -591,10 +598,10 @@ Cloudflare Workers:
 - KV 読み取り:    無料枠内
 - KV 書き込み:    $0.50/月
 
-AWS Lambda:
-- 実行時間:       無料枠内
-- EventBridge:    $0.04/月
-- CloudWatch:     無料枠内
+Cloudflare Workers (有料プラン):
+- 月額費用:       $5/月
+- リクエスト:     10M/月（実質無制限）
+- KV書き込み:    無制限
 
 PWA ホスティング:
 - Vercel/Cloudflare Pages: 無料枠内
@@ -628,9 +635,9 @@ PWA ホスティング:
    npm create cloudflare@latest workers
    ```
 
-3. **AWS アカウント準備**
-   - Lambda関数用
-   - EventBridge設定用
+3. **Cloudflare Workers 設定確認**
+   - 有料プラン契約済み ($5/月)
+   - Cron Triggers 設定
 
 4. **デザインシステム決定**
    - shadcn/ui コンポーネント選定

@@ -125,9 +125,50 @@ class ApiClient {
     return response.data;
   }
 
+  async createMonitoringBatch(targets: Array<{
+    site: 'shinagawa' | 'minato';
+    facilityId: string;
+    facilityName: string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    dateMode?: 'single' | 'range' | 'continuous';
+    timeSlots: string[];
+    selectedWeekdays?: number[];
+    priority?: number;
+    includeHolidays?: boolean | 'only';
+    autoReserve: boolean;
+  }>) {
+    const response = await this.client.post('/api/monitoring/create-batch', { targets });
+    return response.data;
+  }
+
   async deleteMonitoring(id: string) {
     const response = await this.client.delete(`/api/monitoring/${id}`);
     return response.data;
+  }
+
+  async updateMonitoring(id: string, updates: {
+    status?: 'active' | 'paused';
+    timeSlots?: string[];
+    selectedWeekdays?: number[];
+    includeHolidays?: boolean | 'only';
+    dateMode?: 'single' | 'range' | 'continuous';
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    autoReserve?: boolean;
+  }) {
+    const response = await this.client.patch(`/api/monitoring/${id}`, updates);
+    return response.data;
+  }
+
+  async pauseMonitoring(id: string) {
+    return this.updateMonitoring(id, { status: 'paused' });
+  }
+
+  async resumeMonitoring(id: string) {
+    return this.updateMonitoring(id, { status: 'active' });
   }
 
   // 履歴API

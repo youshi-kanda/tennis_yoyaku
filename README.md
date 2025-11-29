@@ -14,7 +14,6 @@
 
 ### 参考資料（部分的に古い情報を含む）
 - [FINAL_SPEC.md](./FINAL_SPEC.md) - 1分監視の提案（現在は5分）
-- [INTENSIVE_MONITORING.md](./INTENSIVE_MONITORING.md) - Lambda実装（未実装）
 - [SPECIFICATION.md](./SPECIFICATION.md) - 初期技術調査
 - [SESSION_STRATEGY.md](./SESSION_STRATEGY.md) - セッション管理
 
@@ -33,9 +32,11 @@
 
 ### 🚀 パフォーマンス
 - ✅ **KV最適化**: list()操作完全排除（配列管理に移行）
-- ✅ **メモリキャッシュ**: セッション5分、監視3分 TTL
-- ✅ **KV使用量削減**: reads 51%削減、writes 87%削減
-- ✅ **24施設対応**: 無料プラン内で運用可能
+- ✅ **メモリキャッシュ**: セッション5分、監襶3分 TTL
+- ✅ **有料プラン**: Cloudflare Workers Paid ($5/月)
+  - KV書き込み: 無制限
+  - サブリクエスト: 1,000/実行
+  - CPU時間: 30秒/実行
 
 ## 🎯 機能
 
@@ -214,6 +215,71 @@ ADMIN_KEY = "tennis_admin_2025"
 - **港区**: 10コート（3施設）
 
 将来的に施設の追加・変更がある場合は、[OPERATIONS_TASKS.md](./OPERATIONS_TASKS.md) を参照して手動更新が必要です。
+
+### 予約可能期間の管理
+
+予約可能期間は施設ごとに異なり、動的に変更される可能性があります。
+
+#### 現在の設定（2025年11月実測値）
+- **品川区**: 30日間（約1ヶ月先まで予約可能）
+- **港区**: 60日間（約2ヶ月先まで予約可能）
+
+#### 自動検出の仕組み
+システムは以下の優先順位で予約可能期間を判定します:
+
+1. **HTMLからの自動抽出** (最優先)
+   - ヘルプページから「○ヶ月先まで」などのテキストを検出
+   - カレンダーUIのmax-date属性を解析
+   - 成功時: KVに24時間キャッシュ
+
+2. **KVキャッシュの利用** (セカンダリ)
+   - 24時間以内に取得した期間情報を再利用
+   - サブリクエスト削減による効率化
+
+3. **デフォルト値の使用** (フォールバック)
+   - HTML抽出が失敗した場合のバックアップ
+   - 実測値に基づく固定値を使用
+
+#### 期間変更時の対応手順
+
+**自動更新される場合**（推奨）:
+- システムが自動的にHTMLから新しい期間を検出
+- 特別な対応は不要
+
+**手動更新が必要な場合**:
+1. ファイル: `workers/src/reservationPeriod.ts`
+2. 関数: `getFallbackPeriod()`
+3. 変更箇所:
+```typescript
+function getFallbackPeriod(site: 'shinagawa' | 'minato'): ReservationPeriodInfo {
+  const defaultDays = site === 'shinagawa' ? 30 : 60;  // ← この値を変更
+  // ...
+}
+```
+
+4. デプロイ:
+```bash
+cd workers
+npx wrangler deploy
+```
+
+5. KVキャッシュのクリア（即座に反映させる場合）:
+```bash
+npx wrangler kv:key delete "reservation_period:shinagawa" --namespace-id=YOUR_NAMESPACE_ID
+npx wrangler kv:key delete "reservation_period:minato" --namespace-id=YOUR_NAMESPACE_ID
+```
+
+#### 監視方法
+
+ログで期間検出状況を確認:
+```bash
+npx wrangler tail tennis-yoyaku-api --format pretty
+```
+
+確認ポイント:
+- `[Period] Using cached period for shinagawa: XX days (html_extraction)` ← 自動検出成功
+- `[Period] Using cached period for shinagawa: XX days (fallback)` ← デフォルト値使用
+- `[Check] 継続監視: 予約可能期間=XX日`
 
 詳細は **[運用タスク管理（OPERATIONS_TASKS.md）](./OPERATIONS_TASKS.md)** を参照してください。
 

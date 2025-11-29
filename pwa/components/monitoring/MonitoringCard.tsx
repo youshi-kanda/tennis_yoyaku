@@ -16,12 +16,18 @@ interface MonitoringCardProps {
   target: MonitoringTarget;
   onDetail?: (target: MonitoringTarget) => void;
   onEdit?: (target: MonitoringTarget) => void;
-  onStop?: (target: MonitoringTarget) => void;
+  onDelete?: (target: MonitoringTarget) => void;
+  onPause?: (target: MonitoringTarget) => void;
+  onResume?: (target: MonitoringTarget) => void;
 }
 
-export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringCardProps) {
+export function MonitoringCard({ target, onDetail, onEdit, onDelete, onPause, onResume }: MonitoringCardProps) {
   const getStatusBadge = () => {
     switch (target.status) {
+      case 'active':
+        return <Badge variant="success">🔄 監視中</Badge>;
+      case 'paused':
+        return <Badge variant="default">⏸️ 停止中</Badge>;
       case 'monitoring':
         return <Badge variant="success">🔄 監視中</Badge>;
       case 'detected':
@@ -123,35 +129,50 @@ export function MonitoringCard({ target, onDetail, onEdit, onStop }: MonitoringC
         )}
       </div>
 
-      <div className="flex gap-2 pt-3 border-t">
-        {onDetail && (
+      <div className="flex flex-col gap-2 pt-3 border-t">
+        <div className="flex gap-2">
+          {onEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onEdit(target)}
+              className="flex-1"
+            >
+              編集
+            </Button>
+          )}
+          {target.status === 'paused' ? (
+            onResume && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onResume(target)}
+                className="flex-1 text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+              >
+                再開
+              </Button>
+            )
+          ) : (
+            onPause && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onPause(target)}
+                className="flex-1 text-orange-600 border-orange-300 hover:bg-orange-50"
+              >
+                停止
+              </Button>
+            )
+          )}
+        </div>
+        {onDelete && (
           <Button
             size="sm"
             variant="outline"
-            onClick={() => onDetail(target)}
-            className="flex-1"
+            onClick={() => onDelete(target)}
+            className="w-full text-red-600 border-red-300 hover:bg-red-50"
           >
-            詳細
-          </Button>
-        )}
-        {onEdit && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onEdit(target)}
-            className="flex-1"
-          >
-            編集
-          </Button>
-        )}
-        {onStop && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onStop(target)}
-            className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
-          >
-            停止
+            削除
           </Button>
         )}
       </div>

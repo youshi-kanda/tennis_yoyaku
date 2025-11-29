@@ -319,6 +319,85 @@ export default function MonitoringPage() {
     }
   };
 
+  // 🔥 重複チェック関数
+  const isDateOverlap = (target: MonitoringTarget, checkDate: string): boolean => {
+    if (target.startDate && target.endDate) {
+      const targetStart = new Date(target.startDate);
+      const targetEnd = new Date(target.endDate);
+      const check = new Date(checkDate);
+      return check >= targetStart && check <= targetEnd;
+    }
+    // 単一日付の場合
+    return target.date === checkDate;
+  };
+
+  const hasOverlappingTimeSlots = (existing: string[], newSlots: string[]): boolean => {
+    return existing.some(slot => newSlots.includes(slot));
+  };
+
+  const checkDuplicates = (
+    selectedFacilities: Array<{id: string; name: string; site: string}>,
+    existingTargets: MonitoringTarget[]
+  ) => {
+    const duplicates: Array<{
+      facility: string;
+      date: string;
+      timeSlot: string;
+      existingId: string;
+    }> = [];
+
+    selectedFacilities.forEach(facility => {
+      config.timeSlots.forEach(timeSlot => {
+        // 監視対象の日付リストを生成
+        const targetDates: string[] = [];
+        
+        if (config.dateMode === 'single') {
+          targetDates.push(config.startDate);
+        } else if (config.dateMode === 'range' || config.dateMode === 'continuous') {
+          // 期間内の全日付をチェック（最大30日分のみ表示用）
+          const start = new Date(config.startDate);
+          const end = new Date(config.endDate);
+          const current = new Date(start);
+          let count = 0;
+          
+          while (current <= end && count < 30) {
+            targetDates.push(current.toISOString().split('T')[0]);
+            current.setDate(current.getDate() + 1);
+            count++;
+          }
+        }
+
+        // 各日付について重複チェック
+        targetDates.forEach(date => {
+          const isDuplicate = existingTargets.some(existing => 
+            existing.facilityId === facility.id &&
+            existing.site === facility.site &&
+            isDateOverlap(existing, date) &&
+            hasOverlappingTimeSlots(existing.timeSlots || [], [timeSlot])
+          );
+
+          if (isDuplicate) {
+            const existingTarget = existingTargets.find(e => 
+              e.facilityId === facility.id && 
+              e.site === facility.site &&
+              isDateOverlap(e, date) &&
+              hasOverlappingTimeSlots(e.timeSlots || [], [timeSlot])
+            );
+            
+            duplicates.push({
+              facility: facility.name,
+              date: date,
+              timeSlot: timeSlot,
+              existingId: existingTarget!.id
+            });
+          }
+        });
+      });
+    });
+
+    return duplicates;
+  };
+
   const handleStart = async () => {
     try {
       setIsLoading(true);
@@ -334,8 +413,51 @@ export default function MonitoringPage() {
         return;
       }
 
-      // 選択された施設を並列で監視登録（Workers側でリトライ処理）
-      const promises = config.selectedFacilities.map((facility) => {
+      // 🔥 重複チェック
+      console.log('[Monitoring] 重複チェック開始...');
+      console.log('[Monitoring] 選択施設数:', config.selectedFacilities.length);
+      console.log('[Monitoring] 選択時間帯数:', config.timeSlots.length);
+      console.log('[Monitoring] 選択施設一覧:', config.selectedFacilities);
+      
+      const existingResponse = await apiClient.getMonitoringList();
+      const existingTargets = existingResponse.data || [];
+      console.log('[Monitoring] 既存ターゲット数:', existingTargets.length);
+      
+      const duplicates = checkDuplicates(config.selectedFacilities, existingTargets);
+
+      if (duplicates.length > 0) {
+        console.log(`[Monitoring] 重複検出: ${duplicates.length}件`);
+        
+        // 重複リストを表示（最初の5件のみ）
+        const duplicateList = duplicates
+          .slice(0, 5)
+          .map(d => `・${d.facility} ${d.date} ${d.timeSlot}`)
+          .join('\n');
+        
+        const more = duplicates.length > 5 ? `\n... 他${duplicates.length - 5}件` : '';
+        
+        const confirmed = confirm(
+          `⚠️ 以下の監視設定は既に存在します:\n\n${duplicateList}${more}\n\n` +
+          `重複している監視は既存のもので継続します。\n` +
+          `それでも続行しますか？\n\n` +
+          `※重複する監視は2重に実行されません（Workers側で自動スキップ）`
+        );
+
+        if (!confirmed) {
+          console.log('[Monitoring] ユーザーがキャンセル');
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        console.log('[Monitoring] 重複なし、登録を続行');
+      }
+      
+      console.log('[Monitoring] 🚀 バッチ登録開始...');
+
+      // バッチ登録用のデータを準備
+      const targets = config.selectedFacilities.map((facility, index) => {
+        console.log(`[Monitoring] 施設 ${index + 1}/${config.selectedFacilities.length}: ${facility.name} (ID: ${facility.id})`);
+        
         const monitoringData: {
           site: 'shinagawa' | 'minato';
           facilityId: string;
@@ -355,31 +477,29 @@ export default function MonitoringPage() {
           timeSlots: config.timeSlots,
           selectedWeekdays: config.selectedWeekdays,
           autoReserve: true,
+          dateMode: config.dateMode,
+          includeHolidays: config.includeHolidays,
         };
-
-        // 日付モードをバックエンドに送信
-        monitoringData.dateMode = config.dateMode;
 
         // 日付モードに応じて設定
         if (config.dateMode === 'range') {
-          // 期間指定
           monitoringData.startDate = config.startDate;
           monitoringData.endDate = config.endDate;
         } else if (config.dateMode === 'single') {
-          // 単一日付
           monitoringData.date = config.startDate;
-        } else {
-          // 継続監視（バックエンドで動的に期間を設定）
-          // フロントエンドでは何も設定しない（バックエンドが自動設定）
         }
+        // 継続監視の場合は何も設定しない（バックエンドが自動設定）
 
-        // 祝日設定を追加
-        monitoringData.includeHolidays = config.includeHolidays;
-
-        return apiClient.createMonitoring(monitoringData);
+        return monitoringData;
       });
 
-      await Promise.all(promises);
+      console.log(`[Monitoring] バッチAPI呼び出し: ${targets.length}件を一括送信`);
+      const result = await apiClient.createMonitoringBatch(targets);
+      console.log('[Monitoring] バッチ登録完了', result);
+      
+      // 成功・スキップ・失敗をカウント
+      const successCount = result.data?.created || 0;
+      const skippedCount = result.data?.errors?.filter((e: any) => e.error.includes('duplicate')).length || 0;
       const totalFacilities = config.selectedFacilities.length;
 
       // ステータス更新
@@ -424,7 +544,15 @@ export default function MonitoringPage() {
       setShowWizard(false);
       setCurrentStep(1);
       
-      alert(`${siteNames.join('・')}の${totalFacilities}施設の監視を追加しました`);
+      // 結果メッセージ
+      let message = `${siteNames.join('・')}の監視を追加しました\n`;
+      message += `- 新規追加: ${successCount}施設\n`;
+      if (skippedCount > 0) {
+        message += `- スキップ（重複）: ${skippedCount}施設\n`;
+      }
+      message += `\n1分ごとに自動監視を開始します。`;
+      
+      alert(message);
       
     } catch (err) {
       const error = err as Error & { response?: { data?: { error?: string } } };
@@ -793,33 +921,33 @@ export default function MonitoringPage() {
                         >
                           <input
                             type="checkbox"
-                            checked={config.selectedFacilities.some(f => f.site === 'shinagawa' && f.id === facility.id)}
+                            checked={
+                              // facilityIdsの全てが選択されているかチェック
+                              facility.facilityIds?.every(fid => 
+                                config.selectedFacilities.some(f => f.site === 'shinagawa' && f.id === fid)
+                              ) ?? false
+                            }
                             onChange={(e) => {
                               if (e.target.checked) {
-                                // facilityIdsがある場合は個別に追加
-                                if (facility.facilityIds && facility.facilityIds.length > 1) {
-                                  const newFacilities = facility.facilityIds.map(fid => ({
-                                    site: 'shinagawa' as const,
-                                    id: fid,
-                                    name: facility.name,
-                                  }));
-                                  setConfig({
-                                    ...config,
-                                    selectedFacilities: [...config.selectedFacilities, ...newFacilities],
-                                  });
-                                } else {
-                                  setConfig({
-                                    ...config,
-                                    selectedFacilities: [...config.selectedFacilities, {
-                                      site: 'shinagawa',
-                                      id: facility.facilityIds?.[0] || facility.id,
-                                      name: facility.name,
-                                    }],
-                                  });
+                                // 常にfacilityIdsを使用（存在しない場合は空配列）
+                                const facilityIds = facility.facilityIds || [];
+                                if (facilityIds.length === 0) {
+                                  console.warn(`[Monitoring] 施設IDが見つかりません: ${facility.name}`);
+                                  return;
                                 }
+                                
+                                const newFacilities = facilityIds.map(fid => ({
+                                  site: 'shinagawa' as const,
+                                  id: fid,
+                                  name: facility.name,
+                                }));
+                                setConfig({
+                                  ...config,
+                                  selectedFacilities: [...config.selectedFacilities, ...newFacilities],
+                                });
                               } else {
                                 // facilityIdsに含まれる全てのIDを削除
-                                const idsToRemove = facility.facilityIds || [facility.id];
+                                const idsToRemove = facility.facilityIds || [];
                                 setConfig({
                                   ...config,
                                   selectedFacilities: config.selectedFacilities.filter(
@@ -886,33 +1014,33 @@ export default function MonitoringPage() {
                         >
                           <input
                             type="checkbox"
-                            checked={config.selectedFacilities.some(f => f.site === 'minato' && f.id === facility.id)}
+                            checked={
+                              // facilityIdsの全てが選択されているかチェック
+                              facility.facilityIds?.every(fid => 
+                                config.selectedFacilities.some(f => f.site === 'minato' && f.id === fid)
+                              ) ?? false
+                            }
                             onChange={(e) => {
                               if (e.target.checked) {
-                                // facilityIdsがある場合は個別に追加
-                                if (facility.facilityIds && facility.facilityIds.length > 1) {
-                                  const newFacilities = facility.facilityIds.map(fid => ({
-                                    site: 'minato' as const,
-                                    id: fid,
-                                    name: facility.name,
-                                  }));
-                                  setConfig({
-                                    ...config,
-                                    selectedFacilities: [...config.selectedFacilities, ...newFacilities],
-                                  });
-                                } else {
-                                  setConfig({
-                                    ...config,
-                                    selectedFacilities: [...config.selectedFacilities, {
-                                      site: 'minato',
-                                      id: facility.facilityIds?.[0] || facility.id,
-                                      name: facility.name,
-                                    }],
-                                  });
+                                // 常にfacilityIdsを使用（存在しない場合は空配列）
+                                const facilityIds = facility.facilityIds || [];
+                                if (facilityIds.length === 0) {
+                                  console.warn(`[Monitoring] 施設IDが見つかりません: ${facility.name}`);
+                                  return;
                                 }
+                                
+                                const newFacilities = facilityIds.map(fid => ({
+                                  site: 'minato' as const,
+                                  id: fid,
+                                  name: facility.name,
+                                }));
+                                setConfig({
+                                  ...config,
+                                  selectedFacilities: [...config.selectedFacilities, ...newFacilities],
+                                });
                               } else {
                                 // facilityIdsに含まれる全てのIDを削除
-                                const idsToRemove = facility.facilityIds || [facility.id];
+                                const idsToRemove = facility.facilityIds || [];
                                 setConfig({
                                   ...config,
                                   selectedFacilities: config.selectedFacilities.filter(
@@ -942,39 +1070,6 @@ export default function MonitoringPage() {
               <p className="text-xs text-gray-600 mt-3">
                 ※ 選択した{config.selectedFacilities.length}施設の全コートが監視対象になります。空きが見つかった際に自動予約されます。
               </p>
-
-            {/* 予約可能期間の情報 */}
-            {config.selectedFacilities.length > 0 && (
-              <div className="p-3 bg-linear-to-r from-emerald-50 to-blue-50 border border-emerald-200 rounded-lg">
-                <p className="text-xs font-semibold text-gray-700 mb-2">📅 予約可能期間</p>
-                <div className="space-y-1">
-                  {config.selectedFacilities.some(f => f.site === 'shinagawa') && reservationPeriods.shinagawa && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-emerald-700 font-medium">品川区:</span>
-                      <span className="text-gray-700">
-                        {reservationPeriods.shinagawa.displayText}
-                        <span className="ml-1 text-gray-500 text-[10px]">
-                          ({reservationPeriods.shinagawa.source === 'html' ? 'HTML検出' : 
-                            reservationPeriods.shinagawa.source === 'calendar' ? 'カレンダー検出' : 'デフォルト'})
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                  {config.selectedFacilities.some(f => f.site === 'minato') && reservationPeriods.minato && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-blue-700 font-medium">港区:</span>
-                      <span className="text-gray-700">
-                        {reservationPeriods.minato.displayText}
-                        <span className="ml-1 text-gray-500 text-[10px]">
-                          ({reservationPeriods.minato.source === 'html' ? 'HTML検出' : 
-                            reservationPeriods.minato.source === 'calendar' ? 'カレンダー検出' : 'デフォルト'})
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
             </div>
             )}
 
@@ -1100,14 +1195,10 @@ export default function MonitoringPage() {
               {config.dateMode === 'continuous' && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-800">
-                    ℹ️ 翌日から{(() => {
-                      const selectedSites = config.selectedFacilities.map(f => f.site);
-                      const periods = selectedSites.map(site => reservationPeriods[site]);
-                      const validPeriods = periods.filter(p => p !== null);
-                      if (validPeriods.length === 0) return '予約可能な期間';
-                      const maxDays = Math.max(...validPeriods.map(p => p!.maxDaysAhead));
-                      return `${Math.floor(maxDays / 30)}ヶ月先（${maxDays}日）`;
-                    })()}まで継続的に監視します（停止するまで継続）
+                    ℹ️ 翌日から予約可能な期間まで継続的に監視します（停止するまで継続）
+                  </p>
+                  <p className="text-xs text-blue-700 mt-2">
+                    ※ 各施設の予約受付期間に従って自動的に調整されます
                   </p>
                 </div>
               )}
@@ -1377,6 +1468,38 @@ export default function MonitoringPage() {
                 ℹ️ 日本の国民の祝日（振替休日・国民の休日を含む）を自動判定します
               </p>
             </div>
+
+            {/* 予約受付期間の参考情報（折りたたみ式） */}
+            <details className="mt-4">
+              <summary className="text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-900 flex items-center gap-2">
+                📋 予約受付期間の参考情報
+                <span className="text-xs text-gray-500">(クリックで表示)</span>
+              </summary>
+              <div className="mt-3 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                <p className="text-xs text-gray-700">
+                  各施設の予約は通常、数ヶ月先まで受け付けています。
+                </p>
+                {config.selectedFacilities.some(f => f.site === 'shinagawa') && reservationPeriods.shinagawa && (
+                  <div className="text-xs">
+                    <span className="font-medium text-emerald-700">品川区:</span>
+                    <span className="text-gray-600 ml-2">
+                      {reservationPeriods.shinagawa.displayText}
+                    </span>
+                  </div>
+                )}
+                {config.selectedFacilities.some(f => f.site === 'minato') && reservationPeriods.minato && (
+                  <div className="text-xs">
+                    <span className="font-medium text-blue-700">港区:</span>
+                    <span className="text-gray-600 ml-2">
+                      {reservationPeriods.minato.displayText}
+                    </span>
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-2">
+                  ※ この情報は参考値です。実際の予約可能期間は各施設の設定により変動します。
+                </p>
+              </div>
+            </details>
             </div>
             )}
           </div>
@@ -1601,27 +1724,27 @@ export default function MonitoringPage() {
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-600 mt-0.5">✓</span>
-            <span><strong>時間帯カスタマイズ:</strong> 監視する時間帯を自由に選択可能</span>
+            <span><strong>時間帯カスタマイズ:</strong> 監視する時間帯を複数選択可能（6時間帯から選択）</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-600 mt-0.5">✓</span>
-            <span><strong>優先度設定:</strong> 重要度に応じて1-5の優先度レベルを設定</span>
+            <span><strong>曜日・祝日指定:</strong> 継続監視では特定の曜日のみ監視、祝日の扱いも設定可能</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-600 mt-0.5">✓</span>
-            <span>選択した時間帯を毎分チェック、優先度順に予約処理</span>
+            <span><strong>1分間隔の自動監視:</strong> 設定した全施設・全コートを毎分一括チェック</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-600 mt-0.5">✓</span>
-            <span>「取」ステータス（抽選中）は10分ごとに集中監視（2秒間隔×3回）</span>
+            <span><strong>「取」ステータス集中監視:</strong> 品川区で取消処理準備中を検知したら、10分刻み（:10, :20, :30...）の前後2分間に集中監視モードに移行</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-600 mt-0.5">✓</span>
-            <span>空き枠を検知したら即座に自動予約</span>
+            <span><strong>空き枠即時予約:</strong> 予約可能になったら設定通りに自動予約を実行</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-600 mt-0.5">✓</span>
-            <span>平日は19:00-21:00のみ、週末・祝日は全時間帯を監視</span>
+            <span><strong>深夜時間帯制限:</strong> 深夜早朝（3:15-5:00）は監視を一時停止</span>
           </li>
         </ul>
       </div>

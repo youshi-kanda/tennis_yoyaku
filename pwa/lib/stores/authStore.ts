@@ -5,6 +5,7 @@ import type { User } from '../types';
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   isLoading: boolean;
   setUser: (user: User | null) => void;
   setLoading: (loading: boolean) => void;
@@ -16,22 +17,29 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
+      isAdmin: false,
       isLoading: false,
       setUser: (user) => {
         console.log('[AuthStore] Setting user:', user);
-        set({ user, isAuthenticated: !!user, isLoading: false });
+        set({ 
+          user, 
+          isAuthenticated: !!user, 
+          isAdmin: user?.role === 'admin',
+          isLoading: false 
+        });
       },
       setLoading: (loading) => set({ isLoading: loading }),
       logout: () => {
         console.log('[AuthStore] Logging out');
-        set({ user: null, isAuthenticated: false });
+        set({ user: null, isAuthenticated: false, isAdmin: false });
       },
     }),
     {
       name: 'auth-storage',
       partialize: (state) => ({ 
         user: state.user,
-        isAuthenticated: state.isAuthenticated 
+        isAuthenticated: state.isAuthenticated,
+        isAdmin: state.isAdmin
       }),
     }
   )

@@ -1,4 +1,4 @@
-import { generateJWT, verifyJWT, hashPassword, verifyPassword, authenticate } from './auth';
+import { generateJWT, verifyJWT, hashPassword, verifyPassword, authenticate, requireAdmin } from './auth';
 import {
   checkShinagawaAvailability,
   checkMinatoAvailability,
@@ -424,6 +424,23 @@ export default {
           elapsedMinutes: parseFloat(elapsed.toFixed(1)),
           resetAt: kvMetrics.resetAt
         });
+      }
+
+      // 🔐 管理者専用API
+      if (path === '/api/admin/stats') {
+        return handleAdminStats(request, env);
+      }
+
+      if (path === '/api/admin/users') {
+        return handleAdminUsers(request, env);
+      }
+
+      if (path === '/api/admin/monitoring') {
+        return handleAdminMonitoring(request, env);
+      }
+
+      if (path === '/api/admin/reservations') {
+        return handleAdminReservations(request, env);
       }
 
       return jsonResponse({ error: 'Not found' }, 404);
@@ -2358,4 +2375,154 @@ function jsonResponse(data: any, status: number = 200): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+// ===== 管理者専用API =====
+
+async function handleAdminStats(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    // ユーザー数
+    const usersList = await env.USERS.list({ prefix: 'user:' });
+    const emailKeys = usersList.keys.filter(k => k.name.startsWith('user:') && !k.name.includes(':id:'));
+    const totalUsers = emailKeys.length;
+
+    // 監視数（全ユーザー）
+    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    const totalMonitoring = allTargets.length;
+    const activeMonitoring = allTargets.filter((t: MonitoringTarget) => t.status === 'active').length;
+    const pausedMonitoring = allTargets.filter((t: MonitoringTarget) => t.status === 'paused').length;
+
+    // 予約数（全ユーザー）
+    const reservationsList = await env.RESERVATIONS.list({ prefix: 'history:' });
+    let totalReservations = 0;
+    let successReservations = 0;
+    
+    for (const key of reservationsList.keys) {
+      const histories = await env.RESERVATIONS.get(key.name, 'json') as ReservationHistory[] || [];
+      totalReservations += histories.length;
+      successReservations += histories.filter((h: ReservationHistory) => h.status === 'success').length;
+    }
+
+    // KVメトリクス
+    const elapsed = (Date.now() - kvMetrics.resetAt) / 1000 / 60;
+    
+    return jsonResponse({
+      users: {
+        total: totalUsers,
+      },
+      monitoring: {
+        total: totalMonitoring,
+        active: activeMonitoring,
+        paused: pausedMonitoring,
+      },
+      reservations: {
+        total: totalReservations,
+        success: successReservations,
+        successRate: totalReservations > 0 ? (successReservations / totalReservations * 100).toFixed(1) : '0',
+      },
+      kv: {
+        reads: kvMetrics.reads,
+        writes: kvMetrics.writes,
+        cacheHits: kvMetrics.cacheHits,
+        cacheMisses: kvMetrics.cacheMisses,
+        cacheHitRate: (kvMetrics.cacheHits / (kvMetrics.cacheHits + kvMetrics.cacheMisses) * 100 || 0).toFixed(1),
+        elapsedMinutes: parseFloat(elapsed.toFixed(1)),
+      },
+      system: {
+        version: env.VERSION || 'unknown',
+        environment: env.ENVIRONMENT || 'production',
+        cronInterval: '1 minute',
+      },
+    });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 401);
+  }
+}
+
+async function handleAdminUsers(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const usersList = await env.USERS.list({ prefix: 'user:' });
+    const emailKeys = usersList.keys.filter(k => k.name.startsWith('user:') && !k.name.includes(':id:'));
+    
+    const users = [];
+    for (const key of emailKeys) {
+      const userData = await env.USERS.get(key.name, 'json') as User;
+      if (userData) {
+        const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+        const userTargets = allTargets.filter((t: MonitoringTarget) => t.userId === userData.id);
+        
+        const histories = await env.RESERVATIONS.get(`history:${userData.id}`, 'json') as ReservationHistory[] || [];
+        
+        users.push({
+          id: userData.id,
+          email: userData.email,
+          role: userData.role,
+          createdAt: userData.createdAt,
+          monitoringCount: userTargets.length,
+          reservationCount: histories.length,
+          successCount: histories.filter((h: ReservationHistory) => h.status === 'success').length,
+        });
+      }
+    }
+
+    users.sort((a, b) => b.createdAt - a.createdAt);
+
+    return jsonResponse({ users });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 401);
+  }
+}
+
+async function handleAdminMonitoring(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    
+    return jsonResponse({ 
+      monitoring: allTargets,
+      total: allTargets.length,
+    });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 401);
+  }
+}
+
+async function handleAdminReservations(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const reservationsList = await env.RESERVATIONS.list({ prefix: 'history:' });
+    const allHistories: ReservationHistory[] = [];
+    
+    for (const key of reservationsList.keys) {
+      const histories = await env.RESERVATIONS.get(key.name, 'json') as ReservationHistory[] || [];
+      allHistories.push(...histories);
+    }
+
+    allHistories.sort((a, b) => b.createdAt - a.createdAt);
+
+    return jsonResponse({ 
+      reservations: allHistories,
+      total: allHistories.length,
+    });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 401);
+  }
 }

@@ -84,3 +84,14 @@ export async function authenticate(request: Request, secret: string): Promise<an
   const token = authHeader.substring(7);
   return await verifyJWT(token, secret);
 }
+
+// 管理者権限チェック
+export async function requireAdmin(request: Request, secret: string): Promise<any> {
+  const payload = await authenticate(request, secret);
+  
+  if (payload.role !== 'admin') {
+    throw new Error('Admin access required');
+  }
+  
+  return payload;
+}

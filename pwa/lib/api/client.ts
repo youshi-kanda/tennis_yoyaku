@@ -247,6 +247,27 @@ class ApiClient {
     const response = await this.client.post('/api/push/unsubscribe');
     return response.data;
   }
+
+  // 管理者API
+  async getAdminStats() {
+    const response = await this.client.get('/api/admin/stats');
+    return response.data;
+  }
+
+  async getAdminUsers() {
+    const response = await this.client.get('/api/admin/users');
+    return response.data;
+  }
+
+  async getAdminMonitoring() {
+    const response = await this.client.get('/api/admin/monitoring');
+    return response.data;
+  }
+
+  async getAdminReservations() {
+    const response = await this.client.get('/api/admin/reservations');
+    return response.data;
+  }
 }
 
 export const apiClient = new ApiClient();

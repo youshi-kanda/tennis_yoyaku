@@ -18,11 +18,8 @@ interface Stats {
 
 // facilityIdから施設名を復元する関数
 const getFacilityNameFromId = (facilityId: string, savedName: string): string => {
-  console.log('[getFacilityNameFromId] Input:', { facilityId, savedName });
-  
   // 既に完全な施設名（コート情報含む）がある場合はそのまま返す
   if (savedName.includes('庭球場') || savedName.includes('テニスコート')) {
-    console.log('[getFacilityNameFromId] Already has court info:', savedName);
     return savedName;
   }
   
@@ -36,24 +33,18 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
   };
   
   const court = courtMap[lastTwo];
-  console.log('[getFacilityNameFromId] Court detection:', { lastTwo, court });
   
   if (court) {
     // 品川区の場合
     if (savedName.includes('しながわ') || savedName.includes('品川') || savedName.includes('八潮') || savedName.includes('大井')) {
-      const result = `${savedName} 庭球場${court}`;
-      console.log('[getFacilityNameFromId] Shinagawa result:', result);
-      return result;
+      return `${savedName} 庭球場${court}`;
     }
     // 港区の場合
     if (savedName.includes('麻布') || savedName.includes('青山') || savedName.includes('芝浦')) {
-      const result = `${savedName} テニスコート${court}`;
-      console.log('[getFacilityNameFromId] Minato result:', result);
-      return result;
+      return `${savedName} テニスコート${court}`;
     }
   }
   
-  console.log('[getFacilityNameFromId] No match, returning original:', savedName);
   return savedName;
 };
 

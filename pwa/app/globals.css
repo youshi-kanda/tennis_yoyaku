@@ -101,3 +101,10 @@ body {
   color: #111827; /* さらに濃い黒に近い色 */
   font-weight: 500;
 }
+
+/* iOS Safe Area対応 */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

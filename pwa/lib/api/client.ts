@@ -238,7 +238,13 @@ class ApiClient {
   }
 
   // プッシュ通知API
-  async subscribePush(subscription: PushSubscription) {
+  async subscribePush(subscription: {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  }) {
     const response = await this.client.post('/api/push/subscribe', subscription);
     return response.data;
   }
@@ -273,6 +279,36 @@ class ApiClient {
     const response = await this.client.post('/api/admin/users/create', {
       email,
       password,
+    });
+    return response.data;
+  }
+
+  async deleteUserByAdmin(userId: string) {
+    const response = await this.client.delete(`/api/admin/users/${userId}`);
+    return response.data;
+  }
+
+  // 保守点検API
+  async sendTestNotification(userId?: string) {
+    const response = await this.client.post('/api/admin/test-notification', { userId });
+    return response.data;
+  }
+
+  async resetAllSessions() {
+    const response = await this.client.post('/api/admin/reset-sessions');
+    return response.data;
+  }
+
+  async clearMonitoringCache() {
+    const response = await this.client.post('/api/admin/clear-cache');
+    return response.data;
+  }
+
+  // ユーザーアカウント管理API
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await this.client.post('/api/user/change-password', {
+      currentPassword,
+      newPassword,
     });
     return response.data;
   }

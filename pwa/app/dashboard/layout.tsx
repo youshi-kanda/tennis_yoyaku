@@ -142,7 +142,7 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ヘッダー (モバイル) */}
-      <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+      <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -222,29 +222,31 @@ export default function DashboardLayout({
 
         {/* メインコンテンツ */}
         <div className="lg:pl-64 flex-1">
-          <main className="p-6">
+          <main className="p-4 pb-20 lg:p-6 lg:pb-6">
             {children}
           </main>
         </div>
       </div>
 
       {/* ボトムナビゲーション (モバイル) */}
-      <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 px-4 py-2 z-10">
-        <nav className="flex justify-around">
+      <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-10 pb-safe">
+        <nav className="flex justify-around px-2 py-2">
           {navigation.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition ${
+                className={`flex items-center justify-center p-3 rounded-lg transition ${
                   isActive
-                    ? 'text-emerald-700'
+                    ? 'text-emerald-700 bg-emerald-50'
                     : 'text-gray-600'
                 }`}
+                title={item.name}
               >
-                {item.icon}
-                <span className="text-xs">{item.name}</span>
+                <div className="w-6 h-6">
+                  {item.icon}
+                </div>
               </Link>
             );
           })}

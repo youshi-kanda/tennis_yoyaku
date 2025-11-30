@@ -186,11 +186,33 @@ export async function checkShinagawaAvailability(
       throw new Error('Login failed or session expired');
     }
     
-    const statusMatch = htmlText.match(new RegExp(`${timeSlot}[^<]*([○×取])`));
-    const currentStatus = statusMatch ? statusMatch[1] : '×';
-    const isAvailable = currentStatus === '○';
+    // 時間帯コード (例: 09:00-11:00 → 10, 11:00-13:00 → 20)
+    const timeSlotHour = parseInt(timeSlot.split(':')[0]);
+    const timeCode = Math.floor(timeSlotHour / 2) * 10 + 10;
     
-    console.log(`[Shinagawa] Status for ${timeSlot}: ${currentStatus}`);
+    // 該当セルを抽出 (例: id="20251228_10")
+    const cellIdPattern = `${date.replace(/-/g, '')}_${timeCode}`;
+    const cellMatch = htmlText.match(new RegExp(`<td[^>]*id="${cellIdPattern}"[^>]*>([\\s\\S]*?)<\\/td>`));
+    
+    let currentStatus = '×';
+    if (cellMatch) {
+      const cellContent = cellMatch[1];
+      
+      // 画像のaltまたはsrc属性で判定
+      if (cellContent.includes('calendar_available') || cellContent.includes('alt="空き"')) {
+        currentStatus = '○';
+      } else if (cellContent.includes('calendar_delete') || cellContent.includes('alt="取消処理中"')) {
+        currentStatus = '取';
+      } else if (cellContent.includes('calendar_full') || cellContent.includes('alt="予約あり"')) {
+        currentStatus = '×';
+      } else if (cellContent.includes('calendar_few-available') || cellContent.includes('alt="一部空き"')) {
+        currentStatus = '△';
+      }
+    }
+    
+    const isAvailable = currentStatus === '○' || currentStatus === '取';
+    
+    console.log(`[Shinagawa] Status for ${timeSlot} (${cellIdPattern}): ${currentStatus}`);
     
     return {
       available: isAvailable,

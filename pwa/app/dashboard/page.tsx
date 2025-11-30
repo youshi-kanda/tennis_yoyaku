@@ -125,10 +125,10 @@ export default function DashboardHome() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="max-w-7xl mx-auto space-y-4 lg:space-y-8">
       {/* ヘッダー */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
           ダッシュボード
         </h1>
         <p className="text-gray-600 mt-2">
@@ -137,9 +137,9 @@ export default function DashboardHome() {
       </div>
 
       {/* 統計カード */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
         {/* 監視中の施設 */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium text-gray-900">監視中の施設</h3>
             <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
@@ -163,7 +163,7 @@ export default function DashboardHome() {
         </div>
 
         {/* 予約履歴 */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium text-gray-900">予約履歴</h3>
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -186,7 +186,7 @@ export default function DashboardHome() {
         </div>
 
         {/* 成功率 */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium text-gray-900">予約成功率</h3>
             <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -235,9 +235,9 @@ export default function DashboardHome() {
             ))}
           </div>
         ) : targets.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-md p-12 text-center border border-gray-200">
+          <div className="bg-white rounded-xl shadow-md p-8 lg:p-12 text-center border border-gray-200">
             <svg
-              className="w-16 h-16 text-gray-300 mx-auto mb-4"
+              className="w-12 h-12 lg:w-16 lg:h-16 text-gray-300 mx-auto mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -263,7 +263,7 @@ export default function DashboardHome() {
         ) : (
           <>
             {/* 集約カード */}
-            <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 mb-4">
+            <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200 mb-4">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-gray-900">

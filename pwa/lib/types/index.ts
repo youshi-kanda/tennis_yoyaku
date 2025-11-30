@@ -62,6 +62,12 @@ export interface MonitoringTarget {
   status: 'active' | 'paused' | 'monitoring' | 'detected' | 'reserved' | 'failed';
   createdAt: number;
   updatedAt?: number;
+  
+  // ステータス追跡用
+  detectedAt?: number;
+  reservedAt?: number;
+  failedAt?: number;
+  failureReason?: string;
 }
 
 // 予約履歴

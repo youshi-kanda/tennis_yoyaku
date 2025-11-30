@@ -181,7 +181,10 @@ export interface MonitoringTarget {
   lastCheck?: number;
   lastStatus?: string; // '×' or '○' or '取'
   detectedStatus?: '×' | '取' | '○'; // 検知したステータス（集中監視用）
-  intensiveMonitoringUntil?: number; // 集中監視の終了時刻（タイムスタンプ）
+  intensiveMonitoringUntil?: number; // 集中監視の終了時刻（タイムスタンプ）- 廃止予定
+  nextIntensiveCheckTime?: number; // 次の集中監視時刻（10分単位）
+  intensiveMonitoringDate?: string; // 集中監視対象の日付
+  intensiveMonitoringTimeSlot?: string; // 集中監視対象の時間帯
   createdAt: number;
 }
 
@@ -465,6 +468,28 @@ export default {
         return handleAdminCreateUser(request, env);
       }
 
+      if (path.startsWith('/api/admin/users/') && request.method === 'DELETE') {
+        return handleAdminDeleteUser(request, env, path);
+      }
+
+      // 保守点検API
+      if (path === '/api/admin/test-notification' && request.method === 'POST') {
+        return handleAdminTestNotification(request, env);
+      }
+
+      if (path === '/api/admin/reset-sessions' && request.method === 'POST') {
+        return handleAdminResetSessions(request, env);
+      }
+
+      if (path === '/api/admin/clear-cache' && request.method === 'POST') {
+        return handleAdminClearCache(request, env);
+      }
+
+      // ユーザー向けAPI
+      if (path === '/api/user/change-password' && request.method === 'POST') {
+        return handleChangePassword(request, env);
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);
@@ -586,37 +611,16 @@ export default {
       
       console.log(`[Cron] 集中監視対象: ${intensiveTargets.length}件, 通常監視: ${normalTargets.length}件`);
       
-      // 優先度順にソート（priorityが高い順、同じなら作成日時が古い順）
-      const sortTargets = (targets: MonitoringTarget[]) => targets.sort((a, b) => {
-        const priorityA = a.priority || 3;
-        const priorityB = b.priority || 3;
-        if (priorityB !== priorityA) {
-          return priorityB - priorityA; // 優先度が高い順
-        }
-        return a.createdAt - b.createdAt; // 作成日時が古い順
-      });
-      
-      const sortedIntensiveTargets = sortTargets(intensiveTargets);
-      const sortedNormalTargets = sortTargets(normalTargets);
-      
-      // 集中監視対象を優先処理
-      for (const target of sortedIntensiveTargets) {
-        try {
-          console.log(`[Cron] 🔥 集中監視チェック: ${target.facilityName} (${target.site})`);
-          await checkAndNotify(target, env, true); // 集中監視フラグ
-        } catch (error) {
-          console.error(`[Cron] Error checking intensive target ${target.id}:`, error);
-        }
-      }
-      
-      // 通常監視対象を処理
-      for (const target of sortedNormalTargets) {
-        try {
-          await checkAndNotify(target, env, false);
-        } catch (error) {
-          console.error(`[Cron] Error checking target ${target.id}:`, error);
-        }
-      }
+      // 🚀 全ターゲットを並列処理（集中監視中でも他が止まらない）
+      console.log(`[Cron] 🚀 並列処理開始: 全${targets.length}ターゲット`);
+      await Promise.all(
+        targets.map(target => 
+          checkAndNotify(target, env).catch(error => {
+            console.error(`[Cron] ターゲット処理エラー (${target.facilityName}):`, error);
+          })
+        )
+      );
+      console.log(`[Cron] ✅ 並列処理完了`);
       
       // KVメトリクスをログ出力
       logKVMetrics();
@@ -1941,90 +1945,137 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // 空き枠を収集（priority_firstの場合に使用）
     const availableSlots: Array<{date: string; timeSlot: string}> = [];
 
-    // 🔥 集中監視モード: 「取」検知後の高頻度チェック
+    // 🔥 集中監視モード: 10分単位の前後15秒を1秒間隔でチェック
     const now = Date.now();
-    const isIntensiveMode = target.detectedStatus === '取' && target.intensiveMonitoringUntil;
+    const isIntensiveMode = target.detectedStatus === '取' && target.nextIntensiveCheckTime;
     
-    if (isIntensiveMode) {
-      const jstNow = new Date(now + 9 * 60 * 60 * 1000);
-      const targetTime = new Date((target.intensiveMonitoringUntil! + 9 * 60 * 60 * 1000) - 2 * 60 * 1000); // 目標時刻-2分
-      const checkUntil = new Date((target.intensiveMonitoringUntil! + 9 * 60 * 60 * 1000) + 2 * 60 * 1000); // 目標時刻+2分
+    if (isIntensiveMode && target.nextIntensiveCheckTime) {
+      const nextCheckTime = new Date(target.nextIntensiveCheckTime);
+      const jstNextCheck = new Date(target.nextIntensiveCheckTime + 9 * 60 * 60 * 1000);
       
-      // 集中監視期間中（目標時刻の前後2分）
-      if (jstNow >= targetTime && jstNow <= checkUntil) {
-        console.log(`[IntensiveCheck] 🔥 集中監視モード実行中: ${target.facilityName}`);
-        console.log(`[IntensiveCheck] 目標時刻: ${new Date(target.intensiveMonitoringUntil! + 9 * 60 * 60 * 1000).toLocaleTimeString('ja-JP')}`);
+      // 次の監視時刻の前後15秒以内かチェック
+      const timeDiff = now - target.nextIntensiveCheckTime;
+      const isInCheckWindow = timeDiff >= -15000 && timeDiff <= 15000; // -15秒～+15秒
+      
+      if (!isInCheckWindow) {
+        console.log(`[IntensiveCheck] ⏳ 次の監視時刻待機中: ${jstNextCheck.toLocaleTimeString('ja-JP')}`);
+        return; // まだ監視時刻ではない
+      }
+      
+      // 集中監視対象の日時・時間帯を取得
+      const targetDate = target.intensiveMonitoringDate || target.date;
+      const targetTimeSlot = target.intensiveMonitoringTimeSlot || timeSlotsToCheck[0];
+      
+      console.log(`[IntensiveCheck] 🔥 集中監視モード実行中: ${target.facilityName}`);
+      console.log(`[IntensiveCheck] 対象: ${targetDate} ${targetTimeSlot}`);
+      console.log(`[IntensiveCheck] 監視時刻: ${jstNextCheck.toLocaleTimeString('ja-JP')}`);
+      
+      // 30秒間、1秒間隔でチェック（前後15秒）
+      const INTENSIVE_CHECKS = 30;
+      const INTENSIVE_INTERVAL = 1000; // 1秒
+      
+      for (let checkCount = 0; checkCount < INTENSIVE_CHECKS; checkCount++) {
+        console.log(`[IntensiveCheck] チェック ${checkCount + 1}/${INTENSIVE_CHECKS} 実行中...`);
         
-        // 1分間に3回チェック（20秒間隔）
-        for (let checkCount = 0; checkCount < 3; checkCount++) {
-          console.log(`[IntensiveCheck] チェック ${checkCount + 1}/3 実行中...`);
+        // 特定の日時・時間帯のみをチェック
+        let result: AvailabilityResult;
+        
+        try {
+          if (target.site === 'shinagawa') {
+            result = await checkShinagawaAvailability(
+              target.facilityId,
+              targetDate,
+              targetTimeSlot,
+              credentials,
+              existingReservations
+            );
+          } else {
+            result = await checkMinatoAvailability(
+              target.facilityId,
+              targetDate,
+              targetTimeSlot,
+              credentials,
+              existingReservations
+            );
+          }
           
-          // 対象日時の空き状況をチェック
-          for (const timeSlot of timeSlotsToCheck) {
-            let result: AvailabilityResult;
+          console.log(`[IntensiveCheck] ${targetTimeSlot}: ${result.currentStatus}`);
+          
+          // 「○」に変わった！
+          if (result.currentStatus === '○') {
+            console.log(`[IntensiveCheck] 🎉 「取」→「○」検知！即座に予約実行`);
             
-            try {
-              if (target.site === 'shinagawa') {
-                result = await checkShinagawaAvailability(
-                  target.facilityId,
-                  target.date,
-                  timeSlot,
-                  credentials,
-                  existingReservations
-                );
-              } else {
-                result = await checkMinatoAvailability(
-                  target.facilityId,
-                  target.date,
-                  timeSlot,
-                  credentials,
-                  existingReservations
-                );
-              }
-              
-              console.log(`[IntensiveCheck] ${timeSlot}: ${result.currentStatus}`);
-              
-              // 「○」に変わった！
-              if (result.currentStatus === '○') {
-                console.log(`[IntensiveCheck] 🎉 「取」→「○」検知！即座に予約実行`);
-                
-                // 集中監視モード終了
-                target.detectedStatus = '○';
-                target.intensiveMonitoringUntil = undefined;
-                await updateMonitoringTargetOptimized(target, 'intensive_success', env.MONITORING);
-                
-                // 即座に予約
-                const tempTarget = { ...target, date: target.date, timeSlot };
-                await attemptReservation(tempTarget, env);
-                
-                // プッシュ通知
-                await sendPushNotification(target.userId, {
-                  title: '🎉 予約成功！',
-                  body: `${target.facilityName} ${target.date} ${timeSlot}\n集中監視で「取」→「○」を検知し予約しました`,
-                  data: { targetId: target.id, type: 'intensive_success' }
-                }, env);
-                
-                // 集中監視成功、このターゲットの処理を終了
-                return;
-              }
-              
-            } catch (error: any) {
-              console.error(`[IntensiveCheck] エラー: ${error.message}`);
-            }
+            // 集中監視モード終了（通常監視に復帰）
+            target.detectedStatus = '○';
+            target.nextIntensiveCheckTime = undefined;
+            target.intensiveMonitoringDate = undefined;
+            target.intensiveMonitoringTimeSlot = undefined;
+            await updateMonitoringTargetOptimized(target, 'intensive_success', env.MONITORING);
+            
+            // 即座に予約
+            const tempTarget = { ...target, date: targetDate, timeSlot: targetTimeSlot };
+            await attemptReservation(tempTarget, env);
+            
+            // プッシュ通知
+            await sendPushNotification(target.userId, {
+              title: '🎉 予約成功！',
+              body: `${target.facilityName} ${targetDate} ${targetTimeSlot}\n集中監視で「取」→「○」を検知し予約しました`,
+              data: { targetId: target.id, type: 'intensive_success' }
+            }, env);
+            
+            // 集中監視成功、このターゲットの処理を終了
+            return;
           }
           
-          // 最後のチェック以外は20秒待機
-          if (checkCount < 2) {
-            console.log(`[IntensiveCheck] 20秒待機中... (${checkCount + 1}/2)`);
-            await new Promise(resolve => setTimeout(resolve, 20000));
+          // 「×」に戻った（取マークが消えた）
+          if (result.currentStatus === '×') {
+            console.log(`[IntensiveCheck] ❌ 「取」→「×」に変化、集中監視終了`);
+            
+            // 集中監視モード終了（通常監視に復帰）
+            target.detectedStatus = undefined;
+            target.nextIntensiveCheckTime = undefined;
+            target.intensiveMonitoringDate = undefined;
+            target.intensiveMonitoringTimeSlot = undefined;
+            await updateMonitoringTargetOptimized(target, 'intensive_cancelled', env.MONITORING);
+            
+            // 通常監視に戻る
+            return;
           }
+          
+        } catch (error: any) {
+          console.error(`[IntensiveCheck] エラー: ${error.message}`);
         }
         
-        console.log(`[IntensiveCheck] 3回チェック完了。まだ「○」にならず。次のCronで再チェック。`);
-        
-        // 集中監視期間中は通常チェックをスキップ
+        // 最後のチェック以外は1秒待機
+        if (checkCount < INTENSIVE_CHECKS - 1) {
+          await new Promise(resolve => setTimeout(resolve, INTENSIVE_INTERVAL));
+        }
+      }
+      
+      console.log(`[IntensiveCheck] ${INTENSIVE_CHECKS}回チェック完了。まだ「取」のまま。`);
+      
+      // 次の10分単位を計算
+      const nextCheckTime2 = new Date(target.nextIntensiveCheckTime + 10 * 60 * 1000);
+      const jstNextCheck2 = new Date(nextCheckTime2.getTime() + 9 * 60 * 60 * 1000);
+      
+      // 予約日時を過ぎていたら集中監視終了
+      const reservationDate = new Date(targetDate + 'T' + targetTimeSlot.split('-')[0] + ':00');
+      if (nextCheckTime2 >= reservationDate) {
+        console.log(`[IntensiveCheck] ⏰ 予約日時到達、集中監視終了`);
+        target.detectedStatus = undefined;
+        target.nextIntensiveCheckTime = undefined;
+        target.intensiveMonitoringDate = undefined;
+        target.intensiveMonitoringTimeSlot = undefined;
+        await updateMonitoringTargetOptimized(target, 'intensive_expired', env.MONITORING);
         return;
       }
+      
+      // 次の監視時刻を設定
+      target.nextIntensiveCheckTime = nextCheckTime2.getTime();
+      await updateMonitoringTargetOptimized(target, 'intensive_continue', env.MONITORING);
+      console.log(`[IntensiveCheck] 📅 次回監視: ${jstNextCheck2.toLocaleTimeString('ja-JP')}`);
+      
+      return;
     }
 
     // 🚀 並列処理で高速化: 今回の3日分のチェックを同時実行
@@ -2094,37 +2145,42 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         if (result.currentStatus === '取' && target.detectedStatus !== '取') {
           console.log(`[Alert] 🔥「取」検知: ${date} ${timeSlot} - 集中監視モード開始`);
           
-          // 次の10分刻み時刻を計算
+          // 次の10分単位を計算
           const now = new Date();
           const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-          const currentMinutes = jstNow.getMinutes();
-          const currentSeconds = jstNow.getSeconds();
+          const minutes = jstNow.getMinutes();
           
-          // 次の10分刻み（10:10, 10:20, 10:30...）を計算
-          let nextTenMinuteMark = Math.ceil((currentMinutes + 1) / 10) * 10;
-          if (nextTenMinuteMark === 60) nextTenMinuteMark = 0;
+          // 次の10分単位（10, 20, 30, 40, 50, 00）
+          let nextTenMinute = Math.ceil(minutes / 10) * 10;
+          let nextCheckTime = new Date(jstNow);
+          nextCheckTime.setMinutes(nextTenMinute);
+          nextCheckTime.setSeconds(0);
+          nextCheckTime.setMilliseconds(0);
           
-          const targetTime = new Date(jstNow);
-          targetTime.setMinutes(nextTenMinuteMark, 0, 0); // 秒とミリ秒を0にリセット
-          if (nextTenMinuteMark === 0) {
-            targetTime.setHours(targetTime.getHours() + 1); // 次の時間の00分
+          // 60分を超えた場合は次の時間の00分
+          if (nextTenMinute >= 60) {
+            nextCheckTime.setHours(nextCheckTime.getHours() + 1);
+            nextCheckTime.setMinutes(0);
           }
           
-          // 集中監視終了時刻: 目標時刻の+2分後まで
-          const intensiveUntil = new Date(targetTime.getTime() + 2 * 60 * 1000);
+          const jstNextCheck = nextCheckTime;
+          const nextCheckTimeUTC = new Date(nextCheckTime.getTime() - 9 * 60 * 60 * 1000);
           
-          console.log(`[Alert] 集中監視: 現在 ${jstNow.toLocaleTimeString('ja-JP')}, 目標 ${targetTime.toLocaleTimeString('ja-JP')}, 終了 ${intensiveUntil.toLocaleTimeString('ja-JP')}`);
+          console.log(`[Alert] 検知時刻: ${jstNow.toLocaleTimeString('ja-JP')}`);
+          console.log(`[Alert] 次回監視: ${jstNextCheck.toLocaleTimeString('ja-JP')} (10分単位)`);
           
           // ターゲットを更新（集中監視モードに設定）
           target.detectedStatus = '取';
-          target.intensiveMonitoringUntil = intensiveUntil.getTime() - 9 * 60 * 60 * 1000; // UTC変換
+          target.nextIntensiveCheckTime = nextCheckTimeUTC.getTime(); // UTC時刻
+          target.intensiveMonitoringDate = date;
+          target.intensiveMonitoringTimeSlot = timeSlot;
           
           await updateMonitoringTargetOptimized(target, 'intensive_mode_activated', env.MONITORING);
           
           // プッシュ通知送信
           await sendPushNotification(target.userId, {
             title: '🔥「取」検知！集中監視開始',
-            body: `${target.facilityName} ${date} ${timeSlot}\n${targetTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}に「○」に変わる可能性があります`,
+            body: `${target.facilityName} ${date} ${timeSlot}\n次回: ${jstNextCheck.toLocaleTimeString('ja-JP')} (10分間隔)`,
             data: { targetId: target.id, type: 'status_tori_detected' }
           }, env);
         }
@@ -2132,6 +2188,13 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         // 空きが見つかった場合
         if (result.currentStatus === '○') {
           console.log(`[Alert] ✅ Available: ${date} ${timeSlot}`);
+          
+          // statusを'detected'に更新（カレンダー表示用）
+          if (target.status !== 'detected') {
+            target.status = 'detected';
+            target.detectedAt = Date.now();
+            await updateMonitoringTargetOptimized(target, 'available_detected', env.MONITORING);
+          }
           
           // 「取」から「○」に変わった場合は集中監視終了
           if (target.detectedStatus === '取') {
@@ -2159,6 +2222,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
           console.log(`[Alert] 集中監視期間終了: ${target.facilityName}`);
           target.detectedStatus = undefined;
           target.intensiveMonitoringUntil = undefined;
+          target.intensiveMonitoringDate = undefined;
+          target.intensiveMonitoringTimeSlot = undefined;
           await updateMonitoringTargetOptimized(target, 'intensive_mode_ended', env.MONITORING);
         }
     }
@@ -2358,6 +2423,51 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       if (targetIndex !== -1) {
         allTargets[targetIndex] = target;
         await env.MONITORING.put('monitoring:all_targets', JSON.stringify(allTargets));
+      }
+      
+      // 🔔 予約成功通知を送信
+      await sendPushNotification(target.userId, {
+        title: '🎉 予約成功！',
+        body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n予約が完了しました`,
+        data: { 
+          type: 'reservation_success',
+          targetId: target.id,
+          site: target.site,
+          facilityName: target.facilityName,
+          date: target.date,
+          timeSlot: target.timeSlot,
+        }
+      }, env);
+    } else {
+      // statusを'failed'に更新（カレンダー表示用）
+      const resultMessage = 'message' in result ? result.message : (result.error || '');
+      const state = await env.MONITORING.get(`MONITORING:${target.userId}`, 'json') as UserMonitoringState | null;
+      if (state) {
+        const targetInState = state.targets.find(t => t.id === target.id);
+        if (targetInState) {
+          targetInState.status = 'failed';
+          targetInState.failedAt = Date.now();
+          targetInState.failureReason = resultMessage;
+          await saveUserMonitoringState(target.userId, state, env.MONITORING);
+        }
+      }
+      
+      // 🔔 予約失敗通知を送信（重要なエラーのみ）
+      if (resultMessage.includes('ログイン') || resultMessage.includes('認証')) {
+        // ログイン失敗は既に別の箇所で通知済み
+      } else if (resultMessage.includes('満室') || resultMessage.includes('予約できません')) {
+        // 満室や予約不可は通常の動作なので通知しない
+      } else {
+        // その他のエラーは通知
+        await sendPushNotification(target.userId, {
+          title: '❌ 予約失敗',
+          body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n${resultMessage}`,
+          data: { 
+            type: 'reservation_failed',
+            targetId: target.id,
+            error: resultMessage,
+          }
+        }, env);
       }
     }
 
@@ -2595,6 +2705,218 @@ async function handleAdminCreateUser(request: Request, env: Env): Promise<Respon
   } catch (error: any) {
     if (error.message === 'Admin access required') {
       return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleAdminDeleteUser(request: Request, env: Env, path: string): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const userId = path.split('/').pop();
+    if (!userId) {
+      return jsonResponse({ error: 'User ID is required' }, 400);
+    }
+
+    // ユーザーIDからメールアドレスを取得
+    const email = await env.USERS.get(`user:id:${userId}`, 'text');
+    if (!email) {
+      return jsonResponse({ error: 'User not found' }, 404);
+    }
+
+    // ユーザー情報を取得
+    const userData = await env.USERS.get(`user:${email}`, 'json') as User;
+    if (!userData) {
+      return jsonResponse({ error: 'User not found' }, 404);
+    }
+
+    // 管理者の削除を防ぐ
+    if (userData.role === 'admin') {
+      return jsonResponse({ error: 'Cannot delete admin user' }, 403);
+    }
+
+    // ユーザーの監視設定を削除
+    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    const filteredTargets = allTargets.filter((t: MonitoringTarget) => t.userId !== userId);
+    await env.MONITORING.put('monitoring:all_targets', JSON.stringify(filteredTargets));
+
+    // ユーザーの予約履歴を削除
+    await env.RESERVATIONS.delete(`history:${userId}`);
+
+    // ユーザー情報を削除
+    await env.USERS.delete(`user:${email}`);
+    await env.USERS.delete(`user:id:${userId}`);
+
+    console.log(`[Admin] User deleted: ${email} (${userId})`);
+
+    return jsonResponse({
+      success: true,
+      message: 'User deleted successfully',
+    });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// ===== 保守点検API =====
+
+async function handleAdminTestNotification(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await requireAdmin(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const body = await request.json() as { userId?: string };
+    const targetUserId = body.userId || userId;
+
+    // テスト通知を送信
+    const success = await sendPushNotification(targetUserId, {
+      title: '🔔 テスト通知',
+      body: 'プッシュ通知が正常に動作しています。この通知は保守点検機能からのテスト送信です。',
+      data: {
+        type: 'test_notification',
+        timestamp: Date.now(),
+      }
+    }, env);
+
+    if (success) {
+      return jsonResponse({
+        success: true,
+        message: 'Test notification sent successfully',
+      });
+    } else {
+      return jsonResponse({
+        success: false,
+        message: 'Failed to send notification. User may not have push subscription.',
+      }, 400);
+    }
+  } catch (error: any) {
+    console.error('[Admin] Test notification error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleAdminResetSessions(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    // 全ユーザーのセッションをリセット
+    const resetCount = await resetAllSessions(env);
+
+    console.log(`[Admin] Sessions reset: ${resetCount} users`);
+
+    return jsonResponse({
+      success: true,
+      message: `Successfully reset sessions for ${resetCount} users`,
+      count: resetCount,
+    });
+  } catch (error: any) {
+    console.error('[Admin] Reset sessions error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleAdminClearCache(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    // グローバルキャッシュをクリア（実行時メモリ）
+    if ((globalThis as any).reservationPeriodCache) {
+      (globalThis as any).reservationPeriodCache = new Map();
+    }
+
+    // メトリクスをリセット
+    kvMetrics.reads = 0;
+    kvMetrics.writes = 0;
+    kvMetrics.cacheHits = 0;
+    kvMetrics.cacheMisses = 0;
+    kvMetrics.writesSkipped = 0;
+    kvMetrics.resetAt = Date.now();
+
+    console.log('[Admin] Cache cleared and metrics reset');
+
+    return jsonResponse({
+      success: true,
+      message: 'Cache cleared and metrics reset successfully',
+    });
+  } catch (error: any) {
+    console.error('[Admin] Clear cache error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * パスワード変更ハンドラ
+ * ユーザーが自分のパスワードを変更する
+ */
+async function handleChangePassword(request: Request, env: Env): Promise<Response> {
+  try {
+    // 認証チェック
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+    const email = payload.email;
+
+    const body = await request.json() as { currentPassword: string; newPassword: string };
+    const { currentPassword, newPassword } = body;
+
+    // バリデーション
+    if (!currentPassword || !newPassword) {
+      return jsonResponse({ error: 'Current password and new password are required' }, 400);
+    }
+
+    if (newPassword.length < 8) {
+      return jsonResponse({ error: 'New password must be at least 8 characters long' }, 400);
+    }
+
+    if (currentPassword === newPassword) {
+      return jsonResponse({ error: 'New password must be different from current password' }, 400);
+    }
+
+    // 現在のユーザー情報を取得
+    const userJson = await env.USERS.get(`user:${email}`);
+    if (!userJson) {
+      return jsonResponse({ error: 'User not found' }, 404);
+    }
+
+    const user: User = JSON.parse(userJson);
+
+    // 現在のパスワードを検証
+    const isValid = await verifyPassword(currentPassword, user.password);
+    if (!isValid) {
+      return jsonResponse({ error: 'Current password is incorrect' }, 401);
+    }
+
+    // 新しいパスワードをハッシュ化
+    const hashedPassword = await hashPassword(newPassword);
+
+    // ユーザー情報を更新
+    user.password = hashedPassword;
+    user.updatedAt = Date.now();
+
+    await env.USERS.put(`user:${email}`, JSON.stringify(user));
+
+    console.log(`[ChangePassword] User ${email} changed password successfully`);
+
+    return jsonResponse({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  } catch (error: any) {
+    console.error('[ChangePassword] Error:', error);
+    if (error.message === 'Unauthorized') {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
     }
     return jsonResponse({ error: error.message }, 500);
   }

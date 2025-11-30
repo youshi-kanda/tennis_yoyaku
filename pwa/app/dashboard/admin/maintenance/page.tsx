@@ -108,13 +108,54 @@ export default function AdminMaintenancePage() {
   };
 
   const handleClearCache = async () => {
-    if (!confirm('メモリキャッシュをクリアします。よろしいですか?')) return;
+    if (!confirm('メモリキャッシュをクリアします。よろしいですか?\n\n実行時メモリのキャッシュと統計情報がリセットされます。')) return;
     
-    alert('キャッシュクリアはWorkers再デプロイで自動的に実行されます');
+    try {
+      setLoading(true);
+      await apiClient.clearMonitoringCache();
+      alert('✅ キャッシュをクリアしました');
+      await loadSystemHealth(); // 再チェック
+    } catch (error: any) {
+      console.error('Failed to clear cache:', error);
+      alert('❌ キャッシュクリアに失敗しました: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleTestNotification = async () => {
-    alert('プッシュ通知のテストは Settings > Push Notifications から実行できます');
+    if (!confirm('プッシュ通知のテストを送信します。よろしいですか?\n\n自分のアカウントにテスト通知が送信されます。')) return;
+    
+    try {
+      setLoading(true);
+      const result = await apiClient.sendTestNotification();
+      if (result.success) {
+        alert('✅ テスト通知を送信しました\n\nプッシュ通知を有効にしている場合は、数秒以内に通知が届きます。');
+      } else {
+        alert('⚠️ 通知送信に失敗しました\n\nプッシュ通知が有効になっているか確認してください。');
+      }
+    } catch (error: any) {
+      console.error('Failed to send test notification:', error);
+      alert('❌ テスト通知の送信に失敗しました: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetSessions = async () => {
+    if (!confirm('全ユーザーのセッションをリセットします。よろしいですか?\n\n⚠️ 全ユーザーが再ログインを求められる可能性があります。')) return;
+    
+    try {
+      setLoading(true);
+      const result = await apiClient.resetAllSessions();
+      alert(`✅ セッションをリセットしました\n\n${result.count}名分のセッションをクリアしました。`);
+      await loadSystemHealth(); // 再チェック
+    } catch (error: any) {
+      console.error('Failed to reset sessions:', error);
+      alert('❌ セッションリセットに失敗しました: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isAdmin) return null;
@@ -261,6 +302,20 @@ export default function AdminMaintenancePage() {
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
             >
               🔗 Cloudflare開く
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div>
+              <h3 className="font-semibold text-gray-900">セッション一括リセット</h3>
+              <p className="text-sm text-gray-600">全ユーザーのログインセッションをクリア</p>
+            </div>
+            <button
+              onClick={handleResetSessions}
+              disabled={loading}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+            >
+              🔄 リセット
             </button>
           </div>
 

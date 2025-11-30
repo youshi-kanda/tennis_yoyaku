@@ -77,6 +77,21 @@ export default function AdminUsersPage() {
     setNewPassword('');
   };
 
+  const handleDeleteUser = async (userId: string, email: string) => {
+    if (!confirm(`ユーザー「${email}」を削除しますか?\n\n削除すると以下のデータも削除されます:\n• 監視設定\n• 予約履歴\n\nこの操作は取り消せません。`)) {
+      return;
+    }
+
+    try {
+      await apiClient.deleteUserByAdmin(userId);
+      alert('ユーザーを削除しました');
+      await loadUsers();
+    } catch (error: any) {
+      console.error('Failed to delete user:', error);
+      alert(error.response?.data?.error || 'ユーザーの削除に失敗しました');
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     alert('コピーしました');
@@ -181,6 +196,9 @@ export default function AdminUsersPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   成功率
                 </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  操作
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -235,6 +253,16 @@ export default function AdminUsersPage() {
                         : '0'}
                       %
                     </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    {user.role !== 'admin' && (
+                      <button
+                        onClick={() => handleDeleteUser(user.id, user.email)}
+                        className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition"
+                      >
+                        🗑️ 削除
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

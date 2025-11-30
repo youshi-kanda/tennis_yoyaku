@@ -166,13 +166,29 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
-// TODO: Implement backend API calls
 async function sendSubscriptionToBackend(subscription: PushSubscription) {
-  // const response = await apiClient.subscribePush(subscription);
-  console.log('Subscription sent to backend:', subscription);
+  try {
+    const { apiClient } = await import('@/lib/api/client');
+    // ブラウザのPushSubscriptionを独自型に変換
+    const subscriptionData = {
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+    };
+    await apiClient.subscribePush(subscriptionData);
+    console.log('[Push] Subscription sent to backend:', subscription.endpoint);
+  } catch (error) {
+    console.error('[Push] Failed to send subscription to backend:', error);
+    throw error;
+  }
 }
 
 async function removeSubscriptionFromBackend() {
-  // const response = await apiClient.unsubscribePush();
-  console.log('Subscription removed from backend');
+  try {
+    const { apiClient } = await import('@/lib/api/client');
+    await apiClient.unsubscribePush();
+    console.log('[Push] Subscription removed from backend');
+  } catch (error) {
+    console.error('[Push] Failed to remove subscription from backend:', error);
+    throw error;
+  }
 }

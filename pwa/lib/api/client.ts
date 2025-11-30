@@ -268,6 +268,14 @@ class ApiClient {
     const response = await this.client.get('/api/admin/reservations');
     return response.data;
   }
+
+  async createUserByAdmin(email: string, password: string) {
+    const response = await this.client.post('/api/admin/users/create', {
+      email,
+      password,
+    });
+    return response.data;
+  }
 }
 
 export const apiClient = new ApiClient();

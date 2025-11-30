@@ -165,8 +165,12 @@ export default function AdminLogsPage() {
         </div>
       </div>
 
-      {/* ログテーブル */}
+      {/* 予約履歴テーブル */}
       <div className="bg-white rounded-xl shadow-md border overflow-hidden">
+        <div className="p-4 bg-gray-50 border-b">
+          <h3 className="font-semibold text-gray-900">📋 予約履歴</h3>
+          <p className="text-sm text-gray-600 mt-1">システムで実行された予約の履歴</p>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -242,9 +246,62 @@ export default function AdminLogsPage() {
 
         {filteredLogs.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-gray-500">ログが見つかりません</p>
+            <p className="text-gray-500">予約履歴がありません</p>
+            <p className="text-sm text-gray-400 mt-2">
+              予約が実行されると履歴が表示されます
+            </p>
           </div>
         )}
+      </div>
+
+      {/* リアルタイムログへのリンク */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+        <div className="flex items-start gap-4">
+          <span className="text-3xl">📊</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-blue-900 text-lg">
+              リアルタイムシステムログ
+            </h3>
+            <p className="text-sm text-blue-800 mt-2">
+              Cron実行ログ、エラーログ、デバッグ情報などのリアルタイムログは
+              Cloudflare Dashboardで確認できます
+            </p>
+            <ul className="text-sm text-blue-700 mt-3 space-y-1">
+              <li>• 毎分のCron実行ログ (監視チェック)</li>
+              <li>• 5:00一斉予約処理のログ</li>
+              <li>• ログイン失敗・予約失敗の詳細</li>
+              <li>• セッションリセット処理</li>
+              <li>• APIリクエスト・レスポンス</li>
+            </ul>
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={() =>
+                  window.open(
+                    'https://dash.cloudflare.com/?to=/:account/workers/services/view/tennis-yoyaku-api/production/logs/live',
+                    '_blank'
+                  )
+                }
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+              >
+                🔗 リアルタイムログを開く
+              </button>
+              <button
+                onClick={() =>
+                  window.open(
+                    'https://dash.cloudflare.com/?to=/:account/workers/services/view/tennis-yoyaku-api/production',
+                    '_blank'
+                  )
+                }
+                className="px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition font-medium"
+              >
+                📈 Workers ダッシュボード
+              </button>
+            </div>
+            <p className="text-xs text-blue-600 mt-3">
+              💡 ヒント: リアルタイムログで <code className="bg-blue-100 px-1 rounded">wrangler tail</code> 相当の情報が確認できます
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

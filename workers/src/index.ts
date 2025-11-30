@@ -56,15 +56,30 @@ const monitoringListCache: MonitoringListCache = {
 };
 const MONITORING_LIST_CACHE_TTL = 3 * 60 * 1000; // 3分
 
-// KV使用量メトリクス
-let kvMetrics = {
+// KV使用量メトリクス（初回リクエスト時に初期化）
+let kvMetrics: {
+  reads: number;
+  writes: number;
+  cacheHits: number;
+  cacheMisses: number;
+  writesSkipped: number;
+  resetAt: number;
+} = {
   reads: 0,
   writes: 0,
   cacheHits: 0,
   cacheMisses: 0,
   writesSkipped: 0,
-  resetAt: Date.now()
+  resetAt: 0  // 初回リクエスト時に Date.now() で設定
 };
+
+// メトリクス初期化関数
+function initializeMetricsIfNeeded() {
+  if (kvMetrics.resetAt === 0) {
+    kvMetrics.resetAt = Date.now();
+    console.log('[KV Metrics] Initialized at:', new Date(kvMetrics.resetAt).toISOString());
+  }
+}
 
 // ===== 深夜早朝時間帯判定（品川区の制約） =====
 interface TimeRestrictions {
@@ -339,6 +354,9 @@ function logKVMetrics() {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // メトリクス初期化（初回リクエスト時のみ）
+    initializeMetricsIfNeeded();
+    
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -443,6 +461,10 @@ export default {
         return handleAdminReservations(request, env);
       }
 
+      if (path === '/api/admin/users/create' && request.method === 'POST') {
+        return handleAdminCreateUser(request, env);
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);
@@ -451,6 +473,9 @@ export default {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // メトリクス初期化（初回Cron実行時のみ）
+    initializeMetricsIfNeeded();
+    
     const now = new Date();
     const minutes = now.getMinutes();
     const hours = now.getHours();
@@ -2524,5 +2549,53 @@ async function handleAdminReservations(request: Request, env: Env): Promise<Resp
       return jsonResponse({ error: 'Admin access required' }, 403);
     }
     return jsonResponse({ error: error.message }, 401);
+  }
+}
+
+async function handleAdminCreateUser(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const body = await request.json() as { email: string; password: string };
+    const { email, password } = body;
+
+    if (!email || !password) {
+      return jsonResponse({ error: 'Email and password are required' }, 400);
+    }
+
+    // メールアドレスの重複チェック
+    const existingUser = await env.USERS.get(`user:${email}`);
+    if (existingUser) {
+      return jsonResponse({ error: 'User already exists' }, 409);
+    }
+
+    // ユーザー作成（role: 'user'）
+    const user: User = {
+      id: crypto.randomUUID(),
+      email,
+      password: await hashPassword(password),
+      role: 'user',
+      createdAt: Date.now(),
+    };
+
+    await env.USERS.put(`user:${email}`, JSON.stringify(user));
+    await env.USERS.put(`user:id:${user.id}`, email);
+
+    console.log(`[Admin] User created: ${email} (${user.id})`);
+
+    return jsonResponse({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
   }
 }

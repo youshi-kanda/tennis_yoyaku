@@ -21,6 +21,11 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createdUser, setCreatedUser] = useState<{ email: string; password: string } | null>(null);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -46,6 +51,37 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleCreateUser = async () => {
+    if (!newEmail || !newPassword) {
+      alert('メールアドレスとパスワードを入力してください');
+      return;
+    }
+
+    try {
+      setCreating(true);
+      await apiClient.createUserByAdmin(newEmail, newPassword);
+      setCreatedUser({ email: newEmail, password: newPassword });
+      await loadUsers();
+    } catch (error: any) {
+      console.error('Failed to create user:', error);
+      alert(error.response?.data?.error || 'ユーザーの作成に失敗しました');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowCreateModal(false);
+    setCreatedUser(null);
+    setNewEmail('');
+    setNewPassword('');
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert('コピーしました');
+  };
+
   const filteredUsers = users.filter(user => 
     user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -68,12 +104,20 @@ export default function AdminUsersPage() {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">👥 ユーザー管理</h1>
-        <button
-          onClick={loadUsers}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-        >
-          🔄 更新
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
+          >
+            ➕ 新規ユーザー追加
+          </button>
+          <button
+            onClick={loadUsers}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            🔄 更新
+          </button>
+        </div>
       </div>
 
       {/* 検索バー */}
@@ -204,6 +248,147 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
+
+      {/* 新規ユーザー作成モーダル */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="p-6 border-b">
+              <h2 className="text-2xl font-bold text-gray-900">
+                ➕ 新規ユーザー追加
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                クライアント用のアカウントを作成します
+              </p>
+            </div>
+
+            {!createdUser ? (
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    メールアドレス
+                  </label>
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="client@example.com"
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    初期パスワード
+                  </label>
+                  <input
+                    type="text"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="8文字以上の安全なパスワード"
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 クライアントにこのパスワードを共有してください
+                  </p>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>注意:</strong> 作成後、認証情報をコピーしてクライアントに渡してください。
+                    ログイン後、クライアント自身でパスワード変更が可能です。
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={handleCreateUser}
+                    disabled={creating || !newEmail || !newPassword}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {creating ? '作成中...' : '✅ ユーザーを作成'}
+                  </button>
+                  <button
+                    onClick={handleCloseModal}
+                    disabled={creating}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 space-y-4">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-2xl">✅</span>
+                    <h3 className="font-semibold text-green-900">ユーザー作成完了!</h3>
+                  </div>
+                  <p className="text-sm text-green-800">
+                    以下の認証情報をクライアントに共有してください
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      メールアドレス
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={createdUser.email}
+                        readOnly
+                        className="flex-1 px-4 py-2 border rounded-lg bg-gray-50 text-gray-900 font-mono"
+                      />
+                      <button
+                        onClick={() => copyToClipboard(createdUser.email)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                      >
+                        📋 コピー
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      パスワード
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={createdUser.password}
+                        readOnly
+                        className="flex-1 px-4 py-2 border rounded-lg bg-gray-50 text-gray-900 font-mono"
+                      />
+                      <button
+                        onClick={() => copyToClipboard(createdUser.password)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                      >
+                        📋 コピー
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-sm text-yellow-800">
+                      <strong>⚠️ 重要:</strong> このパスワードは二度と表示されません。
+                      必ずコピーしてクライアントに安全に共有してください。
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleCloseModal}
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
+                >
+                  完了
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -395,11 +395,14 @@ export async function makeShinagawaReservation(
     // Response Bodyを読み切る
     await confirmResponse.text().catch(() => {});
     
+    // 利用人数: target.applicantCountが設定されていればそれを使用、未設定なら品川区デフォルトの2人
+    const applicantCount = target.applicantCount?.toString() || '2';
+    
     const reserveParams = new URLSearchParams({
       'rsvWOpeReservedConfirmForm.instNo': instNo,
       'rsvWOpeReservedConfirmForm.dateNo': dateNo,
       'rsvWOpeReservedConfirmForm.timeNo': timeNo,
-      'rsvWOpeReservedConfirmForm.usrNum': '2',
+      'rsvWOpeReservedConfirmForm.usrNum': applicantCount,
     });
     
     const reserveResponse = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
@@ -1202,6 +1205,8 @@ export async function makeMinatoReservation(
       'rsvWOpeRsvRgstForm.instCls': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.instCls'),
       'rsvWOpeRsvRgstForm.useStartDate': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.useStartDate'),
       'rsvWOpeRsvRgstForm.useEndDate': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.useEndDate'),
+      'purpose': '2000_2000040',  // テニス（屋外スポーツ）
+      'applyNum': (target.applicantCount || 4).toString(),  // 利用人数（未設定時は港区デフォルトの4人）
     });
 
     // ステップ3: 予約確認

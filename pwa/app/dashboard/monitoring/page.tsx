@@ -106,6 +106,7 @@ export default function MonitoringPage() {
     selectedWeekdays: [0, 1, 2, 3, 4, 5, 6] as number[], // 曜日指定（デフォルトは全曜日）
     includeHolidays: true as boolean | 'only', // 祝日の扱い（true=含める, false=除外, 'only'=祝日のみ）
     timeSlots: [] as string[], // 初期状態は未選択
+    applicantCount: 4, // 利用人数（デフォルト4人、品川の場合は2人に後で変更）
   });
 
   useEffect(() => {
@@ -515,6 +516,7 @@ export default function MonitoringPage() {
           selectedWeekdays?: number[];
           includeHolidays?: boolean | 'only';
           autoReserve: boolean;
+          applicantCount?: number;
         } = {
           site: facility.site,
           facilityId: facility.id,
@@ -524,6 +526,7 @@ export default function MonitoringPage() {
           autoReserve: true,
           dateMode: config.dateMode,
           includeHolidays: config.includeHolidays,
+          applicantCount: config.applicantCount,
         };
 
         // 日付モードに応じて設定
@@ -589,6 +592,7 @@ export default function MonitoringPage() {
         selectedWeekdays: [0, 1, 2, 3, 4, 5, 6],
         includeHolidays: true,
         timeSlots: [], // 🔥 時間帯を空に初期化
+        applicantCount: 4,
       });
       
       // ウィザードを閉じる
@@ -688,6 +692,7 @@ export default function MonitoringPage() {
       selectedWeekdays: [0, 1, 2, 3, 4, 5, 6],
       includeHolidays: true,
       timeSlots: [], // 🔥 時間帯を空に初期化
+      applicantCount: 4,
     });
     setShowWizard(true);
     setCurrentStep(1);
@@ -1831,6 +1836,44 @@ export default function MonitoringPage() {
 
               <p className="text-xs text-gray-600 mt-2">
                 ℹ️ 日本の国民の祝日（振替休日・国民の休日を含む）を自動判定します
+              </p>
+            </div>
+
+            {/* 利用人数設定 */}
+            <div className="mt-6">
+              <label htmlFor="applicantCount" className="block text-sm font-medium text-gray-700 mb-3">
+                利用人数
+              </label>
+              <div className="flex items-center gap-4">
+                <input
+                  id="applicantCount"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={config.applicantCount}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value);
+                    if (value >= 1 && value <= 20) {
+                      setConfig({ ...config, applicantCount: value });
+                    }
+                  }}
+                  className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+                <span className="text-sm text-gray-600">人</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // 品川区の施設があれば2人、港区のみなら4人に設定
+                    const hasShinagawa = config.selectedFacilities.some(f => f.site === 'shinagawa');
+                    setConfig({ ...config, applicantCount: hasShinagawa ? 2 : 4 });
+                  }}
+                  className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
+                >
+                  推奨値に戻す
+                </button>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                ℹ️ 推奨: 品川区は2人、港区は4人（1〜20人で指定可能）
               </p>
             </div>
 

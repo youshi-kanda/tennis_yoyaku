@@ -58,6 +58,7 @@ export interface MonitoringTarget {
   includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
   
   autoReserve?: boolean; // 自動予約フラグ
+  applicantCount?: number; // 利用人数（未指定時は品川2人、港4人）
   
   status: 'active' | 'paused' | 'monitoring' | 'detected' | 'reserved' | 'failed';
   createdAt: number;

@@ -130,7 +130,8 @@ export async function checkShinagawaAvailability(
   date: string,
   timeSlot: string,
   credentials: SiteCredentials,
-  existingReservations?: ReservationHistory[]
+  existingReservations?: ReservationHistory[],
+  sessionId?: string | null  // 既存セッションIDを受け取る（省略時は自動ログイン）
 ): Promise<AvailabilityResult> {
   try {
     console.log(`[Shinagawa] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
@@ -157,10 +158,16 @@ export async function checkShinagawaAvailability(
       };
     }
     
-    // 自動ログイン
-    const sessionId = await loginToShinagawa(credentials.username, credentials.password);
-    if (!sessionId) {
-      throw new Error('Login failed');
+    // セッションIDがない場合のみ新規ログイン
+    let activeSessionId = sessionId;
+    if (!activeSessionId) {
+      console.log(`[Shinagawa] No session provided, attempting login`);
+      activeSessionId = await loginToShinagawa(credentials.username, credentials.password);
+      if (!activeSessionId) {
+        throw new Error('Login failed');
+      }
+    } else {
+      console.log(`[Shinagawa] Using provided session: ${activeSessionId.substring(0, 20)}...`);
     }
     
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
@@ -174,7 +181,7 @@ export async function checkShinagawaAvailability(
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Cookie': `JSESSIONID=${sessionId}`,
+        'Cookie': `JSESSIONID=${activeSessionId}`,
         'Referer': `${baseUrl}/rsvWOpeInstMenuAction.do`,
       },
     });
@@ -235,7 +242,8 @@ export async function checkMinatoAvailability(
   date: string,
   timeSlot: string,
   credentials: SiteCredentials,
-  existingReservations?: ReservationHistory[]
+  existingReservations?: ReservationHistory[],
+  sessionId?: string | null  // 既存セッションIDを受け取る（省略時は自動ログイン）
 ): Promise<AvailabilityResult> {
   try {
     console.log(`[Minato] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
@@ -262,10 +270,16 @@ export async function checkMinatoAvailability(
       };
     }
     
-    // 自動ログイン
-    const sessionId = await loginToMinato(credentials.username, credentials.password);
-    if (!sessionId) {
-      throw new Error('Login failed');
+    // セッションIDがない場合のみ新規ログイン
+    let activeSessionId = sessionId;
+    if (!activeSessionId) {
+      console.log(`[Minato] No session provided, attempting login`);
+      activeSessionId = await loginToMinato(credentials.username, credentials.password);
+      if (!activeSessionId) {
+        throw new Error('Login failed');
+      }
+    } else {
+      console.log(`[Minato] Using provided session: ${activeSessionId.substring(0, 20)}...`);
     }
     
     const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
@@ -279,7 +293,7 @@ export async function checkMinatoAvailability(
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Cookie': `JSESSIONID=${sessionId}`,
+        'Cookie': `JSESSIONID=${activeSessionId}`,
         'Referer': `${baseUrl}/rsvWOpeInstMenuAction.do`,
       },
     });
@@ -401,12 +415,38 @@ export async function makeShinagawaReservation(
     
     const reserveHtml = await reserveResponse.text();
     
-    if (reserveHtml.includes('予約が完了しました') || reserveHtml.includes('予約を受け付けました')) {
-      console.log('[Shinagawa] Reservation successful');
+    // 🔍 デバッグ: レスポンスHTMLの詳細をログ出力
+    console.log('[Shinagawa] 🔍 DEBUG: Reservation response status:', reserveResponse.status);
+    console.log('[Shinagawa] 🔍 DEBUG: Response HTML length:', reserveHtml.length);
+    console.log('[Shinagawa] 🔍 DEBUG: Response HTML (first 3000 chars):', reserveHtml.substring(0, 3000));
+    
+    // キーワード検索
+    const keywords = ['予約', '完了', '受付', '成功', '失敗', 'エラー', '満室', '空き', '予約済'];
+    console.log('[Shinagawa] 🔍 DEBUG: Keyword search results:');
+    keywords.forEach(keyword => {
+      const index = reserveHtml.indexOf(keyword);
+      if (index !== -1) {
+        // キーワードの前後50文字を表示
+        const start = Math.max(0, index - 50);
+        const end = Math.min(reserveHtml.length, index + keyword.length + 50);
+        const context = reserveHtml.substring(start, end).replace(/\s+/g, ' ');
+        console.log(`  - "${keyword}" found at ${index}: ...${context}...`);
+      }
+    });
+    
+    // 現在の成功判定
+    const hasCompletedMessage = reserveHtml.includes('予約が完了しました');
+    const hasAcceptedMessage = reserveHtml.includes('予約を受け付けました');
+    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約が完了しました:', hasCompletedMessage);
+    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約を受け付けました:', hasAcceptedMessage);
+    
+    if (hasCompletedMessage || hasAcceptedMessage) {
+      console.log('[Shinagawa] ✅ Reservation successful');
       return { success: true, message: '予約に成功しました' };
     } else {
-      console.error('[Shinagawa] Reservation failed');
-      return { success: false, message: '予約に失敗しました' };
+      console.error('[Shinagawa] ❌ Reservation failed - success keywords not found');
+      console.error('[Shinagawa] 💡 HINT: Check the DEBUG logs above to find the actual success message');
+      return { success: false, message: '予約に失敗しました（成功メッセージが見つかりませんでした）' };
     }
     
   } catch (error: any) {
@@ -1192,14 +1232,58 @@ export async function makeMinatoReservation(
 
     const completeHtml = await completeResponse.text();
 
-    if (completeHtml.includes('予約が完了しました') || completeHtml.includes('予約受付番号')) {
+    // 🔍 デバッグ: レスポンスHTMLの詳細をログ出力
+    console.log('[Minato] 🔍 DEBUG: Reservation response status:', completeResponse.status);
+    console.log('[Minato] 🔍 DEBUG: Response HTML length:', completeHtml.length);
+    console.log('[Minato] 🔍 DEBUG: Response HTML (first 3000 chars):', completeHtml.substring(0, 3000));
+    
+    // キーワード検索
+    const keywords = ['予約', '完了', '受付', '番号', '成功', '失敗', 'エラー', '満室', '空き', '予約済'];
+    console.log('[Minato] 🔍 DEBUG: Keyword search results:');
+    keywords.forEach(keyword => {
+      const index = completeHtml.indexOf(keyword);
+      if (index !== -1) {
+        // キーワードの前後50文字を表示
+        const start = Math.max(0, index - 50);
+        const end = Math.min(completeHtml.length, index + keyword.length + 50);
+        const context = completeHtml.substring(start, end).replace(/\s+/g, ' ');
+        console.log(`  - "${keyword}" found at ${index}: ...${context}...`);
+      }
+    });
+    
+    // 受付番号の検索パターンをテスト
+    const idPatterns = [
+      { name: '予約受付番号', regex: /予約受付番号[：:]\s*([0-9]+)/ },
+      { name: '受付番号', regex: /受付番号[：:]\s*([0-9]+)/ },
+      { name: '予約番号', regex: /予約番号[：:]\s*([0-9]+)/ },
+      { name: '番号（任意）', regex: /番号[：:]\s*([A-Z0-9-]+)/ },
+    ];
+    console.log('[Minato] 🔍 DEBUG: Reservation ID pattern search:');
+    idPatterns.forEach(pattern => {
+      const match = completeHtml.match(pattern.regex);
+      if (match) {
+        console.log(`  - ${pattern.name}: MATCHED - "${match[0]}" (ID: ${match[1]})`);
+      } else {
+        console.log(`  - ${pattern.name}: NOT MATCHED`);
+      }
+    });
+    
+    // 現在の成功判定
+    const hasCompletedMessage = completeHtml.includes('予約が完了しました');
+    const hasReservationId = completeHtml.includes('予約受付番号');
+    console.log('[Minato] 🔍 DEBUG: Success check - 予約が完了しました:', hasCompletedMessage);
+    console.log('[Minato] 🔍 DEBUG: Success check - 予約受付番号:', hasReservationId);
+
+    if (hasCompletedMessage || hasReservationId) {
       const reservationIdMatch = completeHtml.match(/予約受付番号[：:]\s*([0-9]+)/);
       const reservationId = reservationIdMatch ? reservationIdMatch[1] : `MINATO_${Date.now()}`;
 
-      console.log(`[Minato] Reservation successful: ${reservationId}`);
+      console.log(`[Minato] ✅ Reservation successful: ${reservationId}`);
       return { success: true, reservationId };
     } else {
-      return { success: false, error: 'Reservation failed at completion step' };
+      console.error('[Minato] ❌ Reservation failed - success keywords not found');
+      console.error('[Minato] 💡 HINT: Check the DEBUG logs above to find the actual success message');
+      return { success: false, error: 'Reservation failed at completion step (success keywords not found)' };
     }
 
   } catch (error: any) {

@@ -150,6 +150,7 @@ export interface Env {
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
   VAPID_SUBJECT: string;
+  VERSION?: string;
 }
 
 export interface User {
@@ -158,6 +159,7 @@ export interface User {
   password: string;
   role: 'user' | 'admin';
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface MonitoringTarget {
@@ -175,7 +177,7 @@ export interface MonitoringTarget {
   selectedWeekdays?: number[]; // 監視する曜日（0=日, 1=月, ..., 6=土）デフォルトは全曜日
   priority?: number; // 優先度（1-5、5が最優先）デフォルトは3
   includeHolidays?: boolean | 'only'; // 祝日の扱い: true=含める, false=除外, 'only'=祝日のみ
-  status: 'active' | 'pending' | 'completed' | 'failed';
+  status: 'active' | 'pending' | 'completed' | 'failed' | 'detected' | 'paused';
   autoReserve: boolean;
   reservationStrategy?: 'all' | 'priority_first'; // 予約戦略: 'all'=全取得, 'priority_first'=優先度1枚のみ（デフォルトは'all'）
   lastCheck?: number;
@@ -186,6 +188,10 @@ export interface MonitoringTarget {
   intensiveMonitoringDate?: string; // 集中監視対象の日付
   intensiveMonitoringTimeSlot?: string; // 集中監視対象の時間帯
   createdAt: number;
+  updatedAt?: number;
+  detectedAt?: number; // 空き枠検知時刻
+  failedAt?: number; // 予約失敗時刻
+  failureReason?: string; // 予約失敗理由
 }
 
 // ===== バッチ化されたデータ構造（KV最適化） =====
@@ -200,6 +206,9 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+// Cloudflare Workers制限
+const SUBREQUEST_LIMIT = 1000; // 有料プラン: 1,000リクエスト/実行
 
 // ===== バッチ化ヘルパー関数（KV最適化） =====
 
@@ -847,13 +856,28 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
       return existingSlots.some(slot => newSlots.includes(slot));
     };
 
+    const hasWeekdayOverlap = (existingWeekdays: number[] | undefined, newWeekdays: number[] | undefined): boolean => {
+      // 両方とも未設定（undefined）の場合は重複とみなす
+      if (existingWeekdays === undefined && newWeekdays === undefined) return true;
+      
+      // 片方だけ未定義の場合は重複とみなす（全曜日設定 vs 曜日指定）
+      if (existingWeekdays === undefined || newWeekdays === undefined) return true;
+      
+      // 空配列チェック：空配列は「曜日未選択」を意味するので重複しない
+      if (existingWeekdays.length === 0 || newWeekdays.length === 0) return false;
+      
+      // 両方に値がある場合：共通の曜日があるかチェック
+      return existingWeekdays.some(day => newWeekdays.includes(day));
+    };
+
     // 重複チェック実行
     const isDuplicate = state.targets.some(existing => 
       existing.facilityId === body.facilityId &&
       existing.site === body.site &&
       existing.status === 'active' && // activeな監視のみチェック
       isDuplicateDate(existing, { date: targetDate, startDate, endDate }) &&
-      hasTimeSlotOverlap(existing.timeSlots || [existing.timeSlot], timeSlots)
+      hasTimeSlotOverlap(existing.timeSlots || [existing.timeSlot], timeSlots) &&
+      hasWeekdayOverlap(existing.selectedWeekdays, body.selectedWeekdays) // 曜日重複チェック追加
     );
 
     if (isDuplicate) {
@@ -976,7 +1000,7 @@ async function handleMonitoringCreateBatch(request: Request, env: Env): Promise<
       const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
 
       // 予約可能期間を取得
-      const periodInfo = await getOrDetectReservationPeriod(site, sessionId, env.MONITORING);
+      const periodInfo = await getOrDetectReservationPeriod(site as 'shinagawa' | 'minato', sessionId, env.MONITORING);
       periodCache.set(site, periodInfo);
       console.log(`[MonitoringCreateBatch] ${site} の予約可能期間: ${periodInfo.maxDaysAhead}日 (source: ${periodInfo.source})`);
     }
@@ -1056,12 +1080,27 @@ async function handleMonitoringCreateBatch(request: Request, env: Env): Promise<
           return existingSlots.some(slot => newSlots.includes(slot));
         };
 
+        const hasWeekdayOverlap = (existingWeekdays: number[] | undefined, newWeekdays: number[] | undefined): boolean => {
+          // 両方とも未設定（undefined）の場合は重複とみなす
+          if (existingWeekdays === undefined && newWeekdays === undefined) return true;
+          
+          // 片方だけ未定義の場合は重複とみなす（全曜日設定 vs 曜日指定）
+          if (existingWeekdays === undefined || newWeekdays === undefined) return true;
+          
+          // 空配列チェック：空配列は「曜日未選択」を意味するので重複しない
+          if (existingWeekdays.length === 0 || newWeekdays.length === 0) return false;
+          
+          // 両方に値がある場合：共通の曜日があるかチェック
+          return existingWeekdays.some(day => newWeekdays.includes(day));
+        };
+
         const isDuplicate = state.targets.some(existing =>
           existing.facilityId === targetData.facilityId &&
           existing.site === targetData.site &&
           existing.status === 'active' &&
           isDuplicateDate(existing, { date: targetDate, startDate, endDate }) &&
-          hasTimeSlotOverlap(existing.timeSlots || [existing.timeSlot], timeSlots)
+          hasTimeSlotOverlap(existing.timeSlots || [existing.timeSlot], timeSlots) &&
+          hasWeekdayOverlap(existing.selectedWeekdays, targetData.selectedWeekdays) // 曜日重複チェック追加
         );
 
         if (isDuplicate) {
@@ -1237,8 +1276,8 @@ async function handleMonitoringUpdate(request: Request, env: Env, path: string):
 
     let hasChanges = false;
     for (const key of allowedUpdates) {
-      if (body[key] !== undefined) {
-        (target as any)[key] = body[key];
+      if (body && typeof body === 'object' && key in body) {
+        (target as any)[key] = (body as any)[key];
         hasChanges = true;
       }
     }
@@ -1589,7 +1628,7 @@ async function handleGetMinatoFacilities(request: Request, env: Env): Promise<Re
     }
 
     console.log('[Facilities] Fetching facilities with sessionId...');
-    const facilities = await getMinatoFacilities(sessionId, env.MONITORING, userId);
+    const facilities = await getMinatoFacilities(sessionId || '', env.MONITORING, userId);
     console.log('[Facilities] Facilities count:', facilities.length);
 
     return jsonResponse({ success: true, data: facilities });
@@ -1798,6 +1837,54 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       password: decryptedPassword,
     };
 
+    // 🔑 セッションIDを取得または新規ログイン
+    let sessionId: string | null = null;
+    
+    // 1. KVからセッションIDを取得
+    const sessionKey = `session:${target.userId}:${target.site}`;
+    kvMetrics.reads++;
+    const sessionData = await env.SESSIONS.get(sessionKey);
+    
+    if (sessionData) {
+      const parsedSession = JSON.parse(sessionData);
+      sessionId = parsedSession.sessionId;
+      if (sessionId) {
+        console.log(`[Check] セッションID取得: ${sessionId.substring(0, 20)}... (from KV)`);
+      }
+    } else {
+      // 2. セッションがない場合は新規ログイン
+      console.log(`[Check] セッションなし、新規ログイン実行 (${target.site})`);
+      if (target.site === 'shinagawa') {
+        sessionId = await loginToShinagawa(credentials.username, credentials.password);
+      } else {
+        sessionId = await loginToMinato(credentials.username, credentials.password);
+      }
+      
+      // 3. 取得したセッションIDをKVに保存（24時間有効）
+      if (sessionId) {
+        const newSessionData = {
+          sessionId,
+          site: target.site,
+          loginTime: Date.now(),
+          lastUsed: Date.now(),
+          isValid: true,
+          userId: target.userId,
+        };
+        kvMetrics.writes++;
+        await env.SESSIONS.put(sessionKey, JSON.stringify(newSessionData), {
+          expirationTtl: 86400, // 24時間
+        });
+        console.log(`[Check] セッションID保存: ${sessionId.substring(0, 20)}... (saved to KV)`);
+      } else {
+        console.error(`[Check] ログイン失敗 (${target.site})`);
+        await sendPushNotification(target.userId, {
+          title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
+          body: 'ID・パスワードを確認してください',
+        }, env);
+        return;
+      }
+    }
+
     // 年ごとの祝日キャッシュを準備
     const holidaysCacheByYear = new Map<number, HolidayInfo[]>();
     const getHolidaysForDate = (dateStr: string): HolidayInfo[] => {
@@ -1945,7 +2032,7 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // 空き枠を収集（priority_firstの場合に使用）
     const availableSlots: Array<{date: string; timeSlot: string}> = [];
 
-    // 🔥 集中監視モード: 10分単位の前後15秒を1秒間隔でチェック
+    // 🔥 集中監視モード: 10分単位から15秒間を1秒間隔でチェック
     const now = Date.now();
     const isIntensiveMode = target.detectedStatus === '取' && target.nextIntensiveCheckTime;
     
@@ -1953,9 +2040,9 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       const nextCheckTime = new Date(target.nextIntensiveCheckTime);
       const jstNextCheck = new Date(target.nextIntensiveCheckTime + 9 * 60 * 60 * 1000);
       
-      // 次の監視時刻の前後15秒以内かチェック
+      // 次の監視時刻（17:40:00）に到達したかチェック（0秒～+15秒）
       const timeDiff = now - target.nextIntensiveCheckTime;
-      const isInCheckWindow = timeDiff >= -15000 && timeDiff <= 15000; // -15秒～+15秒
+      const isInCheckWindow = timeDiff >= 0 && timeDiff <= 15000; // 0秒～+15秒
       
       if (!isInCheckWindow) {
         console.log(`[IntensiveCheck] ⏳ 次の監視時刻待機中: ${jstNextCheck.toLocaleTimeString('ja-JP')}`);
@@ -1970,8 +2057,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       console.log(`[IntensiveCheck] 対象: ${targetDate} ${targetTimeSlot}`);
       console.log(`[IntensiveCheck] 監視時刻: ${jstNextCheck.toLocaleTimeString('ja-JP')}`);
       
-      // 30秒間、1秒間隔でチェック（前後15秒）
-      const INTENSIVE_CHECKS = 30;
+      // 15秒間、1秒間隔でチェック（17:40:00から15秒間）
+      const INTENSIVE_CHECKS = 15;
       const INTENSIVE_INTERVAL = 1000; // 1秒
       
       for (let checkCount = 0; checkCount < INTENSIVE_CHECKS; checkCount++) {
@@ -1987,7 +2074,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
               targetDate,
               targetTimeSlot,
               credentials,
-              existingReservations
+              existingReservations,
+              sessionId  // セッションIDを渡す
             );
           } else {
             result = await checkMinatoAvailability(
@@ -1995,7 +2083,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
               targetDate,
               targetTimeSlot,
               credentials,
-              existingReservations
+              existingReservations,
+              sessionId  // セッションIDを渡す
             );
           }
           
@@ -2052,10 +2141,10 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         }
       }
       
-      console.log(`[IntensiveCheck] ${INTENSIVE_CHECKS}回チェック完了。まだ「取」のまま。`);
+      console.log(`[IntensiveCheck] ${INTENSIVE_CHECKS}回チェック完了（15秒間）。まだ「取」のまま。`);
       
       // 次の10分単位を計算
-      const nextCheckTime2 = new Date(target.nextIntensiveCheckTime + 10 * 60 * 1000);
+      const nextCheckTime2 = new Date((target.nextIntensiveCheckTime || 0) + 10 * 60 * 1000);
       const jstNextCheck2 = new Date(nextCheckTime2.getTime() + 9 * 60 * 60 * 1000);
       
       // 予約日時を過ぎていたら集中監視終了
@@ -2093,7 +2182,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
                 date,
                 timeSlot,
                 credentials,
-                existingReservations
+                existingReservations,
+                sessionId  // セッションIDを渡す
               );
             } else {
               result = await checkMinatoAvailability(
@@ -2101,7 +2191,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
                 date,
                 timeSlot,
                 credentials,
-                existingReservations
+                existingReservations,
+                sessionId  // セッションIDを渡す
               );
             }
           } catch (error: any) {
@@ -2315,11 +2406,25 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
       return;
     }
     
-    // セッションIDを取得（優先順位1: 保存されたセッションID、優先順位2: ID/パスワードでログイン）
-    let sessionId = siteSettings.sessionId;
+    // 🔑 セッションIDを取得（KVから再利用または新規ログイン）
+    let sessionId: string | null = null;
     
+    // 1. KVからセッションIDを取得
+    const sessionKey = `session:${target.userId}:${target.site}`;
+    kvMetrics.reads++;
+    const sessionData = await env.SESSIONS.get(sessionKey);
+    
+    if (sessionData) {
+      const parsedSession = JSON.parse(sessionData);
+      sessionId = parsedSession.sessionId;
+      if (sessionId) {
+        console.log(`[Reserve] セッションID取得: ${sessionId.substring(0, 20)}... (from KV)`);
+      }
+    }
+    
+    // 2. セッションがない場合は新規ログイン
     if (!sessionId && siteSettings.username && siteSettings.password) {
-      console.log(`[Reserve] No sessionId, attempting login for ${target.site}`);
+      console.log(`[Reserve] セッションなし、新規ログイン実行 (${target.site})`);
       
       // パスワードを復号化
       let decryptedPassword = siteSettings.password;
@@ -2339,11 +2444,26 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
         sessionId = await loginToMinato(siteSettings.username, decryptedPassword);
       }
       
-      if (!sessionId) {
-        console.error(`[Reserve] Failed to login for ${target.site}`);
+      // 3. 取得したセッションIDをKVに保存（24時間有効）
+      if (sessionId) {
+        const newSessionData = {
+          sessionId,
+          site: target.site,
+          loginTime: Date.now(),
+          lastUsed: Date.now(),
+          isValid: true,
+          userId: target.userId,
+        };
+        kvMetrics.writes++;
+        await env.SESSIONS.put(sessionKey, JSON.stringify(newSessionData), {
+          expirationTtl: 86400, // 24時間
+        });
+        console.log(`[Reserve] セッションID保存: ${sessionId.substring(0, 20)}... (saved to KV)`);
+      } else {
+        console.error(`[Reserve] ログイン失敗 (${target.site})`);
         await sendPushNotification(target.userId, {
           title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
-          body: 'ID・パスワードまたはセッションIDを確認してください',
+          body: 'ID・パスワードを確認してください',
         }, env);
         return;
       }

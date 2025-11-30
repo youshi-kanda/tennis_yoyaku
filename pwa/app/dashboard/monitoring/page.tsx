@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api/client';
 
 // 動的レンダリングを強制
@@ -24,7 +24,7 @@ interface MonitoringTarget {
   date: string;
   timeSlots: string[];
   priority: number;
-  status: 'monitoring' | 'detected' | 'reserved' | 'failed';
+  status: 'active' | 'paused' | 'monitoring' | 'detected' | 'reserved' | 'failed';
   createdAt: number;
   updatedAt: number;
   startDate?: string;
@@ -42,6 +42,9 @@ export default function MonitoringPage() {
   // ウィザードステップ管理
   const [currentStep, setCurrentStep] = useState(1); // 1: 施設選択, 2: 日時設定, 3: 詳細設定
   const [showWizard, setShowWizard] = useState(false); // ウィザード表示フラグ
+  
+  // グループ展開状態の管理
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // 時間帯の定義
   const TIME_SLOTS = [
@@ -109,6 +112,7 @@ export default function MonitoringPage() {
     loadStatus();
     loadFacilities();
     loadReservationPeriods();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadReservationPeriods = async () => {
@@ -244,6 +248,9 @@ export default function MonitoringPage() {
     });
   };
 
+  // 元の施設データを保持（facilityId → facilityName のマッピング）
+  const [facilityNameMap, setFacilityNameMap] = useState<Map<string, string>>(new Map());
+
   const loadFacilities = async () => {
     try {
       const [shinagawaRes, minatoRes] = await Promise.all([
@@ -251,8 +258,19 @@ export default function MonitoringPage() {
         apiClient.getMinatoFacilities(),
       ]);
 
+      const nameMap = new Map<string, string>();
+
       if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
         console.log('品川区APIレスポンス:', shinagawaRes.data);
+        // 元の施設名をマップに保存
+        shinagawaRes.data.forEach((f: { facilityId?: string; id?: string; facilityName?: string; name?: string }) => {
+          const id = f.facilityId || f.id || '';
+          const name = f.facilityName || f.name || '';
+          if (id && name) {
+            nameMap.set(id, name);
+          }
+        });
+        
         const transformedData = shinagawaRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
           name: f.facilityName || f.name || '',
@@ -265,6 +283,15 @@ export default function MonitoringPage() {
       }
       if (minatoRes.success && minatoRes.data?.length > 0) {
         console.log('港区APIレスポンス:', minatoRes.data);
+        // 元の施設名をマップに保存
+        minatoRes.data.forEach((f: { facilityId?: string; id?: string; facilityName?: string; name?: string }) => {
+          const id = f.facilityId || f.id || '';
+          const name = f.facilityName || f.name || '';
+          if (id && name) {
+            nameMap.set(id, name);
+          }
+        });
+        
         const transformedData = minatoRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
           name: f.facilityName || f.name || '',
@@ -275,6 +302,8 @@ export default function MonitoringPage() {
         console.log('グループ化後:', groupedData);
         setFacilities(prev => ({ ...prev, minato: groupedData }));
       }
+
+      setFacilityNameMap(nameMap);
     } catch (err) {
       console.error('Failed to load facilities:', err);
     }
@@ -335,6 +364,20 @@ export default function MonitoringPage() {
     return existing.some(slot => newSlots.includes(slot));
   };
 
+  const hasWeekdayOverlap = (existingWeekdays: number[] | undefined, newWeekdays: number[] | undefined): boolean => {
+    // 両方とも未設定（undefined）の場合は重複とみなす
+    if (existingWeekdays === undefined && newWeekdays === undefined) return true;
+    
+    // 片方だけ未定義の場合は重複とみなす（全曜日設定 vs 曜日指定）
+    if (existingWeekdays === undefined || newWeekdays === undefined) return true;
+    
+    // 空配列チェック：空配列は「曜日未選択」を意味するので重複しない
+    if (existingWeekdays.length === 0 || newWeekdays.length === 0) return false;
+    
+    // 両方に値がある場合：共通の曜日があるかチェック
+    return existingWeekdays.some(day => newWeekdays.includes(day));
+  };
+
   const checkDuplicates = (
     selectedFacilities: Array<{id: string; name: string; site: string}>,
     existingTargets: MonitoringTarget[]
@@ -373,7 +416,8 @@ export default function MonitoringPage() {
             existing.facilityId === facility.id &&
             existing.site === facility.site &&
             isDateOverlap(existing, date) &&
-            hasOverlappingTimeSlots(existing.timeSlots || [], [timeSlot])
+            hasOverlappingTimeSlots(existing.timeSlots || [], [timeSlot]) &&
+            hasWeekdayOverlap(existing.selectedWeekdays, config.selectedWeekdays) // 曜日重複チェック追加
           );
 
           if (isDuplicate) {
@@ -381,7 +425,8 @@ export default function MonitoringPage() {
               e.facilityId === facility.id && 
               e.site === facility.site &&
               isDateOverlap(e, date) &&
-              hasOverlappingTimeSlots(e.timeSlots || [], [timeSlot])
+              hasOverlappingTimeSlots(e.timeSlots || [], [timeSlot]) &&
+              hasWeekdayOverlap(e.selectedWeekdays, config.selectedWeekdays) // 曜日重複チェック追加
             );
             
             duplicates.push({
@@ -499,7 +544,7 @@ export default function MonitoringPage() {
       
       // 成功・スキップ・失敗をカウント
       const successCount = result.data?.created || 0;
-      const skippedCount = result.data?.errors?.filter((e: any) => e.error.includes('duplicate')).length || 0;
+      const skippedCount = result.data?.errors?.filter((e: { error: string }) => e.error.includes('duplicate')).length || 0;
       const totalFacilities = config.selectedFacilities.length;
 
       // ステータス更新
@@ -523,9 +568,12 @@ export default function MonitoringPage() {
       // 監視リストを再ロード
       await loadStatus();
       
-      // フォームをリセット
+      // フォームを完全リセット（初期状態に戻す）
       setConfig({
-        ...config,
+        sites: {
+          shinagawa: true,
+          minato: false,
+        },
         selectedFacilities: [],
         dateMode: 'range',
         startDate: (() => {
@@ -538,6 +586,9 @@ export default function MonitoringPage() {
           weekLater.setDate(weekLater.getDate() + 8);
           return weekLater.toISOString().split('T')[0];
         })(),
+        selectedWeekdays: [0, 1, 2, 3, 4, 5, 6],
+        includeHolidays: true,
+        timeSlots: [], // 🔥 時間帯を空に初期化
       });
       
       // ウィザードを閉じる
@@ -616,6 +667,28 @@ export default function MonitoringPage() {
 
   // ウィザードナビゲーション関数
   const handleStartWizard = () => {
+    // フォームを完全リセット（初期状態に戻す）
+    setConfig({
+      sites: {
+        shinagawa: true,
+        minato: false,
+      },
+      selectedFacilities: [],
+      dateMode: 'range',
+      startDate: (() => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow.toISOString().split('T')[0];
+      })(),
+      endDate: (() => {
+        const weekLater = new Date();
+        weekLater.setDate(weekLater.getDate() + 8);
+        return weekLater.toISOString().split('T')[0];
+      })(),
+      selectedWeekdays: [0, 1, 2, 3, 4, 5, 6],
+      includeHolidays: true,
+      timeSlots: [], // 🔥 時間帯を空に初期化
+    });
     setShowWizard(true);
     setCurrentStep(1);
     setError(null);
@@ -715,90 +788,376 @@ export default function MonitoringPage() {
             </p>
           </div>
 
-          <button
-            onClick={handleStop}
-            disabled={isLoading}
-            className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? '停止中...' : 'すべての監視を停止'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleStop}
+              disabled={isLoading}
+              className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? '停止中...' : 'すべての監視を停止'}
+            </button>
+          </div>
         </div>
       ) : null}
 
-      {/* 監視中のターゲット一覧 */}
-      {monitoringTargets.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">監視中の設定（{monitoringTargets.length}件）</h3>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {monitoringTargets.map((target) => (
-              <div key={target.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        target.site === 'shinagawa' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {target.site === 'shinagawa' ? '品川区' : '港区'}
-                      </span>
-                      <span className="font-semibold text-gray-900">{target.facilityName}</span>
-                      {target.priority && (
-                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
-                          優先度: {target.priority}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <div>
-                        📅 {target.startDate && target.endDate 
-                          ? `${target.startDate} 〜 ${target.endDate}` 
-                          : target.date || '継続監視'}
+      {/* 監視中のターゲット一覧（グループ化表示） */}
+      {monitoringTargets.length > 0 && (() => {
+        // 🔥 設定グループ化ロジック
+        // 同じ条件（曜日・時間帯・祝日設定）でグループ化
+        const groupedSettings = new Map<string, {
+          targets: MonitoringTarget[];
+          timeSlots: string[];
+          selectedWeekdays: number[];
+          includeHolidays: boolean | 'only';
+          sites: Set<'shinagawa' | 'minato'>;
+        }>();
+
+        monitoringTargets.forEach(target => {
+          // グループキーを生成（曜日・時間帯・祝日設定で一意に識別）
+          const weekdays = target.selectedWeekdays?.sort().join(',') || 'all';
+          const timeSlots = target.timeSlots?.sort().join(',') || 'all';
+          const holidays = String(target.includeHolidays ?? 'true');
+          const groupKey = `${weekdays}|${timeSlots}|${holidays}`;
+
+          const existing = groupedSettings.get(groupKey);
+          if (existing) {
+            existing.targets.push(target);
+            existing.sites.add(target.site);
+          } else {
+            groupedSettings.set(groupKey, {
+              targets: [target],
+              timeSlots: target.timeSlots || [],
+              selectedWeekdays: target.selectedWeekdays || [0,1,2,3,4,5,6],
+              includeHolidays: target.includeHolidays ?? true,
+              sites: new Set([target.site]),
+            });
+          }
+        });
+        
+        const toggleGroup = (key: string) => {
+          setExpandedGroups(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(key)) {
+              newSet.delete(key);
+            } else {
+              newSet.add(key);
+            }
+            return newSet;
+          });
+        };
+
+        return (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">監視中の設定（{groupedSettings.size}グループ・{monitoringTargets.length}施設）</h3>
+              <button
+                onClick={async () => {
+                  if (confirm(`全${monitoringTargets.length}件の監視設定を削除しますか？\n\nこの操作は取り消せません。`)) {
+                    try {
+                      setIsLoading(true);
+                      const deletePromises = monitoringTargets.map((target) => 
+                        apiClient.deleteMonitoring(target.id)
+                      );
+                      await Promise.all(deletePromises);
+                      await loadStatus();
+                      alert('全ての監視設定を削除しました');
+                    } catch (err) {
+                      console.error('Batch delete error:', err);
+                      setError('一括削除に失敗しました');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }
+                }}
+                disabled={isLoading}
+                className="px-4 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? '削除中...' : '全て削除'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from(groupedSettings.entries()).map(([groupKey, group]) => {
+                const isExpanded = expandedGroups.has(groupKey);
+                
+                // グループのタイトル生成
+                let title = '';
+                const weekdayLabels = group.selectedWeekdays.map(d => ['日','月','火','水','木','金','土'][d]);
+                
+                if (group.selectedWeekdays.length === 7) {
+                  title = '毎日';
+                } else if (group.selectedWeekdays.length === 5 && 
+                           JSON.stringify(group.selectedWeekdays) === JSON.stringify([1,2,3,4,5])) {
+                  title = '平日';
+                } else if (group.selectedWeekdays.length === 2 && 
+                           JSON.stringify(group.selectedWeekdays) === JSON.stringify([0,6])) {
+                  title = '週末';
+                } else {
+                  title = weekdayLabels.join('・');
+                }
+
+                if (group.includeHolidays === 'only') {
+                  title = '祝日のみ';
+                } else if (group.includeHolidays === false && title === '平日') {
+                  title = '平日（祝日除外）';
+                } else if (group.includeHolidays === true && title === '週末') {
+                  title = '週末・祝日';
+                }
+
+                return (
+                  <div key={groupKey} className="bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:border-emerald-400 transition-all duration-200">
+                    {/* カードヘッダー */}
+                    <div className="bg-linear-to-r from-emerald-50 to-teal-50 p-4 rounded-t-xl border-b border-gray-200">
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="text-xl font-bold text-gray-900">{title}</h3>
+                        <div className="flex items-center gap-1">
+                          {Array.from(group.sites).map(site => (
+                            <span
+                              key={site}
+                              className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
+                              }`}
+                            >
+                              {site === 'shinagawa' ? '品川' : '港区'}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      {target.timeSlots && target.timeSlots.length > 0 && (
-                        <div>
-                          🕐 {target.timeSlots.length === 6 ? '全時間帯' : `${target.timeSlots.length}時間帯`}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-white border border-gray-300 rounded-full text-sm font-semibold text-gray-700">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                          </svg>
+                          {group.targets.length}施設
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* カード本文 */}
+                    <div className="p-4">
+                      <div className="space-y-3 mb-4">
+                        {/* 時間帯 */}
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-500 text-sm shrink-0">🕐</span>
+                          <div className="flex-1">
+                            <div className="text-xs text-gray-600 mb-1">時間帯</div>
+                            <div className="flex flex-wrap gap-1">
+                              {group.timeSlots.length === 6 ? (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                  全時間帯 (9:00-21:00)
+                                </span>
+                              ) : (
+                                group.timeSlots.map((slot, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium border border-blue-200"
+                                  >
+                                    {slot}
+                                  </span>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 曜日 */}
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-500 text-sm shrink-0">📆</span>
+                          <div className="flex-1">
+                            <div className="text-xs text-gray-600 mb-1">曜日</div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {group.selectedWeekdays.length === 7 ? '毎日' : weekdayLabels.join('・')}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 祝日 */}
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-500 text-sm shrink-0">🎌</span>
+                          <div className="flex-1">
+                            <div className="text-xs text-gray-600 mb-1">祝日</div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {group.includeHolidays === 'only' ? '祝日のみ監視' :
+                               group.includeHolidays === true ? '祝日を含む' : '祝日を除外'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 期間 */}
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-500 text-sm shrink-0">📅</span>
+                          <div className="flex-1">
+                            <div className="text-xs text-gray-600 mb-1">監視期間</div>
+                            <div className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-xs font-semibold">
+                              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                              継続監視中
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 展開ボタン */}
+                      <button
+                        onClick={() => toggleGroup(groupKey)}
+                        className="w-full px-3 py-2 mb-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition font-medium flex items-center justify-center gap-2"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                            施設一覧を閉じる
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            施設一覧を表示 ({group.targets.length}件)
+                          </>
+                        )}
+                      </button>
+
+                      {/* 展開時の施設一覧 */}
+                      {isExpanded && (
+                        <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <h4 className="text-xs font-semibold text-gray-700 mb-2">監視中の施設</h4>
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {group.targets.map(target => (
+                              <div key={target.id} className="flex items-center justify-between p-2 bg-white rounded text-xs hover:bg-gray-100 transition border border-gray-200">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <span className={`px-1.5 py-0.5 rounded text-xs font-bold shrink-0 ${
+                                    target.site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
+                                  }`}>
+                                    {target.site === 'shinagawa' ? '品' : '港'}
+                                  </span>
+                                  <span className="text-gray-900 truncate font-medium">{target.facilityName}</span>
+                                </div>
+                                <button
+                                  onClick={async () => {
+                                    if (confirm(`${target.facilityName}の監視を削除しますか？`)) {
+                                      try {
+                                        setIsLoading(true);
+                                        await apiClient.deleteMonitoring(target.id);
+                                        await loadStatus();
+                                        alert('監視を削除しました');
+                                      } catch (err) {
+                                        console.error('Delete monitoring error:', err);
+                                        setError('監視の削除に失敗しました');
+                                      } finally {
+                                        setIsLoading(false);
+                                      }
+                                    }
+                                  }}
+                                  disabled={isLoading}
+                                  className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition disabled:opacity-50 shrink-0 ml-2 font-medium"
+                                >
+                                  削除
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
-                      {target.selectedWeekdays && target.selectedWeekdays.length > 0 && (
-                        <div>
-                          📆 {target.selectedWeekdays.length === 7 ? '毎日' : 
-                            target.selectedWeekdays.map((d: number) => ['日','月','火','水','木','金','土'][d]).join(', ')}
-                        </div>
-                      )}
-                      {target.includeHolidays !== undefined && (
-                        <div>
-                          🎌 {target.includeHolidays === 'only' ? '祝日のみ' : 
-                              target.includeHolidays === true ? '祝日を含む' : '祝日を除外'}
-                        </div>
-                      )}
+
+                      {/* アクションボタン */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* 全件停止/再開ボタン */}
+                        {group.targets.every(t => t.status === 'paused' || t.status === 'failed') ? (
+                          <button
+                            onClick={async () => {
+                              if (confirm(`このグループの全${group.targets.length}施設の監視を再開しますか？\n\n対象:\n${group.targets.slice(0, 5).map(t => `・${t.facilityName}`).join('\n')}${group.targets.length > 5 ? `\n...他${group.targets.length - 5}施設` : ''}`)) {
+                                try {
+                                  setIsLoading(true);
+                                  const resumePromises = group.targets.map((target) => 
+                                    apiClient.updateMonitoring(target.id, { status: 'active' as const })
+                                  );
+                                  await Promise.all(resumePromises);
+                                  await loadStatus();
+                                  alert(`${group.targets.length}施設の監視を再開しました`);
+                                } catch (err) {
+                                  console.error('Group resume error:', err);
+                                  setError('グループ再開に失敗しました');
+                                } finally {
+                                  setIsLoading(false);
+                                }
+                              }
+                            }}
+                            disabled={isLoading}
+                            className="px-3 py-2 text-sm bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            全件再開
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              if (confirm(`このグループの全${group.targets.length}施設の監視を停止しますか？\n\n対象:\n${group.targets.slice(0, 5).map(t => `・${t.facilityName}`).join('\n')}${group.targets.length > 5 ? `\n...他${group.targets.length - 5}施設` : ''}\n\n※停止中は空き枠の監視・予約が行われません。`)) {
+                                try {
+                                  setIsLoading(true);
+                                  const pausePromises = group.targets.map((target) => 
+                                    apiClient.updateMonitoring(target.id, { status: 'paused' as const })
+                                  );
+                                  await Promise.all(pausePromises);
+                                  await loadStatus();
+                                  alert(`${group.targets.length}施設の監視を停止しました`);
+                                } catch (err) {
+                                  console.error('Group pause error:', err);
+                                  setError('グループ停止に失敗しました');
+                                } finally {
+                                  setIsLoading(false);
+                                }
+                              }
+                            }}
+                            disabled={isLoading}
+                            className="px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            全件停止
+                          </button>
+                        )}
+
+                        {/* 全件削除ボタン */}
+                        <button
+                          onClick={async () => {
+                            if (confirm(`このグループの全${group.targets.length}施設の監視を削除しますか？\n\n対象:\n${group.targets.slice(0, 5).map(t => `・${t.facilityName}`).join('\n')}${group.targets.length > 5 ? `\n...他${group.targets.length - 5}施設` : ''}\n\n⚠️ この操作は取り消せません。`)) {
+                              try {
+                                setIsLoading(true);
+                                const deletePromises = group.targets.map((target) => 
+                                  apiClient.deleteMonitoring(target.id)
+                                );
+                                await Promise.all(deletePromises);
+                                await loadStatus();
+                                alert(`${group.targets.length}施設の監視を削除しました`);
+                              } catch (err) {
+                                console.error('Group delete error:', err);
+                                setError('グループ削除に失敗しました');
+                              } finally {
+                                setIsLoading(false);
+                              }
+                            }
+                          }}
+                          disabled={isLoading}
+                          className="px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          全件削除
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <button
-                    onClick={async () => {
-                      if (confirm(`${target.facilityName}の監視を削除しますか？`)) {
-                        try {
-                          setIsLoading(true);
-                          await apiClient.deleteMonitoring(target.id);
-                          await loadStatus();
-                          alert('監視を削除しました');
-                        } catch (err) {
-                          console.error('Delete monitoring error:', err);
-                          setError('監視の削除に失敗しました');
-                        } finally {
-                          setIsLoading(false);
-                        }
-                      }
-                    }}
-                    disabled={isLoading}
-                    className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition disabled:opacity-50"
-                  >
-                    削除
-                  </button>
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 監視追加フォーム */}
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
@@ -889,11 +1248,14 @@ export default function MonitoringPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const shinagawaFacilities = facilities.shinagawa.map(f => ({
-                              site: 'shinagawa' as const,
-                              id: f.id,
-                              name: f.name,
-                            }));
+                            // facilityIdsを使って全施設を追加
+                            const shinagawaFacilities = facilities.shinagawa.flatMap(f => 
+                              (f.facilityIds || [f.id]).map(fid => ({
+                                site: 'shinagawa' as const,
+                                id: fid,
+                                name: f.name,
+                              }))
+                            );
                             const otherFacilities = config.selectedFacilities.filter(f => f.site !== 'shinagawa');
                             setConfig({ ...config, selectedFacilities: [...otherFacilities, ...shinagawaFacilities] });
                           }}
@@ -939,7 +1301,7 @@ export default function MonitoringPage() {
                                 const newFacilities = facilityIds.map(fid => ({
                                   site: 'shinagawa' as const,
                                   id: fid,
-                                  name: facility.name,
+                                  name: facilityNameMap.get(fid) || facility.name,  // 個別の施設名を使用
                                 }));
                                 setConfig({
                                   ...config,
@@ -982,11 +1344,14 @@ export default function MonitoringPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const minatoFacilities = facilities.minato.map(f => ({
-                              site: 'minato' as const,
-                              id: f.id,
-                              name: f.name,
-                            }));
+                            // facilityIdsを使って全施設を追加
+                            const minatoFacilities = facilities.minato.flatMap(f => 
+                              (f.facilityIds || [f.id]).map(fid => ({
+                                site: 'minato' as const,
+                                id: fid,
+                                name: f.name,
+                              }))
+                            );
                             const otherFacilities = config.selectedFacilities.filter(f => f.site !== 'minato');
                             setConfig({ ...config, selectedFacilities: [...otherFacilities, ...minatoFacilities] });
                           }}
@@ -1032,7 +1397,7 @@ export default function MonitoringPage() {
                                 const newFacilities = facilityIds.map(fid => ({
                                   site: 'minato' as const,
                                   id: fid,
-                                  name: facility.name,
+                                  name: facilityNameMap.get(fid) || facility.name,  // 個別の施設名を使用
                                 }));
                                 setConfig({
                                   ...config,

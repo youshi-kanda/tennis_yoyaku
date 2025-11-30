@@ -16,6 +16,37 @@ interface Stats {
   successRate: number;
 }
 
+// facilityIdから施設名を復元する関数
+const getFacilityNameFromId = (facilityId: string, savedName: string): string => {
+  // 既に完全な施設名（コート情報含む）がある場合はそのまま返す
+  if (savedName.includes('庭球場') || savedName.includes('テニスコート')) {
+    return savedName;
+  }
+  
+  // facilityIdの末尾からコート番号を推定
+  // 品川区: 10400010 → A, 10400020 → B, 10400030 → C, 10400040 → D
+  // 港区: 1001 → A, 1002 → B, 1003 → C, 1004 → D
+  const lastTwo = facilityId.slice(-2);
+  const courtMap: { [key: string]: string } = {
+    '10': 'Ａ', '20': 'Ｂ', '30': 'Ｃ', '40': 'Ｄ', '50': 'Ｅ',
+    '01': 'Ａ', '02': 'Ｂ', '03': 'Ｃ', '04': 'Ｄ',
+  };
+  
+  const court = courtMap[lastTwo];
+  if (court) {
+    // 品川区の場合
+    if (savedName.includes('しながわ') || savedName.includes('品川') || savedName.includes('八潮') || savedName.includes('大井')) {
+      return `${savedName} 庭球場${court}`;
+    }
+    // 港区の場合
+    if (savedName.includes('麻布') || savedName.includes('青山') || savedName.includes('芝浦')) {
+      return `${savedName} テニスコート${court}`;
+    }
+  }
+  
+  return savedName;
+};
+
 export default function DashboardHome() {
   const { user } = useAuthStore();
   const router = useRouter();
@@ -262,73 +293,190 @@ export default function DashboardHome() {
           </div>
         ) : (
           <>
-            {/* 集約カード */}
-            <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200 mb-4">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">
-                    監視中の設定 ({targets.length}施設)
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    アクティブ: {targets.filter((t) => t.status === 'active').length}件 / 
-                    停止中: {targets.filter((t) => t.status === 'paused').length}件
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsDetailModalOpen(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                >
-                  詳細を見る
-                </button>
-              </div>
+            {/* グループ化カード表示 */}
+            {(() => {
+              // 設定グループ化ロジック
+              const groupedSettings = new Map<string, {
+                targets: MonitoringTarget[];
+                timeSlots: string[];
+                selectedWeekdays: number[];
+                includeHolidays: boolean | 'only';
+                sites: Set<'shinagawa' | 'minato'>;
+              }>();
 
-              {/* 施設の簡易リスト */}
-              <div className="space-y-2">
-                {targets.slice(0, 5).map((target) => (
-                  <div
-                    key={target.id}
-                    className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${
-                        target.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400'
-                      }`} />
-                      <span className="text-sm text-gray-900 truncate">
-                        {target.facilityName}
-                      </span>
-                      <span className="text-xs text-gray-500 shrink-0">
-                        ({target.site === 'shinagawa' ? '品川' : '港区'})
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                      {target.timeSlots?.slice(0, 2).map((slot, idx) => (
-                        <span
-                          key={idx}
-                          className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded"
-                        >
-                          {slot.split('-')[0]}
-                        </span>
-                      ))}
-                      {target.timeSlots && target.timeSlots.length > 2 && (
-                        <span className="text-xs text-gray-500">
-                          +{target.timeSlots.length - 2}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {targets.length > 5 && (
-                  <div className="text-center py-2">
+              targets.forEach(target => {
+                const weekdays = target.selectedWeekdays?.sort().join(',') || 'all';
+                const timeSlots = target.timeSlots?.sort().join(',') || 'all';
+                const holidays = String(target.includeHolidays ?? 'true');
+                const groupKey = `${weekdays}|${timeSlots}|${holidays}`;
+
+                const existing = groupedSettings.get(groupKey);
+                if (existing) {
+                  existing.targets.push(target);
+                  existing.sites.add(target.site);
+                } else {
+                  groupedSettings.set(groupKey, {
+                    targets: [target],
+                    timeSlots: target.timeSlots || [],
+                    selectedWeekdays: target.selectedWeekdays || [0,1,2,3,4,5,6],
+                    includeHolidays: target.includeHolidays ?? true,
+                    sites: new Set([target.site]),
+                  });
+                }
+              });
+
+              return (
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="text-sm text-gray-600">
+                      {groupedSettings.size}グループ・{targets.length}施設を監視中
+                      （アクティブ: {targets.filter((t) => t.status === 'active').length}件 / 
+                      停止中: {targets.filter((t) => t.status === 'paused').length}件）
+                    </p>
                     <button
                       onClick={() => setIsDetailModalOpen(true)}
-                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                     >
-                      他 {targets.length - 5}件を表示
+                      全て表示
                     </button>
                   </div>
-                )}
-              </div>
-            </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Array.from(groupedSettings.entries()).map(([groupKey, group]) => {
+                      // グループのタイトル生成
+                      const weekdayLabels = group.selectedWeekdays.map(d => ['日','月','火','水','木','金','土'][d]);
+                      let title = '';
+                      
+                      if (group.selectedWeekdays.length === 7) {
+                        title = '毎日';
+                      } else if (group.selectedWeekdays.length === 5 && 
+                                 JSON.stringify(group.selectedWeekdays) === JSON.stringify([1,2,3,4,5])) {
+                        title = '平日';
+                      } else if (group.selectedWeekdays.length === 2 && 
+                                 JSON.stringify(group.selectedWeekdays) === JSON.stringify([0,6])) {
+                        title = '週末';
+                      } else {
+                        title = weekdayLabels.join('・');
+                      }
+
+                      if (group.includeHolidays === 'only') {
+                        title = '祝日のみ';
+                      } else if (group.includeHolidays === false && title === '平日') {
+                        title = '平日（祝日除外）';
+                      } else if (group.includeHolidays === true && title === '週末') {
+                        title = '週末・祝日';
+                      }
+
+                      const activeCount = group.targets.filter(t => t.status === 'active').length;
+                      const pausedCount = group.targets.filter(t => t.status === 'paused').length;
+
+                      return (
+                        <div 
+                          key={groupKey} 
+                          className="bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:border-emerald-400 transition-all duration-200"
+                        >
+                          {/* カードヘッダー */}
+                          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-4 rounded-t-xl border-b border-gray-200">
+                            <div className="flex items-start justify-between mb-2">
+                              <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+                              <div className="flex items-center gap-1">
+                                {Array.from(group.sites).map(site => (
+                                  <span
+                                    key={site}
+                                    className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                      site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
+                                    }`}
+                                  >
+                                    {site === 'shinagawa' ? '品川' : '港区'}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-300 rounded-full text-xs font-semibold text-gray-700">
+                                🏢 {group.targets.length}施設
+                              </span>
+                              {activeCount > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 border border-emerald-300 rounded-full text-xs font-semibold text-emerald-700">
+                                  ● {activeCount}件稼働中
+                                </span>
+                              )}
+                              {pausedCount > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 border border-gray-300 rounded-full text-xs font-semibold text-gray-600">
+                                  ⏸ {pausedCount}件停止中
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* カード本文 */}
+                          <div className="p-4">
+                            {/* 時間帯 */}
+                            <div className="mb-3">
+                              <div className="text-xs text-gray-600 mb-1">🕐 時間帯</div>
+                              <div className="flex flex-wrap gap-1">
+                                {group.timeSlots.length === 6 ? (
+                                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                    全時間帯 (9:00-21:00)
+                                  </span>
+                                ) : (
+                                  group.timeSlots.slice(0, 3).map((slot, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium"
+                                    >
+                                      {slot}
+                                    </span>
+                                  ))
+                                )}
+                                {group.timeSlots.length > 3 && group.timeSlots.length !== 6 && (
+                                  <span className="px-2 py-1 text-gray-500 text-xs">
+                                    +{group.timeSlots.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 施設リスト（最初の3つ） */}
+                            <div className="mb-3">
+                              <div className="text-xs text-gray-600 mb-1">📍 施設</div>
+                              <div className="space-y-1">
+                                {group.targets.slice(0, 3).map((target) => (
+                                  <div
+                                    key={target.id}
+                                    className="flex items-center gap-2 text-xs"
+                                  >
+                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                      target.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400'
+                                    }`} />
+                                    <span className="text-gray-700 truncate">
+                                      {getFacilityNameFromId(target.facilityId, target.facilityName)}
+                                    </span>
+                                  </div>
+                                ))}
+                                {group.targets.length > 3 && (
+                                  <div className="text-xs text-gray-500 pl-3.5">
+                                    他 {group.targets.length - 3}施設
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 詳細ボタン */}
+                            <button
+                              onClick={() => setIsDetailModalOpen(true)}
+                              className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium"
+                            >
+                              詳細を見る
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
       </div>

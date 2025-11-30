@@ -15,6 +15,33 @@ interface MonitoringDetailModalProps {
   onResume?: (target: MonitoringTarget) => void;
 }
 
+// facilityIdから施設名を復元する関数
+const getFacilityNameFromId = (facilityId: string, savedName: string): string => {
+  // 既に完全な施設名（コート情報含む）がある場合はそのまま返す
+  if (savedName.includes('庭球場') || savedName.includes('テニスコート')) {
+    return savedName;
+  }
+  
+  // facilityIdの末尾からコート番号を推定
+  const lastTwo = facilityId.slice(-2);
+  const courtMap: { [key: string]: string } = {
+    '10': 'Ａ', '20': 'Ｂ', '30': 'Ｃ', '40': 'Ｄ', '50': 'Ｅ',
+    '01': 'Ａ', '02': 'Ｂ', '03': 'Ｃ', '04': 'Ｄ',
+  };
+  
+  const court = courtMap[lastTwo];
+  if (court) {
+    if (savedName.includes('しながわ') || savedName.includes('品川') || savedName.includes('八潮') || savedName.includes('大井')) {
+      return `${savedName} 庭球場${court}`;
+    }
+    if (savedName.includes('麻布') || savedName.includes('青山') || savedName.includes('芝浦')) {
+      return `${savedName} テニスコート${court}`;
+    }
+  }
+  
+  return savedName;
+};
+
 export function MonitoringDetailModal({
   targets,
   isOpen,
@@ -96,7 +123,7 @@ export function MonitoringDetailModal({
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex-1">
                     <h3 className="font-bold text-lg text-gray-900 mb-1">
-                      {target.facilityName || target.facilityId || '施設名未設定'}
+                      {getFacilityNameFromId(target.facilityId, target.facilityName || target.facilityId || '施設名未設定')}
                     </h3>
                     <div className="flex items-center gap-1 text-sm text-gray-600">
                       <MapPin className="w-4 h-4" />

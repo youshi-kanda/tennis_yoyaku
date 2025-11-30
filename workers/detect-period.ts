@@ -5,6 +5,12 @@
  * SHINAGAWA_USER=xxx SHINAGAWA_PASS=xxx npx tsx detect-period.ts
  */
 
+// Node.js環境変数の型定義
+declare const process: {
+  env: Record<string, string | undefined>;
+  exit: (code: number) => never;
+};
+
 interface DateInfo {
   date: string;
   isSelectable: boolean;

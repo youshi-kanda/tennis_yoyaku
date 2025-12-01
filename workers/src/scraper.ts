@@ -365,21 +365,43 @@ export async function makeShinagawaReservation(
     
     const applyParams = new URLSearchParams({ instNo, dateNo, timeNo });
     
+    // Step 1: 予約画面（利用規約画面）を取得
     const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do?${applyParams}`, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Cookie': `JSESSIONID=${sessionId}`,
+        'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
       },
     });
-    // Response Bodyを読み切る
-    await applyResponse.text().catch(() => {});
+    await applyResponse.text();
+    
+    // Step 2: 利用規約に同意
+    const ruleParams = new URLSearchParams({
+      'ruleFg': '1', // 1: 同意する, 2: 同意しない
+    });
+    
+    const ruleResponse = await fetch(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do?${applyParams}`,
+      },
+      body: ruleParams.toString(),
+    });
+    await ruleResponse.text();
+    
+    // Step 3: 予約内容確認画面へ（利用人数・催し物名を送信）
+    const applicantCount = target.applicantCount?.toString() || '2';
     
     const confirmParams = new URLSearchParams({
-      'rsvWOpeReservedApplyForm.instNo': instNo,
-      'rsvWOpeReservedApplyForm.dateNo': dateNo,
-      'rsvWOpeReservedApplyForm.timeNo': timeNo,
-      'rsvWOpeReservedApplyForm.agree': 'on',
+      'rsvWOpeReservedConfirmForm.instNo': instNo,
+      'rsvWOpeReservedConfirmForm.dateNo': dateNo,
+      'rsvWOpeReservedConfirmForm.timeNo': timeNo,
+      'rsvWOpeReservedConfirmForm.usrNum': applicantCount,
+      'rsvWOpeReservedConfirmForm.eventName': '', // 催し物名（任意）
     });
     
     const confirmResponse = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
@@ -388,16 +410,13 @@ export async function makeShinagawaReservation(
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Content-Type': 'application/x-www-form-urlencoded',
         'Cookie': `JSESSIONID=${sessionId}`,
-        'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`,
+        'Referer': `${baseUrl}/rsvWInstUseruleRsvApplyAction.do`,
       },
       body: confirmParams.toString(),
     });
-    // Response Bodyを読み切る
-    await confirmResponse.text().catch(() => {});
+    await confirmResponse.text();
     
-    // 利用人数: target.applicantCountが設定されていればそれを使用、未設定なら品川区デフォルトの2人
-    const applicantCount = target.applicantCount?.toString() || '2';
-    
+    // Step 4: 予約確定
     const reserveParams = new URLSearchParams({
       'rsvWOpeReservedConfirmForm.instNo': instNo,
       'rsvWOpeReservedConfirmForm.dateNo': dateNo,
@@ -437,15 +456,26 @@ export async function makeShinagawaReservation(
       }
     });
     
-    // 現在の成功判定
-    const hasCompletedMessage = reserveHtml.includes('予約が完了しました');
-    const hasAcceptedMessage = reserveHtml.includes('予約を受け付けました');
-    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約が完了しました:', hasCompletedMessage);
-    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約を受け付けました:', hasAcceptedMessage);
+    // 成功判定: 「予約完了」画面のタイトルまたはメッセージで判定
+    const hasCompletedTitle = reserveHtml.includes('予約完了');
+    const hasCompletedMessage = reserveHtml.includes('以下の内容で予約しました');
+    const hasReservationNumber = reserveHtml.includes('予約番号');
     
-    if (hasCompletedMessage || hasAcceptedMessage) {
+    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約完了:', hasCompletedTitle);
+    console.log('[Shinagawa] 🔍 DEBUG: Success check - 以下の内容で予約しました:', hasCompletedMessage);
+    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約番号:', hasReservationNumber);
+    
+    if (hasCompletedTitle || hasCompletedMessage || hasReservationNumber) {
       console.log('[Shinagawa] ✅ Reservation successful');
-      return { success: true, message: '予約に成功しました' };
+      
+      // 予約番号を抽出
+      const reservationNumberMatch = reserveHtml.match(/予約番号[：:\s]*(\d+)/);
+      const reservationNumber = reservationNumberMatch ? reservationNumberMatch[1] : '';
+      
+      return { 
+        success: true, 
+        message: reservationNumber ? `予約に成功しました（予約番号: ${reservationNumber}）` : '予約に成功しました'
+      };
     } else {
       console.error('[Shinagawa] ❌ Reservation failed - success keywords not found');
       console.error('[Shinagawa] 💡 HINT: Check the DEBUG logs above to find the actual success message');

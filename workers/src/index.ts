@@ -187,6 +187,7 @@ export interface MonitoringTarget {
   nextIntensiveCheckTime?: number; // 次の集中監視時刻（10分単位）
   intensiveMonitoringDate?: string; // 集中監視対象の日付
   intensiveMonitoringTimeSlot?: string; // 集中監視対象の時間帯
+  applicantCount?: number; // 利用人数（未指定時は品川2人、港4人）
   createdAt: number;
   updatedAt?: number;
   detectedAt?: number; // 空き枠検知時刻
@@ -2485,14 +2486,16 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
           target.facilityId,
           target.date,
           target.timeSlot,
-          sessionId
+          sessionId,
+          target
         );
       } else {
         result = await makeMinatoReservation(
           target.facilityId,
           target.date,
           target.timeSlot,
-          sessionId
+          sessionId,
+          target
         );
       }
       

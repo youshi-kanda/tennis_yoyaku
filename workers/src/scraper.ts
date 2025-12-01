@@ -331,7 +331,8 @@ export async function makeShinagawaReservation(
   facilityId: string,
   date: string,
   timeSlot: string,
-  sessionId: string
+  sessionId: string,
+  target: { applicantCount?: number }
 ): Promise<{ success: boolean; message: string }> {
   try {
     console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
@@ -1180,7 +1181,8 @@ export async function makeMinatoReservation(
   facilityId: string,
   date: string,
   timeSlot: string,
-  sessionId: string
+  sessionId: string,
+  target: { applicantCount?: number }
 ): Promise<{ success: boolean; reservationId?: string; error?: string }> {
   try {
     // セッションIDを使用（自動ログイン不要）

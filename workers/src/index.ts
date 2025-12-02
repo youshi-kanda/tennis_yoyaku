@@ -152,6 +152,8 @@ export interface Env {
   VAPID_PRIVATE_KEY: string;
   VAPID_SUBJECT: string;
   VERSION?: string;
+  MAINTENANCE_MODE?: string; // メンテナンスモードフラグ: 'true' or 'false'
+  MAINTENANCE_MESSAGE?: string; // メンテナンスモード時のメッセージ
 }
 
 export interface User {
@@ -496,7 +498,29 @@ export default {
         return handleAdminClearCache(request, env);
       }
 
-      // ユーザー向けAPI
+      // メンテナンスモード管理API
+      if (path === '/api/admin/maintenance/status' && request.method === 'GET') {
+        return handleAdminMaintenanceStatus(request, env);
+      }
+
+      if (path === '/api/admin/maintenance/enable' && request.method === 'POST') {
+        return handleAdminMaintenanceEnable(request, env);
+      }
+
+      if (path === '/api/admin/maintenance/disable' && request.method === 'POST') {
+        return handleAdminMaintenanceDisable(request, env);
+      }
+
+      // 監視一括管理API
+      if (path === '/api/admin/monitoring/pause-all' && request.method === 'POST') {
+        return handleAdminPauseAllMonitoring(request, env);
+      }
+
+      if (path === '/api/admin/monitoring/resume-all' && request.method === 'POST') {
+        return handleAdminResumeAllMonitoring(request, env);
+      }
+
+      // ユーザー向けAPI（メンテナンスモードチェック）
       if (path === '/api/user/change-password' && request.method === 'POST') {
         return handleChangePassword(request, env);
       }
@@ -520,6 +544,16 @@ export default {
     const jstMinutes = jstTime.getMinutes();
     
     console.log('[Cron] Started:', jstTime.toISOString(), `(JST: ${jstTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`);
+    
+    // 🛠️ メンテナンスモードチェック（KVベース）
+    const maintenanceJson = await env.MONITORING.get('SYSTEM:MAINTENANCE');
+    const isMaintenanceMode = maintenanceJson ? JSON.parse(maintenanceJson).enabled : false;
+    
+    if (isMaintenanceMode) {
+      const maintenanceInfo = JSON.parse(maintenanceJson!);
+      console.log(`[Cron] 🛠️ メンテナンスモード有効 - 監視スキップ: ${maintenanceInfo.message}`);
+      return;
+    }
     
     // 🌅 5:00一斉処理（毎日5:00:00に実行）
     if (jstHours === 5 && jstMinutes === 0) {
@@ -3044,6 +3078,246 @@ async function handleAdminClearCache(request: Request, env: Env): Promise<Respon
     });
   } catch (error: any) {
     console.error('[Admin] Clear cache error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * メンテナンスモード状態取得
+ */
+async function handleAdminMaintenanceStatus(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const isEnabled = env.MAINTENANCE_MODE === 'true';
+    const message = env.MAINTENANCE_MESSAGE || 'システムメンテナンス中です。';
+
+    // 一時停止中の監視対象数を取得
+    const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
+    let pausedCount = 0;
+    let activeCount = 0;
+    let totalTargets = 0;
+
+    for (const key of monitoringKeys.keys) {
+      const stateJson = await env.MONITORING.get(key.name);
+      if (stateJson) {
+        const state: UserMonitoringState = JSON.parse(stateJson);
+        for (const target of state.targets) {
+          totalTargets++;
+          if (target.status === 'paused') {
+            pausedCount++;
+          } else if (target.status === 'active') {
+            activeCount++;
+          }
+        }
+      }
+    }
+
+    return jsonResponse({
+      maintenanceMode: {
+        enabled: isEnabled,
+        message: message
+      },
+      monitoring: {
+        total: totalTargets,
+        active: activeCount,
+        paused: pausedCount
+      }
+    });
+  } catch (error: any) {
+    console.error('[Admin] Maintenance status error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * メンテナンスモード有効化
+ * 注意: wrangler.tomlのMAINTENANCE_MODE変数を手動で変更してからデプロイが必要
+ */
+async function handleAdminMaintenanceEnable(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const body = await request.json() as { message?: string };
+    const message = body.message || 'システムメンテナンス中です。しばらくお待ちください。';
+
+    // KVにメンテナンス状態を保存（動的切り替え用）
+    await env.MONITORING.put('SYSTEM:MAINTENANCE', JSON.stringify({
+      enabled: true,
+      message: message,
+      enabledAt: Date.now(),
+      enabledBy: 'admin'
+    }));
+
+    console.log('[Admin] Maintenance mode enabled:', message);
+
+    return jsonResponse({
+      success: true,
+      message: 'メンテナンスモードを有効にしました',
+      note: '完全に有効化するには、wrangler.tomlのMAINTENANCE_MODEをtrueに設定してデプロイしてください'
+    });
+  } catch (error: any) {
+    console.error('[Admin] Maintenance enable error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * メンテナンスモード無効化
+ */
+async function handleAdminMaintenanceDisable(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    // KVのメンテナンス状態を削除
+    await env.MONITORING.delete('SYSTEM:MAINTENANCE');
+
+    console.log('[Admin] Maintenance mode disabled');
+
+    return jsonResponse({
+      success: true,
+      message: 'メンテナンスモードを無効にしました',
+      note: '完全に無効化するには、wrangler.tomlのMAINTENANCE_MODEをfalseに設定してデプロイしてください'
+    });
+  } catch (error: any) {
+    console.error('[Admin] Maintenance disable error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * 全監視対象を一括停止
+ */
+async function handleAdminPauseAllMonitoring(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    let pausedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    // 全ユーザーの監視設定を取得
+    const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
+
+    for (const key of monitoringKeys.keys) {
+      try {
+        const stateJson = await env.MONITORING.get(key.name);
+        if (stateJson) {
+          const state: UserMonitoringState = JSON.parse(stateJson);
+          let updated = false;
+
+          for (const target of state.targets) {
+            if (target.status === 'active') {
+              target.status = 'paused';
+              updated = true;
+              pausedCount++;
+            } else {
+              skippedCount++;
+            }
+          }
+
+          // 変更があった場合のみKVに保存
+          if (updated) {
+            state.updatedAt = Date.now();
+            state.version++;
+            await env.MONITORING.put(key.name, JSON.stringify(state));
+          }
+        }
+      } catch (error) {
+        console.error(`[Admin] Error pausing monitoring for ${key.name}:`, error);
+        errorCount++;
+      }
+    }
+
+    console.log(`[Admin] Paused all monitoring: ${pausedCount} paused, ${skippedCount} already paused, ${errorCount} errors`);
+
+    return jsonResponse({
+      success: true,
+      message: '全監視対象を一括停止しました',
+      details: {
+        paused: pausedCount,
+        skipped: skippedCount,
+        errors: errorCount
+      }
+    });
+  } catch (error: any) {
+    console.error('[Admin] Pause all monitoring error:', error);
+    if (error.message === 'Admin access required') {
+      return jsonResponse({ error: 'Admin access required' }, 403);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * 全監視対象を一括再開
+ */
+async function handleAdminResumeAllMonitoring(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    let resumedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    // 全ユーザーの監視設定を取得
+    const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
+
+    for (const key of monitoringKeys.keys) {
+      try {
+        const stateJson = await env.MONITORING.get(key.name);
+        if (stateJson) {
+          const state: UserMonitoringState = JSON.parse(stateJson);
+          let updated = false;
+
+          for (const target of state.targets) {
+            if (target.status === 'paused') {
+              target.status = 'active';
+              updated = true;
+              resumedCount++;
+            } else {
+              skippedCount++;
+            }
+          }
+
+          // 変更があった場合のみKVに保存
+          if (updated) {
+            state.updatedAt = Date.now();
+            state.version++;
+            await env.MONITORING.put(key.name, JSON.stringify(state));
+          }
+        }
+      } catch (error) {
+        console.error(`[Admin] Error resuming monitoring for ${key.name}:`, error);
+        errorCount++;
+      }
+    }
+
+    console.log(`[Admin] Resumed all monitoring: ${resumedCount} resumed, ${skippedCount} already active, ${errorCount} errors`);
+
+    return jsonResponse({
+      success: true,
+      message: '全監視対象を一括再開しました',
+      details: {
+        resumed: resumedCount,
+        skipped: skippedCount,
+        errors: errorCount
+      }
+    });
+  } catch (error: any) {
+    console.error('[Admin] Resume all monitoring error:', error);
     if (error.message === 'Admin access required') {
       return jsonResponse({ error: 'Admin access required' }, 403);
     }

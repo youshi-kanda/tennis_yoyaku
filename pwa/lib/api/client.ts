@@ -320,6 +320,32 @@ class ApiClient {
     });
     return response.data;
   }
+
+  // メンテナンス管理API
+  async getMaintenanceStatus() {
+    const response = await this.client.get('/api/admin/maintenance/status');
+    return response.data;
+  }
+
+  async enableMaintenance(message?: string) {
+    const response = await this.client.post('/api/admin/maintenance/enable', { message });
+    return response.data;
+  }
+
+  async disableMaintenance() {
+    const response = await this.client.post('/api/admin/maintenance/disable');
+    return response.data;
+  }
+
+  async pauseAllMonitoring() {
+    const response = await this.client.post('/api/admin/monitoring/pause-all');
+    return response.data;
+  }
+
+  async resumeAllMonitoring() {
+    const response = await this.client.post('/api/admin/monitoring/resume-all');
+    return response.data;
+  }
 }
 
 export const apiClient = new ApiClient();

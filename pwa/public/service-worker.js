@@ -73,7 +73,10 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const options = {
+  // 通知タイプに応じて表示をカスタマイズ
+  const notificationType = data.data?.type || 'default';
+  
+  let options = {
     body: data.body,
     icon: '/icon-192x192.png',
     badge: '/icon-96x96.png',
@@ -83,6 +86,8 @@ self.addEventListener('push', (event) => {
     data: {
       url: data.url || '/dashboard',
       timestamp: Date.now(),
+      type: notificationType,
+      targetId: data.data?.targetId,
     },
     actions: [
       {
@@ -95,6 +100,59 @@ self.addEventListener('push', (event) => {
       },
     ],
   };
+
+  // 「取」マーク検知の場合は、より目立つ通知に
+  if (notificationType === 'status_tori_detected') {
+    options.vibrate = [300, 200, 300, 200, 300]; // より長い振動
+    options.tag = 'tori-detected-' + Date.now(); // ユニークなタグで複数表示可能に
+    options.badge = '/icon-96x96.png';
+    options.requireInteraction = true; // 必ず手動で閉じる必要がある
+    
+    // 🔥 アイコンとして絵文字を使用（視覚的に目立つ）
+    options.icon = '/icon-192x192.png';
+    console.log('[SW] 🔥 "取" マーク検知通知を表示');
+  }
+  
+  // 空き検知の場合
+  if (notificationType === 'vacant_detected') {
+    options.vibrate = [200, 100, 200, 100, 200];
+    options.tag = 'vacant-detected-' + Date.now(); // ユニークなタグで複数表示可能に
+    options.requireInteraction = true;
+    console.log('[SW] ○ 空き検知通知を表示');
+  }
+  
+  // 「取」→「○」変化検知の場合（最も重要）
+  if (notificationType === 'tori_to_vacant') {
+    options.vibrate = [400, 200, 400, 200, 400, 200, 400]; // 非常に長い振動
+    options.tag = 'tori-to-vacant-' + Date.now(); // ユニークなタグで複数表示可能に
+    options.requireInteraction = true; // 必ず手動で閉じる必要がある
+    options.renotify = true; // 再通知を有効化
+    console.log('[SW] 🎉 "取"→"○" 変化検知通知を表示');
+  }
+  
+  // 予約成功の場合
+  if (notificationType === 'reservation_success') {
+    options.vibrate = [100, 50, 100, 50, 100];
+    options.tag = 'reservation-success-' + Date.now();
+    options.requireInteraction = false; // 自動で消える
+    console.log('[SW] ✅ 予約成功通知を表示');
+  }
+  
+  // 予約失敗の場合
+  if (notificationType === 'reservation_failed') {
+    options.vibrate = [200, 100, 200];
+    options.tag = 'reservation-failed-' + Date.now();
+    options.requireInteraction = false;
+    console.log('[SW] ❌ 予約失敗通知を表示');
+  }
+  
+  // 「取」マーク消失の場合
+  if (notificationType === 'tori_disappeared') {
+    options.vibrate = [150, 100, 150];
+    options.tag = 'tori-disappeared-' + Date.now();
+    options.requireInteraction = false;
+    console.log('[SW] ℹ️ "取"マーク消失通知を表示');
+  }
 
   event.waitUntil(
     self.registration.showNotification(data.title, options)

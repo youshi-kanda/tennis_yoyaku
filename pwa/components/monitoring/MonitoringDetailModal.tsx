@@ -5,14 +5,27 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { X, MapPin, Clock, Calendar, PartyPopper } from 'lucide-react';
 
-interface MonitoringDetailModalProps {
+interface MonitoringGroup {
+  key: string;
+  site: 'shinagawa' | 'minato';
   targets: MonitoringTarget[];
+  timeSlots: string[];
+  selectedWeekdays: number[];
+  includeHolidays: boolean | 'only';
+  sites: Set<'shinagawa' | 'minato'>;
+}
+
+interface MonitoringDetailModalProps {
+  selectedGroup: MonitoringGroup | null;
   isOpen: boolean;
   onClose: () => void;
   onEdit?: (target: MonitoringTarget) => void;
   onDelete?: (target: MonitoringTarget) => void;
   onPause?: (target: MonitoringTarget) => void;
   onResume?: (target: MonitoringTarget) => void;
+  onBulkPause?: (targets: MonitoringTarget[]) => Promise<void>;
+  onBulkResume?: (targets: MonitoringTarget[]) => Promise<void>;
+  onBulkDelete?: (targets: MonitoringTarget[]) => Promise<void>;
 }
 
 // facilityIdから施設名を復元する関数
@@ -43,13 +56,16 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
 };
 
 export function MonitoringDetailModal({
-  targets,
+  selectedGroup,
   isOpen,
   onClose,
   onEdit,
   onDelete,
   onPause,
   onResume,
+  onBulkPause,
+  onBulkResume,
+  onBulkDelete,
 }: MonitoringDetailModalProps) {
   const getStatusBadge = (target: MonitoringTarget) => {
     switch (target.status) {
@@ -91,25 +107,95 @@ export function MonitoringDetailModal({
     return '';
   };
 
-  if (!isOpen) return null;
+  const getGroupScheduleText = () => {
+    if (!selectedGroup) return '';
+    const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const selectedDays = selectedGroup.selectedWeekdays?.map((d) => weekdayNames[d]).join('・') || '全曜日';
+    return `毎週 ${selectedDays}`;
+  };
+
+  const getGroupHolidayText = () => {
+    if (!selectedGroup) return '';
+    if (selectedGroup.includeHolidays === 'only') return '祝日のみ';
+    if (selectedGroup.includeHolidays === false) return '祝日を除外';
+    if (selectedGroup.includeHolidays === true) return '祝日を含む';
+    return '';
+  };
+
+  if (!isOpen || !selectedGroup) return null;
+
+  const targets = selectedGroup.targets;
+  const activeCount = targets.filter(t => t.status === 'active' || t.status === 'monitoring').length;
+  const pausedCount = targets.filter(t => t.status === 'paused').length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto m-4">
         {/* ヘッダー */}
-        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">監視設定の詳細</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              {targets.length}件の施設を監視中
-            </p>
+        <div className="sticky top-0 bg-white border-b px-6 py-4">
+          <div className="flex justify-between items-start mb-3">
+            <div className="flex-1">
+              <h2 className="text-xl font-bold text-gray-900 mb-2">監視グループの詳細</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                {Array.from(selectedGroup.sites).map(site => (
+                  <span
+                    key={site}
+                    className={`px-2 py-1 rounded-full text-xs font-bold ${
+                      site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
+                    }`}
+                  >
+                    {site === 'shinagawa' ? '品川' : '港区'}
+                  </span>
+                ))}
+                <span className="text-sm text-gray-600">
+                  {targets.length}施設
+                </span>
+                {activeCount > 0 && (
+                  <span className="px-2 py-1 bg-emerald-100 border border-emerald-300 rounded-full text-xs font-semibold text-emerald-700">
+                    ● {activeCount}件稼働中
+                  </span>
+                )}
+                {pausedCount > 0 && (
+                  <span className="px-2 py-1 bg-gray-100 border border-gray-300 rounded-full text-xs font-semibold text-gray-600">
+                    ⏸ {pausedCount}件停止中
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors ml-4"
+            >
+              <X className="w-6 h-6" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          
+          {/* グループ情報 */}
+          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              <Calendar className="w-4 h-4 text-gray-500" />
+              <span className="text-gray-700">{getGroupScheduleText()}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="w-4 h-4 text-gray-500" />
+              <div className="flex flex-wrap gap-1">
+                {selectedGroup.timeSlots.map((slot, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-block bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs"
+                  >
+                    {slot}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {getGroupHolidayText() && (
+              <div className="flex items-center gap-2 text-sm">
+                <PartyPopper className="w-4 h-4 text-gray-500" />
+                <span className="text-gray-700">{getGroupHolidayText()}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* コンテンツ */}
@@ -236,10 +322,41 @@ export function MonitoringDetailModal({
         </div>
 
         {/* フッター */}
-        <div className="sticky bottom-0 bg-white border-t px-6 py-4 flex justify-end">
-          <Button variant="outline" onClick={onClose}>
-            閉じる
-          </Button>
+        <div className="sticky bottom-0 bg-white border-t px-6 py-4">
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            {onBulkPause && activeCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => onBulkPause(targets)}
+                className="flex-1 text-orange-600 border-orange-300 hover:bg-orange-50"
+              >
+                ⏸️ グループを一時停止 ({activeCount}件)
+              </Button>
+            )}
+            {onBulkResume && pausedCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => onBulkResume(targets)}
+                className="flex-1 text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+              >
+                ▶️ グループを再開 ({pausedCount}件)
+              </Button>
+            )}
+            {onBulkDelete && (
+              <Button
+                variant="outline"
+                onClick={() => onBulkDelete(targets)}
+                className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
+              >
+                🗑️ グループを削除 ({targets.length}件)
+              </Button>
+            )}
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={onClose}>
+              閉じる
+            </Button>
+          </div>
         </div>
       </div>
     </div>

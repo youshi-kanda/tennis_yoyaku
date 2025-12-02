@@ -27,9 +27,10 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
   subrequestCount++;
   
-  const input = args[0];
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
-  console.log(`[Subrequest ${subrequestCount}] ${url}`);
+  // ログサイズ削減のためsubrequestログを無効化
+  // const input = args[0];
+  // const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+  // console.log(`[Subrequest ${subrequestCount}] ${url}`);
   
   return originalFetch(...args);
 };
@@ -2017,12 +2018,13 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     const datesToCheckThisRun = datesToCheck;
     
     console.log(`[Check] 📅 チェック対象: ${datesToCheckThisRun.length}日分`);
-    if (datesToCheckThisRun.length > 0) {
-      const preview = datesToCheckThisRun.length > 3 
-        ? `${datesToCheckThisRun.slice(0, 3).join(', ')} ... +${datesToCheckThisRun.length - 3}日`
-        : datesToCheckThisRun.join(', ');
-      console.log(`[Check] 📅 今回チェック: ${preview}`);
-    }
+    // ログサイズ削減のため詳細リストを無効化
+    // if (datesToCheckThisRun.length > 0) {
+    //   const preview = datesToCheckThisRun.length > 3 
+    //     ? `${datesToCheckThisRun.slice(0, 3).join(', ')} ... +${datesToCheckThisRun.length - 3}日`
+    //     : datesToCheckThisRun.join(', ');
+    //   console.log(`[Check] 📅 今回チェック: ${preview}`);
+    // }
 
     // チェックする時間帯のリスト
     const timeSlotsToCheck = target.timeSlots || [target.timeSlot];
@@ -2041,14 +2043,20 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       const nextCheckTime = new Date(target.nextIntensiveCheckTime);
       const jstNextCheck = new Date(target.nextIntensiveCheckTime + 9 * 60 * 60 * 1000);
       
-      // 次の監視時刻（17:40:00）に到達したかチェック（0秒～+15秒）
+      // 次の監視時刻（17:40:00）に到達したかチェック（±60秒の余裕）
       const timeDiff = now - target.nextIntensiveCheckTime;
-      const isInCheckWindow = timeDiff >= 0 && timeDiff <= 15000; // 0秒～+15秒
+      const isInCheckWindow = timeDiff >= -60000 && timeDiff <= 75000; // -60秒～+75秒（15秒チェック含む）
+      
+      console.log(`[IntensiveCheck] 🔥 集中監視モード (detectedStatus='取')`);
+      console.log(`[IntensiveCheck] 現在時刻差: ${Math.floor(timeDiff / 1000)}秒`);
+      console.log(`[IntensiveCheck] 次回監視予定: ${jstNextCheck.toLocaleTimeString('ja-JP')}`);
       
       if (!isInCheckWindow) {
-        console.log(`[IntensiveCheck] ⏳ 次の監視時刻待機中: ${jstNextCheck.toLocaleTimeString('ja-JP')}`);
+        console.log(`[IntensiveCheck] ⏳ 次の監視時刻待機中（±60秒の範囲外）`);
         return; // まだ監視時刻ではない
       }
+      
+      console.log(`[IntensiveCheck] ✅ 監視時刻到達、15秒間集中チェック開始！`);
       
       // 集中監視対象の日時・時間帯を取得
       const targetDate = target.intensiveMonitoringDate || target.date;
@@ -2108,9 +2116,16 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
             
             // プッシュ通知
             await sendPushNotification(target.userId, {
-              title: '🎉 予約成功！',
-              body: `${target.facilityName} ${targetDate} ${targetTimeSlot}\n集中監視で「取」→「○」を検知し予約しました`,
-              data: { targetId: target.id, type: 'intensive_success' }
+              title: '🎉 集中監視成功！',
+              body: `${target.facilityName} ${targetDate} ${targetTimeSlot}\n「取」→「○」を検知し予約しました`,
+              data: { 
+                targetId: target.id, 
+                type: 'tori_to_vacant',
+                site: target.site,
+                facilityName: target.facilityName,
+                date: targetDate,
+                timeSlot: targetTimeSlot
+              }
             }, env);
             
             // 集中監視成功、このターゲットの処理を終了
@@ -2127,6 +2142,20 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
             target.intensiveMonitoringDate = undefined;
             target.intensiveMonitoringTimeSlot = undefined;
             await updateMonitoringTargetOptimized(target, 'intensive_cancelled', env.MONITORING);
+            
+            // 通知送信（他の人が予約した可能性）
+            await sendPushNotification(target.userId, {
+              title: 'ℹ️ 集中監視終了',
+              body: `${target.facilityName} ${targetDate} ${targetTimeSlot}\n「取」マークが消えました（他の人が予約した可能性があります）`,
+              data: { 
+                targetId: target.id, 
+                type: 'tori_disappeared',
+                site: target.site,
+                facilityName: target.facilityName,
+                date: targetDate,
+                timeSlot: targetTimeSlot
+              }
+            }, env);
             
             // 通常監視に戻る
             return;
@@ -2235,7 +2264,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
 
         // 🔥 「取」ステータスを検知した場合（集中監視モードに移行）
         if (result.currentStatus === '取' && target.detectedStatus !== '取') {
-          console.log(`[Alert] 🔥「取」検知: ${date} ${timeSlot} - 集中監視モード開始`);
+          console.log(`[Alert] 🔥🔥🔥「取」検知！ ${target.facilityName} ${date} ${timeSlot}`);
+          console.log(`[Alert] 集中監視モード開始 - 10分間隔で15秒間の1秒間隔チェック`);
           
           // 次の10分単位を計算
           const now = new Date();
@@ -2258,14 +2288,17 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
           const jstNextCheck = nextCheckTime;
           const nextCheckTimeUTC = new Date(nextCheckTime.getTime() - 9 * 60 * 60 * 1000);
           
-          console.log(`[Alert] 検知時刻: ${jstNow.toLocaleTimeString('ja-JP')}`);
-          console.log(`[Alert] 次回監視: ${jstNextCheck.toLocaleTimeString('ja-JP')} (10分単位)`);
+          console.log(`[Alert] ⏰ 検知時刻: ${jstNow.toLocaleTimeString('ja-JP')}`);
+          console.log(`[Alert] ⏰ 次回集中監視: ${jstNextCheck.toLocaleTimeString('ja-JP')} (JST)`);
+          console.log(`[Alert] ⏰ UTC時刻: ${nextCheckTimeUTC.toISOString()}`);
           
           // ターゲットを更新（集中監視モードに設定）
           target.detectedStatus = '取';
           target.nextIntensiveCheckTime = nextCheckTimeUTC.getTime(); // UTC時刻
           target.intensiveMonitoringDate = date;
           target.intensiveMonitoringTimeSlot = timeSlot;
+          
+          console.log(`[Alert] ✅ Target更新: detectedStatus='取', nextIntensiveCheckTime=${target.nextIntensiveCheckTime}`);
           
           await updateMonitoringTargetOptimized(target, 'intensive_mode_activated', env.MONITORING);
           
@@ -2275,6 +2308,8 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
             body: `${target.facilityName} ${date} ${timeSlot}\n次回: ${jstNextCheck.toLocaleTimeString('ja-JP')} (10分間隔)`,
             data: { targetId: target.id, type: 'status_tori_detected' }
           }, env);
+          
+          console.log(`[Alert] 🔥 集中監視設定完了`);
         }
         
         // 空きが見つかった場合
@@ -2282,17 +2317,50 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
           console.log(`[Alert] ✅ Available: ${date} ${timeSlot}`);
           
           // statusを'detected'に更新（カレンダー表示用）
-          if (target.status !== 'detected') {
+          const isFirstDetection = target.status !== 'detected';
+          if (isFirstDetection) {
             target.status = 'detected';
             target.detectedAt = Date.now();
             await updateMonitoringTargetOptimized(target, 'available_detected', env.MONITORING);
+            
+            // 🔔 初回検知時に通知を送信（autoReserveがfalseの場合も通知）
+            if (!target.autoReserve) {
+              await sendPushNotification(target.userId, {
+                title: '○ 空き枠検知！',
+                body: `${target.facilityName}\n${date} ${timeSlot}\n空きが見つかりました`,
+                data: { 
+                  type: 'vacant_detected',
+                  targetId: target.id,
+                  site: target.site,
+                  facilityName: target.facilityName,
+                  date: date,
+                  timeSlot: timeSlot,
+                }
+              }, env);
+              console.log(`[Alert] 🔔 空き検知通知送信（手動予約モード）`);
+            }
           }
           
-          // 「取」から「○」に変わった場合は集中監視終了
+          // 「取」から「○」に変わった場合は集中監視終了 + 通知送信
           if (target.detectedStatus === '取') {
             console.log(`[Alert] 🎉「取」→「○」変化検知！集中監視成功`);
             target.detectedStatus = '○';
             target.intensiveMonitoringUntil = undefined;
+            
+            // 🔔「取」→「○」変化の通知を送信
+            await sendPushNotification(target.userId, {
+              title: '🎉「取」→「○」変化検知！',
+              body: `${target.facilityName}\n${date} ${timeSlot}\nキャンセル待ちから空きになりました`,
+              data: { 
+                type: 'tori_to_vacant',
+                targetId: target.id,
+                site: target.site,
+                facilityName: target.facilityName,
+                date: date,
+                timeSlot: timeSlot,
+              }
+            }, env);
+            console.log(`[Alert] 🔔「取」→「○」変化通知送信`);
           }
 
           // 予約戦略に応じて処理
@@ -2337,8 +2405,11 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       await updateMonitoringTargetOptimized(target, 'checked', env.MONITORING);
     }
 
-  } catch (error) {
-    console.error(`[Check] Error for target ${target.id}:`, error);
+  } catch (error: any) {
+    console.error(`[Check] ❌ Error for target ${target.id}:`, error);
+    console.error(`[Check] ❌ Error message: ${error.message}`);
+    console.error(`[Check] ❌ Error stack: ${error.stack}`);
+    console.error(`[Check] ❌ Target details: ${target.facilityName} (${target.site}) ${target.date}`);
   }
 }
 

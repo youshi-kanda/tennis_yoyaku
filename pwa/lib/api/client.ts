@@ -2,6 +2,11 @@ import axios, { AxiosInstance } from 'axios';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787';
 
+// デバッグ用: API URLをコンソールに出力
+if (typeof window !== 'undefined') {
+  console.log('[API Client] 🔧 API_BASE_URL:', API_BASE_URL);
+}
+
 class ApiClient {
   private client: AxiosInstance;
 
@@ -139,7 +144,10 @@ class ApiClient {
     includeHolidays?: boolean | 'only';
     autoReserve: boolean;
   }>) {
+    console.log('[API Client] 🚀 Sending batch request to:', `${API_BASE_URL}/api/monitoring/create-batch`);
+    console.log('[API Client] 📦 Targets count:', targets.length);
     const response = await this.client.post('/api/monitoring/create-batch', { targets });
+    console.log('[API Client] ✅ Batch response:', response.data);
     return response.data;
   }
 

@@ -161,7 +161,8 @@ async function detectFromCalendar(
  * 3. 必要に応じてこの値を手動調整可能
  */
 function getFallbackPeriod(site: 'shinagawa' | 'minato'): ReservationPeriodInfo {
-  const defaultDays = site === 'shinagawa' ? 30 : 60;
+  // 両区とも60日先まで予約可能（2025年1月時点の実際の仕様）
+  const defaultDays = 60;
   
   console.log(`[Period] Using fallback default for ${site}: ${defaultDays} days`);
   

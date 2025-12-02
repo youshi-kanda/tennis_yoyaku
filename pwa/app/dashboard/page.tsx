@@ -16,6 +16,16 @@ interface Stats {
   successRate: number;
 }
 
+interface MonitoringGroup {
+  key: string;
+  site: 'shinagawa' | 'minato';
+  targets: MonitoringTarget[];
+  timeSlots: string[];
+  selectedWeekdays: number[];
+  includeHolidays: boolean | 'only';
+  sites: Set<'shinagawa' | 'minato'>;
+}
+
 // facilityIdから施設名を復元する関数
 const getFacilityNameFromId = (facilityId: string, savedName: string): string => {
   // 既に完全な施設名（コート情報含む）がある場合はそのまま返す
@@ -61,6 +71,13 @@ export default function DashboardHome() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingTarget, setEditingTarget] = useState<MonitoringTarget | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<MonitoringGroup | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{
+    show: boolean;
+    current: number;
+    total: number;
+    action: string;
+  }>({ show: false, current: 0, total: 0, action: '' });
 
   useEffect(() => {
     loadData();
@@ -128,6 +145,82 @@ export default function DashboardHome() {
     } catch (error) {
       console.error('Failed to resume monitoring:', error);
       alert('監視の再開に失敗しました');
+    }
+  };
+
+  const handleBulkPause = async (groupTargets: MonitoringTarget[]) => {
+    const activeTargets = groupTargets.filter(t => t.status === 'active' || t.status === 'monitoring');
+    if (activeTargets.length === 0) return;
+
+    if (!confirm(`このグループの${activeTargets.length}件の監視を一時停止しますか？`)) return;
+
+    setBulkProgress({ show: true, current: 0, total: activeTargets.length, action: '停止中' });
+    try {
+      // 順次処理でKV競合を回避
+      for (let i = 0; i < activeTargets.length; i++) {
+        await apiClient.pauseMonitoring(activeTargets[i].id);
+        setBulkProgress({ show: true, current: i + 1, total: activeTargets.length, action: '停止中' });
+      }
+      await loadData();
+      setIsDetailModalOpen(false);
+    } catch (error) {
+      console.error('Failed to bulk pause:', error);
+      alert('一括停止に失敗しました');
+    } finally {
+      setBulkProgress({ show: false, current: 0, total: 0, action: '' });
+    }
+  };
+
+  const handleBulkResume = async (groupTargets: MonitoringTarget[]) => {
+    const pausedTargets = groupTargets.filter(t => t.status === 'paused');
+    if (pausedTargets.length === 0) return;
+
+    if (!confirm(`このグループの${pausedTargets.length}件の監視を再開しますか？`)) return;
+
+    setBulkProgress({ show: true, current: 0, total: pausedTargets.length, action: '再開中' });
+    try {
+      // 順次処理でKV競合を回避
+      for (let i = 0; i < pausedTargets.length; i++) {
+        await apiClient.resumeMonitoring(pausedTargets[i].id);
+        setBulkProgress({ show: true, current: i + 1, total: pausedTargets.length, action: '再開中' });
+      }
+      await loadData();
+      setIsDetailModalOpen(false);
+    } catch (error) {
+      console.error('Failed to bulk resume:', error);
+      alert('一括再開に失敗しました');
+    } finally {
+      setBulkProgress({ show: false, current: 0, total: 0, action: '' });
+    }
+  };
+
+  const handleBulkDelete = async (groupTargets: MonitoringTarget[]) => {
+    if (!confirm(`このグループの${groupTargets.length}件の監視設定を削除しますか？\n\n削除すると、このグループによる自動監視が完全に停止されます。`)) return;
+
+    setBulkProgress({ show: true, current: 0, total: groupTargets.length, action: '削除中' });
+    try {
+      // 順次処理でKV競合を回避（並列実行すると404/500エラー）
+      for (let i = 0; i < groupTargets.length; i++) {
+        try {
+          await apiClient.deleteMonitoring(groupTargets[i].id);
+        } catch (err) {
+          const error = err as Error;
+          // 404は既に削除済みなので無視
+          if (error.message?.includes('404') || error.message?.includes('not found')) {
+            console.log(`Target ${groupTargets[i].id} already deleted, skipping`);
+          } else {
+            throw error;
+          }
+        }
+        setBulkProgress({ show: true, current: i + 1, total: groupTargets.length, action: '削除中' });
+      }
+      await loadData();
+      setIsDetailModalOpen(false);
+    } catch (error) {
+      console.error('Failed to bulk delete:', error);
+      alert('一括削除に失敗しました');
+    } finally {
+      setBulkProgress({ show: false, current: 0, total: 0, action: '' });
     }
   };
 
@@ -465,7 +558,18 @@ export default function DashboardHome() {
 
                             {/* 詳細ボタン */}
                             <button
-                              onClick={() => setIsDetailModalOpen(true)}
+                              onClick={() => {
+                                setSelectedGroup({
+                                  key: groupKey,
+                                  site: group.targets[0].site,
+                                  targets: group.targets,
+                                  timeSlots: group.timeSlots,
+                                  selectedWeekdays: group.selectedWeekdays,
+                                  includeHolidays: group.includeHolidays,
+                                  sites: group.sites,
+                                });
+                                setIsDetailModalOpen(true);
+                              }}
                               className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium"
                             >
                               詳細を見る
@@ -484,13 +588,19 @@ export default function DashboardHome() {
 
       {/* 詳細モーダル */}
       <MonitoringDetailModal
-        targets={targets}
+        selectedGroup={selectedGroup}
         isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedGroup(null);
+        }}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onPause={handlePause}
         onResume={handleResume}
+        onBulkPause={handleBulkPause}
+        onBulkResume={handleBulkResume}
+        onBulkDelete={handleBulkDelete}
       />
 
       {/* 編集モーダル */}
@@ -504,6 +614,38 @@ export default function DashboardHome() {
           }}
           onSave={handleSaveEdit}
         />
+      )}
+
+      {/* 一括操作進捗ダイアログ */}
+      {bulkProgress.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">
+              {bulkProgress.action}...
+            </h3>
+            <div className="mb-4">
+              <div className="flex justify-between text-sm text-gray-600 mb-2">
+                <span>進捗状況</span>
+                <span className="font-semibold">
+                  {bulkProgress.current} / {bulkProgress.total}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-3 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${(bulkProgress.current / bulkProgress.total) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 text-center">
+              {bulkProgress.current === bulkProgress.total
+                ? '完了しました。データを更新しています...'
+                : 'しばらくお待ちください...'}
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

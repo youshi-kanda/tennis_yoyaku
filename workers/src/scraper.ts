@@ -134,7 +134,8 @@ export async function checkShinagawaAvailability(
   sessionId?: string | null  // 既存セッションIDを受け取る（省略時は自動ログイン）
 ): Promise<AvailabilityResult> {
   try {
-    console.log(`[Shinagawa] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
+    // ログサイズ削減のため詳細ログを無効化
+    // console.log(`[Shinagawa] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
     
     // 既に予約済み（キャンセル済み除く）かチェック
     const isAlreadyReserved = existingReservations?.some(
@@ -219,7 +220,10 @@ export async function checkShinagawaAvailability(
     
     const isAvailable = currentStatus === '○' || currentStatus === '取';
     
-    console.log(`[Shinagawa] Status for ${timeSlot} (${cellIdPattern}): ${currentStatus}`);
+    // 重要なステータス（取/○）のみログ出力（ログサイズ削減）
+    if (currentStatus === '取' || currentStatus === '○') {
+      console.log(`[Shinagawa] ⚡ ${currentStatus} 検知: ${facilityId}, ${date}, ${timeSlot}`);
+    }
     
     return {
       available: isAvailable,
@@ -246,7 +250,8 @@ export async function checkMinatoAvailability(
   sessionId?: string | null  // 既存セッションIDを受け取る（省略時は自動ログイン）
 ): Promise<AvailabilityResult> {
   try {
-    console.log(`[Minato] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
+    // ログサイズ削減のため詳細ログを無効化
+    // console.log(`[Minato] Checking availability: ${facilityId}, ${date}, ${timeSlot}`);
     
     // 既に予約済み（キャンセル済み除く）かチェック
     const isAlreadyReserved = existingReservations?.some(
@@ -310,7 +315,10 @@ export async function checkMinatoAvailability(
     const currentStatus = statusMatch ? statusMatch[1] : '×';
     const isAvailable = currentStatus === '○';
     
-    console.log(`[Minato] Status for ${timeSlot}: ${currentStatus}`);
+    // 空きのみログ出力（ログサイズ削減）
+    if (currentStatus === '○') {
+      console.log(`[Minato] ⚡ ○ 検知: ${facilityId}, ${date}, ${timeSlot}`);
+    }
     
     return {
       available: isAvailable,

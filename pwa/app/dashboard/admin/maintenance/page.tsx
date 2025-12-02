@@ -43,6 +43,7 @@ export default function AdminMaintenancePage() {
 
   useEffect(() => {
     if (isAdmin) {
+      loadMaintenanceStatus();
       loadSystemHealth();
     }
   }, [isAdmin]);

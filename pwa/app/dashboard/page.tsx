@@ -16,6 +16,18 @@ interface Stats {
   successRate: number;
 }
 
+interface MaintenanceStatus {
+  maintenanceMode: {
+    enabled: boolean;
+    message: string;
+  };
+  monitoring: {
+    total: number;
+    active: number;
+    paused: number;
+  };
+}
+
 interface MonitoringGroup {
   key: string;
   site: 'shinagawa' | 'minato';
@@ -78,10 +90,21 @@ export default function DashboardHome() {
     total: number;
     action: string;
   }>({ show: false, current: 0, total: 0, action: '' });
+  const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceStatus | null>(null);
 
   useEffect(() => {
     loadData();
+    loadMaintenanceStatus();
   }, []);
+
+  const loadMaintenanceStatus = async () => {
+    try {
+      const response = await apiClient.getMaintenanceStatus();
+      setMaintenanceStatus(response);
+    } catch (error) {
+      console.error('Failed to load maintenance status:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -251,6 +274,28 @@ export default function DashboardHome() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4 lg:space-y-8">
+      {/* メンテナンスモード警告 */}
+      {maintenanceStatus?.maintenanceMode.enabled && (
+        <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded-lg shadow-md">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-orange-800 font-semibold text-lg">🛠️ システムメンテナンス中</h3>
+              <p className="text-orange-700 mt-1">
+                {maintenanceStatus.maintenanceMode.message}
+              </p>
+              <p className="text-orange-600 text-sm mt-2">
+                現在、自動監視処理は一時停止しています。管理者による作業完了後、自動的に再開されます。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ヘッダー */}
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">

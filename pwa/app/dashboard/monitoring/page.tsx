@@ -22,6 +22,7 @@ interface MonitoringTarget {
   facilityId: string;
   facilityName: string;
   date: string;
+  dateMode?: 'single' | 'range' | 'continuous';
   timeSlots: string[];
   priority: number;
   status: 'active' | 'paused' | 'monitoring' | 'detected' | 'reserved' | 'failed';
@@ -67,10 +68,22 @@ export default function MonitoringPage() {
     { id: 6, label: '土', fullLabel: '土曜日' },
   ];
 
-  // 施設リスト（API取得で動的に設定）
+  // 施設リスト（コート単位で管理）
+  interface CourtInfo {
+    courtId: string;      // コートのID (例: "10100010")
+    courtName: string;    // コート名 (例: "庭球場A")
+    fullName: string;     // 完全な名前 (例: "しながわ中央公園 庭球場A")
+  }
+  
+  interface BuildingInfo {
+    buildingId: string;   // 建物のベースID (例: "1010")
+    buildingName: string; // 建物名 (例: "しながわ中央公園")
+    courts: CourtInfo[];  // コート一覧
+  }
+  
   const [facilities, setFacilities] = useState<{
-    shinagawa: Array<{ id: string; name: string; courts?: string; facilityIds?: string[] }>;
-    minato: Array<{ id: string; name: string; courts?: string; facilityIds?: string[] }>;
+    shinagawa: BuildingInfo[];
+    minato: BuildingInfo[];
   }>({
     shinagawa: [],
     minato: [],
@@ -186,40 +199,52 @@ export default function MonitoringPage() {
   };
 
   // 施設をグループ化してコンパクト表示用のデータを生成
-  const groupFacilitiesByBuilding = (facilities: Array<{ id: string; name: string; courts?: string }>) => {
-    const grouped = new Map<string, { baseName: string; courts: string[]; ids: string[] }>();
+  const groupFacilitiesByBuilding = (facilities: Array<{ id: string; name: string; courts?: string }>): BuildingInfo[] => {
+    const grouped = new Map<string, { 
+      buildingName: string; 
+      courts: Array<{ courtId: string; courtName: string; fullName: string }>; 
+    }>();
     
     facilities.forEach(facility => {
       // 施設名から基本名とコート名を抽出
-      // パターン1: "しながわ中央公園 庭球場Ａ" → baseName: "しながわ中央公園", court: "Ａ"
-      // パターン2: "麻布運動公園 テニスコートＡ" → baseName: "麻布運動公園", court: "Ａ"
-      const match = facility.name.match(/^(.+?)\s+(?:庭球場|テニスコート)\s*([A-ZＡ-Ｚa-zａ-ｚ０-９0-9]+)$/);
+      // パターン: "しながわ中央公園 庭球場Ａ" または "麻布運動公園テニスコートＡ"
+      // スペースあり・なし両方に対応し、全角・半角英数字に対応
+      const match = facility.name.match(/^(.+?)(庭球場|テニスコート)\s*([A-ZＡ-Ｚa-zａ-ｚ０-９0-9]+)$/);
       
       if (match) {
-        const [, baseName, courtName] = match;
+        const [, buildingName, courtType, courtName] = match;
+        // 建物名の末尾スペースを削除
+        const trimmedBuildingName = buildingName.trim();
+        
         // 全角英数字を半角に変換
         const normalizedCourtName = courtName
-          .replace(/[Ａ-Ｚ]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+          .replace(/[Ａ-Ｚａ-ｚ]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
           .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
         
-        const existing = grouped.get(baseName);
+        const existing = grouped.get(trimmedBuildingName);
+        const courtInfo = {
+          courtId: facility.id,
+          courtName: `${courtType}${normalizedCourtName}`,
+          fullName: facility.name,
+        };
         
         if (existing) {
-          existing.courts.push(normalizedCourtName);
-          existing.ids.push(facility.id);
+          existing.courts.push(courtInfo);
         } else {
-          grouped.set(baseName, {
-            baseName,
-            courts: [normalizedCourtName],
-            ids: [facility.id],
+          grouped.set(trimmedBuildingName, {
+            buildingName: trimmedBuildingName,
+            courts: [courtInfo],
           });
         }
       } else {
-        // パターンにマッチしない場合はそのまま表示
-        grouped.set(facility.id, {
-          baseName: facility.name,
-          courts: [],
-          ids: [facility.id],
+        // パターンにマッチしない場合は単一コートとして扱う
+        grouped.set(facility.name, {
+          buildingName: facility.name,
+          courts: [{
+            courtId: facility.id,
+            courtName: facility.name,
+            fullName: facility.name,
+          }],
         });
       }
     });
@@ -227,30 +252,27 @@ export default function MonitoringPage() {
     return Array.from(grouped.values()).map(group => {
       // コート名をソート（A, B, C, D...の順）
       const sortedCourts = group.courts.sort((a, b) => {
-        // 数字部分と文字部分を分離してソート
-        const aMatch = a.match(/([A-Z]+)(\d*)/);
-        const bMatch = b.match(/([A-Z]+)(\d*)/);
+        // コート名から英字部分を抽出してソート
+        const aMatch = a.courtName.match(/([A-Z]+)(\d*)/);
+        const bMatch = b.courtName.match(/([A-Z]+)(\d*)/);
         if (aMatch && bMatch) {
           const letterCompare = aMatch[1].localeCompare(bMatch[1]);
           if (letterCompare !== 0) return letterCompare;
           return (parseInt(aMatch[2]) || 0) - (parseInt(bMatch[2]) || 0);
         }
-        return a.localeCompare(b);
+        return a.courtName.localeCompare(b.courtName);
       });
       
+      // 建物IDは最初のコートIDから推測（品川区の場合は上4桁）
+      const buildingId = sortedCourts[0].courtId.substring(0, 4);
+      
       return {
-        id: group.ids.join(','), // 複数IDをカンマ区切りで保存
-        name: group.baseName,
-        courts: sortedCourts.length > 0 
-          ? `${sortedCourts.join('、')}（${sortedCourts.length}コート）` 
-          : undefined,
-        facilityIds: group.ids, // 個別のIDを保持
+        buildingId,
+        buildingName: group.buildingName,
+        courts: sortedCourts,
       };
     });
   };
-
-  // 元の施設データを保持（facilityId → facilityName のマッピング）
-  const [facilityNameMap, setFacilityNameMap] = useState<Map<string, string>>(new Map());
 
   const loadFacilities = async () => {
     try {
@@ -259,18 +281,8 @@ export default function MonitoringPage() {
         apiClient.getMinatoFacilities(),
       ]);
 
-      const nameMap = new Map<string, string>();
-
       if (shinagawaRes.success && shinagawaRes.data?.length > 0) {
         console.log('品川区APIレスポンス:', shinagawaRes.data);
-        // 元の施設名をマップに保存
-        shinagawaRes.data.forEach((f: { facilityId?: string; id?: string; facilityName?: string; name?: string }) => {
-          const id = f.facilityId || f.id || '';
-          const name = f.facilityName || f.name || '';
-          if (id && name) {
-            nameMap.set(id, name);
-          }
-        });
         
         const transformedData = shinagawaRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
@@ -284,14 +296,6 @@ export default function MonitoringPage() {
       }
       if (minatoRes.success && minatoRes.data?.length > 0) {
         console.log('港区APIレスポンス:', minatoRes.data);
-        // 元の施設名をマップに保存
-        minatoRes.data.forEach((f: { facilityId?: string; id?: string; facilityName?: string; name?: string }) => {
-          const id = f.facilityId || f.id || '';
-          const name = f.facilityName || f.name || '';
-          if (id && name) {
-            nameMap.set(id, name);
-          }
-        });
         
         const transformedData = minatoRes.data.map((f: { facilityId?: string; id?: string; facilityName?: string; name?: string; courts?: string }) => ({
           id: f.facilityId || f.id || '',
@@ -303,8 +307,6 @@ export default function MonitoringPage() {
         console.log('グループ化後:', groupedData);
         setFacilities(prev => ({ ...prev, minato: groupedData }));
       }
-
-      setFacilityNameMap(nameMap);
     } catch (err) {
       console.error('Failed to load facilities:', err);
     }
@@ -444,6 +446,50 @@ export default function MonitoringPage() {
     return duplicates;
   };
 
+  // サブリクエスト数を計算する関数
+  const calculateSubrequests = (targets: MonitoringTarget[], newConfig: typeof config): number => {
+    // 既存のターゲット分を計算
+    let existingRequests = 0;
+    targets.forEach(target => {
+      const timeSlotCount = target.timeSlots?.length || 1;
+      
+      if (target.dateMode === 'continuous' || target.dateMode === 'range') {
+        // 週間取得を使用: 7日×時間帯数 / 7日 = 時間帯数（週単位で1リクエスト）
+        // 予約可能期間が3ヶ月(90日)の場合: 90日 / 7 = 約13週
+        const weeksToMonitor = 13; // 3ヶ月分
+        existingRequests += weeksToMonitor * timeSlotCount;
+      } else {
+        // 単一日付: 1日×時間帯数
+        existingRequests += timeSlotCount;
+      }
+    });
+    
+    // 新規追加分を計算
+    let newRequests = 0;
+    const newTimeSlotCount = newConfig.timeSlots.length;
+    const newFacilityCount = newConfig.selectedFacilities.length;
+    
+    if (newConfig.dateMode === 'continuous') {
+      // 継続監視: 3ヶ月分の週間取得
+      const weeksToMonitor = 13;
+      newRequests = newFacilityCount * weeksToMonitor * newTimeSlotCount;
+    } else if (newConfig.dateMode === 'range') {
+      // 期間指定: 指定期間の週数×時間帯数
+      const start = new Date(newConfig.startDate);
+      const end = new Date(newConfig.endDate);
+      const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      const weeks = Math.ceil(days / 7);
+      newRequests = newFacilityCount * weeks * newTimeSlotCount;
+    } else {
+      // 単一日付: 1日×時間帯数×施設数
+      newRequests = newFacilityCount * newTimeSlotCount;
+    }
+    
+    const totalRequests = existingRequests + newRequests;
+    console.log('[Subrequest] 既存:', existingRequests, '新規:', newRequests, '合計:', totalRequests);
+    return totalRequests;
+  };
+
   const handleStart = async () => {
     try {
       setIsLoading(true);
@@ -468,6 +514,43 @@ export default function MonitoringPage() {
       const existingResponse = await apiClient.getMonitoringList();
       const existingTargets = existingResponse.data || [];
       console.log('[Monitoring] 既存ターゲット数:', existingTargets.length);
+      
+      // 🔥 サブリクエスト数チェック
+      const totalSubrequests = calculateSubrequests(existingTargets, config);
+      if (totalSubrequests > 1000) {
+        const over = totalSubrequests - 1000;
+        const confirmed = confirm(
+          `⚠️ Cloudflare Workers のサブリクエスト上限を超えています！\n\n` +
+          `現在の設定では1回の監視で約${totalSubrequests}リクエスト必要です。\n` +
+          `（上限: 1000リクエスト、超過: ${over}リクエスト）\n\n` +
+          `このまま続行すると監視が正常に動作しない可能性があります。\n\n` +
+          `【推奨対応】\n` +
+          `・監視施設数を減らす\n` +
+          `・時間帯を絞る\n` +
+          `・監視期間を短くする\n\n` +
+          `それでも続行しますか？`
+        );
+        
+        if (!confirmed) {
+          console.log('[Monitoring] サブリクエスト超過によりキャンセル');
+          setIsLoading(false);
+          return;
+        }
+      } else if (totalSubrequests > 800) {
+        // 80%を超えたら警告
+        const confirmed = confirm(
+          `⚠️ サブリクエスト数が上限に近づいています\n\n` +
+          `現在の設定では1回の監視で約${totalSubrequests}リクエスト必要です。\n` +
+          `（上限: 1000リクエスト、残り: ${1000 - totalSubrequests}リクエスト）\n\n` +
+          `続行しますか？`
+        );
+        
+        if (!confirmed) {
+          console.log('[Monitoring] ユーザーがキャンセル');
+          setIsLoading(false);
+          return;
+        }
+      }
       
       const duplicates = checkDuplicates(config.selectedFacilities, existingTargets);
 
@@ -1253,12 +1336,12 @@ export default function MonitoringPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            // facilityIdsを使って全施設を追加
-                            const shinagawaFacilities = facilities.shinagawa.flatMap(f => 
-                              (f.facilityIds || [f.id]).map(fid => ({
+                            // 全コートを追加
+                            const shinagawaFacilities = facilities.shinagawa.flatMap(building => 
+                              building.courts.map(court => ({
                                 site: 'shinagawa' as const,
-                                id: fid,
-                                name: f.name,
+                                id: court.courtId,
+                                name: court.fullName,
                               }))
                             );
                             const otherFacilities = config.selectedFacilities.filter(f => f.site !== 'shinagawa');
@@ -1280,62 +1363,91 @@ export default function MonitoringPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2">
-                      {facilities.shinagawa.map((facility) => (
-                        <label
-                          key={facility.id}
-                          className="flex items-center gap-2 p-2 hover:bg-emerald-50 rounded cursor-pointer transition"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              // facilityIdsの全てが選択されているかチェック
-                              facility.facilityIds?.every(fid => 
-                                config.selectedFacilities.some(f => f.site === 'shinagawa' && f.id === fid)
-                              ) ?? false
-                            }
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                // 常にfacilityIdsを使用（存在しない場合は空配列）
-                                const facilityIds = facility.facilityIds || [];
-                                if (facilityIds.length === 0) {
-                                  console.warn(`[Monitoring] 施設IDが見つかりません: ${facility.name}`);
-                                  return;
-                                }
+                    <div className="grid grid-cols-1 gap-3 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-3">
+                      {facilities.shinagawa.map((building) => (
+                        <div key={building.buildingId} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                          {/* 建物名ヘッダー */}
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-medium text-gray-700">{building.buildingName}</h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const buildingCourtIds = building.courts.map(c => c.courtId);
+                                const allSelected = buildingCourtIds.every(cid =>
+                                  config.selectedFacilities.some(f => f.site === 'shinagawa' && f.id === cid)
+                                );
                                 
-                                const newFacilities = facilityIds.map(fid => ({
-                                  site: 'shinagawa' as const,
-                                  id: fid,
-                                  name: facilityNameMap.get(fid) || facility.name,  // 個別の施設名を使用
-                                }));
-                                setConfig({
-                                  ...config,
-                                  selectedFacilities: [...config.selectedFacilities, ...newFacilities],
-                                });
-                              } else {
-                                // facilityIdsに含まれる全てのIDを削除
-                                const idsToRemove = facility.facilityIds || [];
-                                setConfig({
-                                  ...config,
-                                  selectedFacilities: config.selectedFacilities.filter(
-                                    f => !(f.site === 'shinagawa' && idsToRemove.includes(f.id))
-                                  ),
-                                });
-                              }
-                            }}
-                            className="w-4 h-4 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500"
-                          />
-                          <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">{facility.name}</div>
-                            {facility.courts && (
-                              <div className="text-xs text-gray-500 mt-0.5">{facility.courts}</div>
-                            )}
+                                if (allSelected) {
+                                  // 全て選択済み → 解除
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: config.selectedFacilities.filter(
+                                      f => !(f.site === 'shinagawa' && buildingCourtIds.includes(f.id))
+                                    ),
+                                  });
+                                } else {
+                                  // 一部または未選択 → 全選択
+                                  const newFacilities = building.courts.map(court => ({
+                                    site: 'shinagawa' as const,
+                                    id: court.courtId,
+                                    name: court.fullName,
+                                  }));
+                                  const otherFacilities = config.selectedFacilities.filter(
+                                    f => !(f.site === 'shinagawa' && buildingCourtIds.includes(f.id))
+                                  );
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: [...otherFacilities, ...newFacilities],
+                                  });
+                                }
+                              }}
+                              className="text-xs px-2 py-0.5 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded transition"
+                            >
+                              全{building.courts.length}コート
+                            </button>
                           </div>
-                        </label>
+                          
+                          {/* コートリスト */}
+                          <div className="grid grid-cols-2 gap-2 pl-2">
+                            {building.courts.map((court) => (
+                              <label
+                                key={court.courtId}
+                                className="flex items-center gap-2 p-1.5 hover:bg-emerald-50 rounded cursor-pointer transition text-xs"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={config.selectedFacilities.some(
+                                    f => f.site === 'shinagawa' && f.id === court.courtId
+                                  )}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setConfig({
+                                        ...config,
+                                        selectedFacilities: [
+                                          ...config.selectedFacilities,
+                                          { site: 'shinagawa', id: court.courtId, name: court.fullName },
+                                        ],
+                                      });
+                                    } else {
+                                      setConfig({
+                                        ...config,
+                                        selectedFacilities: config.selectedFacilities.filter(
+                                          f => !(f.site === 'shinagawa' && f.id === court.courtId)
+                                        ),
+                                      });
+                                    }
+                                  }}
+                                  className="w-3.5 h-3.5 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500 shrink-0"
+                                />
+                                <span className="text-gray-900">{court.courtName}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                     <p className="text-xs text-gray-500 mt-2 px-2">
-                      ℹ️ 館を選択すると、その館の全コートを監視します
+                      ℹ️ 各コートを個別に選択できます。建物名の右のボタンで一括選択も可能です。
                     </p>
                   </div>
                 )}
@@ -1349,12 +1461,12 @@ export default function MonitoringPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            // facilityIdsを使って全施設を追加
-                            const minatoFacilities = facilities.minato.flatMap(f => 
-                              (f.facilityIds || [f.id]).map(fid => ({
+                            // 全コートを追加
+                            const minatoFacilities = facilities.minato.flatMap(building => 
+                              building.courts.map(court => ({
                                 site: 'minato' as const,
-                                id: fid,
-                                name: f.name,
+                                id: court.courtId,
+                                name: court.fullName,
                               }))
                             );
                             const otherFacilities = config.selectedFacilities.filter(f => f.site !== 'minato');
@@ -1376,62 +1488,91 @@ export default function MonitoringPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2">
-                      {facilities.minato.map((facility) => (
-                        <label
-                          key={facility.id}
-                          className="flex items-center gap-2 p-2 hover:bg-blue-50 rounded cursor-pointer transition"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              // facilityIdsの全てが選択されているかチェック
-                              facility.facilityIds?.every(fid => 
-                                config.selectedFacilities.some(f => f.site === 'minato' && f.id === fid)
-                              ) ?? false
-                            }
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                // 常にfacilityIdsを使用（存在しない場合は空配列）
-                                const facilityIds = facility.facilityIds || [];
-                                if (facilityIds.length === 0) {
-                                  console.warn(`[Monitoring] 施設IDが見つかりません: ${facility.name}`);
-                                  return;
-                                }
+                    <div className="grid grid-cols-1 gap-3 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-3">
+                      {facilities.minato.map((building) => (
+                        <div key={building.buildingId} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                          {/* 建物名ヘッダー */}
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-medium text-gray-700">{building.buildingName}</h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const buildingCourtIds = building.courts.map(c => c.courtId);
+                                const allSelected = buildingCourtIds.every(cid =>
+                                  config.selectedFacilities.some(f => f.site === 'minato' && f.id === cid)
+                                );
                                 
-                                const newFacilities = facilityIds.map(fid => ({
-                                  site: 'minato' as const,
-                                  id: fid,
-                                  name: facilityNameMap.get(fid) || facility.name,  // 個別の施設名を使用
-                                }));
-                                setConfig({
-                                  ...config,
-                                  selectedFacilities: [...config.selectedFacilities, ...newFacilities],
-                                });
-                              } else {
-                                // facilityIdsに含まれる全てのIDを削除
-                                const idsToRemove = facility.facilityIds || [];
-                                setConfig({
-                                  ...config,
-                                  selectedFacilities: config.selectedFacilities.filter(
-                                    f => !(f.site === 'minato' && idsToRemove.includes(f.id))
-                                  ),
-                                });
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                          />
-                          <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">{facility.name}</div>
-                            {facility.courts && (
-                              <div className="text-xs text-gray-500 mt-0.5">{facility.courts}</div>
-                            )}
+                                if (allSelected) {
+                                  // 全て選択済み → 解除
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: config.selectedFacilities.filter(
+                                      f => !(f.site === 'minato' && buildingCourtIds.includes(f.id))
+                                    ),
+                                  });
+                                } else {
+                                  // 一部または未選択 → 全選択
+                                  const newFacilities = building.courts.map(court => ({
+                                    site: 'minato' as const,
+                                    id: court.courtId,
+                                    name: court.fullName,
+                                  }));
+                                  const otherFacilities = config.selectedFacilities.filter(
+                                    f => !(f.site === 'minato' && buildingCourtIds.includes(f.id))
+                                  );
+                                  setConfig({
+                                    ...config,
+                                    selectedFacilities: [...otherFacilities, ...newFacilities],
+                                  });
+                                }
+                              }}
+                              className="text-xs px-2 py-0.5 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded transition"
+                            >
+                              全{building.courts.length}コート
+                            </button>
                           </div>
-                        </label>
+                          
+                          {/* コートリスト */}
+                          <div className="grid grid-cols-2 gap-2 pl-2">
+                            {building.courts.map((court) => (
+                              <label
+                                key={court.courtId}
+                                className="flex items-center gap-2 p-1.5 hover:bg-blue-50 rounded cursor-pointer transition text-xs"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={config.selectedFacilities.some(
+                                    f => f.site === 'minato' && f.id === court.courtId
+                                  )}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setConfig({
+                                        ...config,
+                                        selectedFacilities: [
+                                          ...config.selectedFacilities,
+                                          { site: 'minato', id: court.courtId, name: court.fullName },
+                                        ],
+                                      });
+                                    } else {
+                                      setConfig({
+                                        ...config,
+                                        selectedFacilities: config.selectedFacilities.filter(
+                                          f => !(f.site === 'minato' && f.id === court.courtId)
+                                        ),
+                                      });
+                                    }
+                                  }}
+                                  className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 shrink-0"
+                                />
+                                <span className="text-gray-900">{court.courtName}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                     <p className="text-xs text-gray-500 mt-2 px-2">
-                      ℹ️ 館を選択すると、その館の全コートを監視します
+                      ℹ️ 各コートを個別に選択できます。建物名の右のボタンで一括選択も可能です。
                     </p>
                   </div>
                 )}
@@ -2096,6 +2237,84 @@ export default function MonitoringPage() {
                     )}
                   </div>
                 </div>
+
+                {/* サブリクエスト数の警告 */}
+                {currentStep === 3 && config.selectedFacilities.length > 0 && config.timeSlots.length > 0 && (() => {
+                  const estimatedRequests = (() => {
+                    const timeSlotCount = config.timeSlots.length;
+                    const facilityCount = config.selectedFacilities.length;
+                    
+                    if (config.dateMode === 'continuous') {
+                      // 継続監視: 3ヶ月分の週間取得
+                      const weeksToMonitor = 13;
+                      return facilityCount * weeksToMonitor * timeSlotCount;
+                    } else if (config.dateMode === 'range') {
+                      // 期間指定: 指定期間の週数×時間帯数
+                      const start = new Date(config.startDate);
+                      const end = new Date(config.endDate);
+                      const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+                      const weeks = Math.ceil(days / 7);
+                      return facilityCount * weeks * timeSlotCount;
+                    } else {
+                      // 単一日付: 1日×時間帯数×施設数
+                      return facilityCount * timeSlotCount;
+                    }
+                  })();
+                  
+                  const percentage = (estimatedRequests / 1000) * 100;
+                  
+                  return (
+                    <div className="mt-4">
+                      {estimatedRequests > 1000 ? (
+                        <div className="p-3 bg-red-100 border border-red-300 rounded-lg">
+                          <div className="flex items-start gap-2 text-sm text-red-800">
+                            <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div>
+                              <div className="font-bold mb-1">⚠️ 上限超過エラー</div>
+                              <div className="text-xs">
+                                予想リクエスト数: <span className="font-bold">{estimatedRequests}</span> / 1000
+                                <br />
+                                この設定では監視が正常に動作しません。施設数・時間帯・期間を減らしてください。
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : estimatedRequests > 800 ? (
+                        <div className="p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
+                          <div className="flex items-start gap-2 text-sm text-yellow-800">
+                            <svg className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div>
+                              <div className="font-bold mb-1">注意</div>
+                              <div className="text-xs">
+                                予想リクエスト数: <span className="font-bold">{estimatedRequests}</span> / 1000 ({percentage.toFixed(0)}%)
+                                <br />
+                                上限に近づいています。監視が増えると上限を超える可能性があります。
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="flex items-start gap-2 text-sm text-blue-700">
+                            <svg className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                              <div className="font-medium mb-1">リクエスト数</div>
+                              <div className="text-xs">
+                                予想: <span className="font-bold">{estimatedRequests}</span> / 1000 ({percentage.toFixed(0)}%)
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* 設定完了メッセージ */}
                 {canProceedStep1 && canProceedStep2 && currentStep === 3 && (

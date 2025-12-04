@@ -16,6 +16,56 @@ export interface AvailabilityResult {
   changedToAvailable: boolean;
 }
 
+/**
+ * 予約に必要なコンテキスト情報（週間カレンダーから抽出）
+ */
+export interface ReservationContext {
+  selectBldCd?: string;      // 建物コード
+  selectBldName?: string;    // 建物名
+  selectInstCd?: string;     // 施設コード
+  selectInstName?: string;   // 施設名
+  selectPpsClsCd?: string;   // 目的分類コード
+  selectPpsCd?: string;      // 目的コード
+  viewDays?: string[];       // 7日分の日付（viewDay1〜viewDay7）
+  displayNo?: string;        // 画面ID
+  [key: string]: any;        // その他のフォームフィールド
+}
+
+/**
+ * 週単位の空き状況結果
+ * キー: "YYYY-MM-DD_HH:MM" 形式（例: "2026-01-14_09:00"）
+ * 値: ステータス（"○", "×", "取", "△", "受付期間外"）
+ */
+export interface WeeklyAvailabilityResult {
+  facilityId: string;
+  facilityName: string;
+  weekStartDate: string;  // 週の開始日（検索基準日）
+  availability: Map<string, string>;  // "YYYY-MM-DD_HH:MM" -> status
+  fetchedAt: number;
+  reservationContext?: ReservationContext;  // 予約に必要なコンテキスト情報
+}
+
+// 品川区: 時間帯コード → 時間帯文字列のマッピング
+export const SHINAGAWA_TIMESLOT_MAP: { [code: number]: string } = {
+  10: '09:00',
+  20: '11:00',
+  30: '13:00',
+  40: '15:00',
+  50: '17:00',
+  60: '19:00',
+};
+
+// 港区: 時間帯コード → 時間帯文字列のマッピング
+export const MINATO_TIMESLOT_MAP: { [code: number]: string } = {
+  10: '08:00',
+  20: '10:00',
+  30: '12:00',
+  40: '13:00',
+  50: '15:00',
+  60: '17:00',
+  70: '19:00',
+};
+
 export interface SessionData {
   sessionId: string;
   site: 'shinagawa' | 'minato';
@@ -122,6 +172,261 @@ export async function loginToShinagawa(userId: string, password: string): Promis
   } catch (error) {
     console.error('Shinagawa: Login error:', error);
     return null;
+  }
+}
+
+/**
+ * 品川区の1週間分の空き状況を一括取得
+ * 既存のcheckShinagawaAvailability関数を使用し、週の各日を取得
+ * （サイトがエラーページを返す場合のフォールバック実装）
+ */
+export async function checkShinagawaWeeklyAvailability(
+  facilityId: string,
+  weekStartDate: string,  // YYYY-MM-DD形式の週開始日
+  sessionId: string
+): Promise<WeeklyAvailabilityResult> {
+  const availability = new Map<string, string>();
+  const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+  
+  try {
+    // YYYY-MM-DD → YYYYMMDD
+    const useDay = weekStartDate.replace(/-/g, '');
+    const today = new Date().toISOString().split('T')[0];
+    
+    // HARファイルから判明した正しいPOSTパラメータ
+    const formData = new URLSearchParams({
+      date: '4',
+      daystart: today,
+      days: '31',
+      dayofweekClearFlg: '1',
+      timezoneClearFlg: '1',
+      selectAreaBcd: '1500_0', // 地域コード（必要に応じて調整）
+      selectIcd: '',
+      selectPpsClPpscd: '31000000_31011700', // テニス目的
+      displayNo: 'prwrc2000',
+      displayNoFrm: 'prwrc2000',
+      selectInstCd: facilityId,
+      useDay: useDay,
+      selectPpsClsCd: '31000000',
+      selectPpsCd: '31011700',
+      applyFlg: '0',
+    });
+    
+    console.log(`[Shinagawa Weekly] POST to rsvWOpeInstSrchVacantAction.do with facilityId=${facilityId}, useDay=${useDay}`);
+    
+    // 空き状況カレンダーを取得（POST送信）
+    const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Referer': 'https://www.cm9.eprs.jp/shinagawa/web/rsvWUserAttestationLoginAction.do',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      },
+      body: formData.toString(),
+    });
+    
+    const htmlText = await searchResponse.text();
+    
+    // ログイン失敗チェック
+    if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
+      throw new Error('Login failed or session expired');
+    }
+    
+    // エラーページチェック（pawfa1000.jsp はエラーページ）
+    if (htmlText.includes('pawfa1000') || htmlText.length < 10000) {
+      console.log(`[Shinagawa Weekly] ERROR: Got error page. HTML length: ${htmlText.length}`);
+      throw new Error('Session state invalid - got error page');
+    }
+    
+    console.log(`[Shinagawa Weekly] Response length: ${htmlText.length} bytes`);
+    
+    // カレンダーのセルを全てパース
+    // HARファイルから判明したセルID形式: id="YYYYMMDD_HHMM-HHMM" (例: id="20251217_0600-0800")
+    const cellPattern = /<td[^>]*id="(\d{8})_([\d]{4}-[\d]{4})"[^>]*>([\s\S]*?)<\/td>/gi;
+    let match;
+    let foundCells = 0;
+    
+    while ((match = cellPattern.exec(htmlText)) !== null) {
+      const dateStr = match[1]; // "20251217"
+      const timeCode = match[2]; // "0600-0800"
+      const cellContent = match[3];
+      
+      foundCells++;
+      
+      // 時間帯コードを時間帯文字列に変換（既に正しい形式）
+      const timeSlot = timeCode;
+      
+      // 日付をYYYY-MM-DD形式に変換
+      const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+      
+      // ステータスを判定（○, ×, 取）
+      let status = '×';
+      if (cellContent.includes('○')) {
+        status = '○';
+      } else if (cellContent.includes('取')) {
+        status = '取';
+      } else if (cellContent.includes('×')) {
+        status = '×';
+      }
+      
+      // キー: "YYYY-MM-DD_HH:MM-HH:MM"
+      const key = `${formattedDate}_${timeSlot}`;
+      availability.set(key, status);
+      
+      // 重要なステータスのみログ（ログサイズ削減）
+      if (status === '○' || status === '取') {
+        console.log(`[Shinagawa Weekly] ⚡ ${status}: ${key}`);
+      }
+    }
+    
+    console.log(`[Shinagawa Weekly] Found ${foundCells} cells in calendar`);
+    
+    // HTMLから予約に必要なフォーム情報を抽出
+    const reservationContext: ReservationContext = {};
+    
+    // hidden fieldsを抽出（正規表現で取得）
+    const extractField = (name: string): string | undefined => {
+      const match = htmlText.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`, 'i'));
+      return match ? match[1] : undefined;
+    };
+    
+    reservationContext.selectBldCd = extractField('selectBldCd');
+    reservationContext.selectBldName = extractField('selectBldName');
+    reservationContext.selectInstCd = extractField('selectInstCd') || facilityId;
+    reservationContext.selectInstName = extractField('selectInstName');
+    reservationContext.selectPpsClsCd = extractField('selectPpsClsCd') || '31000000';
+    reservationContext.selectPpsCd = extractField('selectPpsCd') || '31011700';
+    reservationContext.displayNo = 'prwrc2000';
+    
+    // viewDay1〜viewDay7を抽出
+    const viewDays: string[] = [];
+    for (let i = 1; i <= 7; i++) {
+      const viewDay = extractField(`viewDay${i}`);
+      if (viewDay) viewDays.push(viewDay);
+    }
+    reservationContext.viewDays = viewDays;
+    
+    // その他のフォームフィールドも抽出
+    const additionalFields = [
+      'date', 'daystart', 'days', 'dayofweekClearFlg', 'timezoneClearFlg',
+      'selectAreaBcd', 'selectIcd', 'selectPpsClPpscd', 'displayNoFrm',
+      'useDay', 'applyFlg'
+    ];
+    
+    additionalFields.forEach(field => {
+      const value = extractField(field);
+      if (value) reservationContext[field] = value;
+    });
+    
+    console.log(`[Shinagawa Weekly] Extracted context: selectBldCd=${reservationContext.selectBldCd}, selectInstCd=${reservationContext.selectInstCd}, viewDays=${viewDays.length}`);
+    
+    console.log(`[Shinagawa Weekly] 取得完了: ${facilityId} ${weekStartDate}〜 (${availability.size}セル)`);
+    
+    return {
+      facilityId,
+      facilityName: '品川区施設',
+      weekStartDate,
+      availability,
+      fetchedAt: Date.now(),
+      reservationContext,
+    };
+    
+  } catch (error: any) {
+    console.error('[Shinagawa Weekly] Error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * 港区の1週間分の空き状況を一括取得
+ * HTMLカレンダーから7日×7時間帯=最大49セルを一度に取得
+ */
+export async function checkMinatoWeeklyAvailability(
+  facilityId: string,
+  weekStartDate: string,  // YYYY-MM-DD形式の週開始日
+  sessionId: string
+): Promise<WeeklyAvailabilityResult> {
+  const availability = new Map<string, string>();
+  const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
+  
+  try {
+    // 空き状況カレンダーを取得（週単位表示）
+    const searchParams = new URLSearchParams({
+      'rsvWOpeInstSrchVacantForm.instCd': facilityId,
+      'rsvWOpeInstSrchVacantForm.srchDate': weekStartDate,
+    });
+    
+    const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do?${searchParams}`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Referer': `${baseUrl}/rsvWOpeInstMenuAction.do`,
+      },
+    });
+    
+    const htmlText = await searchResponse.text();
+    
+    // ログイン失敗チェック
+    if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
+      throw new Error('Login failed or session expired');
+    }
+    
+    // カレンダーのセルを全てパース
+    // セルID形式: id="YYYYMMDD_TimeCode" (例: id="20260114_10")
+    const cellPattern = /<td[^>]*id="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
+    let match;
+    
+    while ((match = cellPattern.exec(htmlText)) !== null) {
+      const dateStr = match[1]; // "20260114"
+      const timeCode = parseInt(match[2], 10); // 10, 20, 30, 40, 50, 60, 70
+      const cellContent = match[3];
+      
+      // 時間帯コードから時間帯文字列に変換
+      const timeSlot = MINATO_TIMESLOT_MAP[timeCode];
+      if (!timeSlot) continue; // 不明な時間帯コードはスキップ
+      
+      // 日付をYYYY-MM-DD形式に変換
+      const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+      
+      // ステータスを判定（港区は「取」なし）
+      let status = '×';
+      if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) {
+        status = '○';
+      } else if (cellContent.includes('alt="予約あり"') || cellContent.includes('calendar_full')) {
+        status = '×';
+      } else if (cellContent.includes('alt="一部空き"') || cellContent.includes('calendar_few-available')) {
+        status = '△';
+      } else if (cellContent.includes('alt="受付期間外"') || cellContent.includes('calendar_term_out')) {
+        status = '受付期間外';
+      }
+      
+      // キー: "YYYY-MM-DD_HH:MM"
+      const key = `${formattedDate}_${timeSlot}`;
+      availability.set(key, status);
+      
+      // 空きのみログ（ログサイズ削減）
+      if (status === '○') {
+        console.log(`[Minato Weekly] ⚡ ${status}: ${key}`);
+      }
+    }
+    
+    console.log(`[Minato Weekly] 取得完了: ${facilityId} ${weekStartDate}〜 (${availability.size}セル)`);
+    
+    return {
+      facilityId,
+      facilityName: '港区施設',
+      weekStartDate,
+      availability,
+      fetchedAt: Date.now(),
+    };
+    
+  } catch (error: any) {
+    console.error('[Minato Weekly] Error:', error.message);
+    throw error;
   }
 }
 
@@ -340,37 +645,103 @@ export async function makeShinagawaReservation(
   date: string,
   timeSlot: string,
   sessionId: string,
-  target: { applicantCount?: number }
+  target: { applicantCount?: number },
+  weeklyContext?: ReservationContext  // 週間カレンダー経由の予約用コンテキスト
 ): Promise<{ success: boolean; message: string }> {
   try {
-    console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
+    console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot} [weeklyContext: ${weeklyContext ? 'あり' : 'なし'}]`);
     
     // セッションIDを使用（自動ログイン不要）
     
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+    let instNo = '';
+    let dateNo = '';
+    let timeNo = '';
     
-    const searchParams = new URLSearchParams({
-      'rsvWOpeInstSrchVacantForm.instCd': facilityId,
-      'rsvWOpeInstSrchVacantForm.srchDate': date,
-    });
-    
-    const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do?${searchParams}`, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Cookie': `JSESSIONID=${sessionId}`,
-      },
-    });
-    
-    const searchHtml = await searchResponse.text();
-    
-    const linkMatch = searchHtml.match(/rsvWOpeReservedApplyAction\.do\?[^"]*instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
-    
-    if (!linkMatch) {
-      return { success: false, message: '予約対象が見つかりません' };
+    // 週間コンテキストがある場合は週間カレンダー経由の予約フロー
+    if (weeklyContext && weeklyContext.selectInstCd && weeklyContext.viewDays && weeklyContext.viewDays.length > 0) {
+      console.log(`[Shinagawa] Using weekly calendar context`);
+      
+      // 週間カレンダーのコンテキストを使って予約申込画面に遷移
+      const formattedDate = date.replace(/-/g, ''); // YYYYMMDD
+      
+      // 週間カレンダーから予約申込に遷移するPOSTリクエスト
+      const applyFormData = new URLSearchParams();
+      
+      // コンテキストから取得したパラメータを使用
+      if (weeklyContext.selectBldCd) applyFormData.append('selectBldCd', weeklyContext.selectBldCd);
+      if (weeklyContext.selectBldName) applyFormData.append('selectBldName', weeklyContext.selectBldName);
+      if (weeklyContext.selectInstCd) applyFormData.append('selectInstCd', weeklyContext.selectInstCd);
+      if (weeklyContext.selectInstName) applyFormData.append('selectInstName', weeklyContext.selectInstName);
+      applyFormData.append('useDay', formattedDate);
+      
+      // viewDay1〜viewDay7を設定
+      weeklyContext.viewDays.forEach((day, index) => {
+        applyFormData.append(`viewDay${index + 1}`, day);
+      });
+      
+      // その他の必須パラメータ
+      applyFormData.append('applyFlg', '1');  // 予約申込フラグ
+      applyFormData.append('selectPpsClsCd', weeklyContext.selectPpsClsCd || '31000000');
+      applyFormData.append('selectPpsCd', weeklyContext.selectPpsCd || '31011700');
+      applyFormData.append('displayNo', 'prwrc2000');
+      applyFormData.append('displayNoFrm', 'prwrc2000');
+      
+      // カレンダーから取得した他のパラメータも追加
+      const additionalParams = ['date', 'daystart', 'days', 'dayofweekClearFlg', 'timezoneClearFlg', 'selectAreaBcd', 'selectIcd', 'selectPpsClPpscd'];
+      additionalParams.forEach(param => {
+        if (weeklyContext[param]) applyFormData.append(param, weeklyContext[param]);
+      });
+      
+      console.log(`[Shinagawa] POST to apply page (weekly context)...`);
+      const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': `JSESSIONID=${sessionId}`,
+          'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15',
+        },
+        body: applyFormData.toString(),
+      });
+      
+      const applyHtml = await applyResponse.text();
+      
+      // instNo, dateNo, timeNoを抽出（利用規約画面から）
+      const linkMatch = applyHtml.match(/instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
+      if (!linkMatch) {
+        console.log('[Shinagawa] Failed to extract reservation params from weekly context');
+        return { success: false, message: '予約パラメータの取得に失敗しました' };
+      }
+      [, instNo, dateNo, timeNo] = linkMatch;
+      
+    } else {
+      // 従来の個別日付チェック方式（フォールバック）
+      console.log(`[Shinagawa] Using individual date check (fallback)`);
+      
+      const searchParams = new URLSearchParams({
+        'rsvWOpeInstSrchVacantForm.instCd': facilityId,
+        'rsvWOpeInstSrchVacantForm.srchDate': date,
+      });
+      
+      const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do?${searchParams}`, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Cookie': `JSESSIONID=${sessionId}`,
+        },
+      });
+      
+      const searchHtml = await searchResponse.text();
+      
+      const linkMatch = searchHtml.match(/rsvWOpeReservedApplyAction\.do\?[^"]*instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
+      
+      if (!linkMatch) {
+        return { success: false, message: '予約対象が見つかりません' };
+      }
+      
+      [, instNo, dateNo, timeNo] = linkMatch;
     }
-    
-    const [, instNo, dateNo, timeNo] = linkMatch;
     
     const applyParams = new URLSearchParams({ instNo, dateNo, timeNo });
     

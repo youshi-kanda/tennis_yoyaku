@@ -2,6 +2,8 @@ import { generateJWT, verifyJWT, hashPassword, verifyPassword, authenticate, req
 import {
   checkShinagawaAvailability,
   checkMinatoAvailability,
+  checkShinagawaWeeklyAvailability,
+  checkMinatoWeeklyAvailability,
   makeShinagawaReservation,
   makeMinatoReservation,
   getShinagawaFacilities,
@@ -2144,9 +2146,9 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
             target.intensiveMonitoringTimeSlot = undefined;
             await updateMonitoringTargetOptimized(target, 'intensive_success', env.MONITORING);
             
-            // 即座に予約
+            // 即座に予約（集中監視は個別チェックなのでweeklyContextなし）
             const tempTarget = { ...target, date: targetDate, timeSlot: targetTimeSlot };
-            await attemptReservation(tempTarget, env);
+            await attemptReservation(tempTarget, env, undefined);
             
             // プッシュ通知
             await sendPushNotification(target.userId, {
@@ -2231,67 +2233,109 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       return;
     }
 
-    // 🚀 並列処理で高速化: 今回の3日分のチェックを同時実行
-    const checkPromises: Promise<{date: string; timeSlot: string; result: AvailabilityResult}>[] = [];
+    // 🚀 週間一括取得で最適化: 日付を週単位にグループ化
+    const checkResults: Array<{ date: string; timeSlot: string; result: AvailabilityResult }> = [];
     
+    // 日付を週ごとにグループ化（月曜始まり）
+    const weekGroups = new Map<string, string[]>();
     for (const date of datesToCheckThisRun) {
-      for (const timeSlot of timeSlotsToCheck) {
-        const promise = (async () => {
-          let result: AvailabilityResult;
-
-          try {
-            if (target.site === 'shinagawa') {
-              result = await checkShinagawaAvailability(
-                target.facilityId,
-                date,
-                timeSlot,
-                credentials,
-                existingReservations,
-                sessionId  // セッションIDを渡す
-              );
-            } else {
-              result = await checkMinatoAvailability(
-                target.facilityId,
-                date,
-                timeSlot,
-                credentials,
-                existingReservations,
-                sessionId  // セッションIDを渡す
-              );
-            }
-          } catch (error: any) {
-            // ログイン失敗をキャッチしてプッシュ通知
-            if (error.message.includes('Login failed')) {
-              console.error(`[Check] Login failed for ${target.site}: ${error.message}`);
-              await sendPushNotification(target.userId, {
-                title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
-                body: 'ID・パスワードを確認してください',
-              }, env);
-            }
-            throw error;
-          }
-          
-          return { date, timeSlot, result };
-        })();
+      const d = new Date(date);
+      // 週の開始日（月曜日）を計算
+      const dayOfWeek = d.getDay();
+      const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // 日曜日の場合は前週の月曜、それ以外は今週の月曜
+      const monday = new Date(d);
+      monday.setDate(d.getDate() + diff);
+      const weekKey = monday.toISOString().split('T')[0];
+      
+      if (!weekGroups.has(weekKey)) {
+        weekGroups.set(weekKey, []);
+      }
+      weekGroups.get(weekKey)!.push(date);
+    }
+    
+    console.log(`[Check] 📅 ${datesToCheckThisRun.length}日を${weekGroups.size}週にグループ化`);
+    
+    // 週間カレンダーのコンテキストを保存（予約に使用）
+    const weeklyContextMap = new Map<string, any>();
+    
+    // 各週ごとに一括取得
+    for (const [weekStart, dates] of weekGroups.entries()) {
+      console.log(`[Check] 🚀 週間一括取得: ${weekStart}〜 (${dates.length}日分)`);
+      
+      try {
+        // 週間カレンダーを取得
+        const weeklyResult = await (target.site === 'shinagawa'
+          ? checkShinagawaWeeklyAvailability(target.facilityId, weekStart, sessionId!)
+          : checkMinatoWeeklyAvailability(target.facilityId, weekStart, sessionId!)
+        );
         
-        checkPromises.push(promise);
+        // 週間コンテキストを保存（予約に必要）
+        if (weeklyResult.reservationContext) {
+          weeklyContextMap.set(weekStart, weeklyResult.reservationContext);
+          console.log(`[Check] 📋 週間コンテキスト保存: ${weekStart}`);
+        }
+        
+        // 取得した週間データから必要な日付×時間帯を抽出
+        for (const date of dates) {
+          for (const timeSlot of timeSlotsToCheck) {
+            const key = `${date}_${timeSlot}`;
+            const status = weeklyResult.availability.get(key) || '×';
+            
+            // AvailabilityResult形式に変換
+            const result: AvailabilityResult = {
+              available: status === '○',
+              facilityId: target.facilityId,
+              facilityName: target.facilityName,
+              date: date,
+              timeSlot: timeSlot,
+              currentStatus: status,
+              changedToAvailable: false, // 週間取得では変化検知なし
+            };
+            
+            checkResults.push({ date, timeSlot, result });
+          }
+        }
+        
+        console.log(`[Check] ✅ 週間取得完了: ${weekStart}〜 (${weeklyResult.availability.size}セル取得)`);
+        
+      } catch (error: any) {
+        console.error(`[Check] ❌ 週間取得失敗: ${weekStart}〜 - ${error.message}`);
+        
+        // フォールバック: 個別チェックに切り替え
+        console.log(`[Check] 🔄 個別チェックにフォールバック`);
+        for (const date of dates) {
+          for (const timeSlot of timeSlotsToCheck) {
+            try {
+              let result: AvailabilityResult;
+              if (target.site === 'shinagawa') {
+                result = await checkShinagawaAvailability(
+                  target.facilityId,
+                  date,
+                  timeSlot,
+                  credentials,
+                  existingReservations,
+                  sessionId
+                );
+              } else {
+                result = await checkMinatoAvailability(
+                  target.facilityId,
+                  date,
+                  timeSlot,
+                  credentials,
+                  existingReservations,
+                  sessionId
+                );
+              }
+              checkResults.push({ date, timeSlot, result });
+            } catch (err: any) {
+              console.error(`[Check] 個別チェックもエラー: ${date} ${timeSlot} - ${err.message}`);
+            }
+          }
+        }
       }
     }
     
-    // 並列数を制限してバッチ処理（無料プランのCPU時間制限対策）
-    const BATCH_SIZE = 5; // 5件ずつ処理
-    const checkResults: Array<{ date: string; timeSlot: string; result: any }> = [];
-    
-    console.log(`[Check] 🚀 並列実行: ${checkPromises.length}件の空き状況チェック（バッチサイズ: ${BATCH_SIZE}）`);
-    
-    for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
-      const batch = checkPromises.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(batch);
-      checkResults.push(...batchResults);
-      console.log(`[Check] 📦 バッチ ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(checkPromises.length / BATCH_SIZE)} 完了 (${batchResults.length}件)`);
-    }
-    
-    console.log(`[Check] ✅ 並列実行完了: ${checkResults.length}件処理`);
+    console.log(`[Check] ✅ 全チェック完了: ${checkResults.length}件処理`);
     
     // 結果を処理
     for (const { date, timeSlot, result } of checkResults) {
@@ -2405,8 +2449,17 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
               console.log(`[Alert] 📌 空き枠収集: ${date} ${timeSlot} (priority_first モード)`);
             } else {
               // モードA: 即座に予約（全取得）
+              // 週間コンテキストを取得（対象日付の週の開始日から）
+              const d = new Date(date);
+              const dayOfWeek = d.getDay();
+              const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+              const monday = new Date(d);
+              monday.setDate(d.getDate() + diff);
+              const weekKey = monday.toISOString().split('T')[0];
+              const context = weeklyContextMap.get(weekKey);
+              
               const tempTarget = { ...target, date, timeSlot };
-              await attemptReservation(tempTarget, env);
+              await attemptReservation(tempTarget, env, context);
             }
           }
         }
@@ -2430,8 +2483,17 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       const selectedSlot = availableSlots[0];
       console.log(`[Alert] ✅ 選択: ${selectedSlot.date} ${selectedSlot.timeSlot}`);
       
+      // 週間コンテキストを取得
+      const d = new Date(selectedSlot.date);
+      const dayOfWeek = d.getDay();
+      const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const monday = new Date(d);
+      monday.setDate(d.getDate() + diff);
+      const weekKey = monday.toISOString().split('T')[0];
+      const context = weeklyContextMap.get(weekKey);
+      
       const tempTarget = { ...target, date: selectedSlot.date, timeSlot: selectedSlot.timeSlot };
-      await attemptReservation(tempTarget, env);
+      await attemptReservation(tempTarget, env, context);
     }
 
     // 最適化された書き込み（ステータス変更時のみwrite）
@@ -2487,8 +2549,8 @@ async function checkReservationLimits(userId: string, env: Env): Promise<{ canRe
   return { canReserve: true };
 }
 
-async function attemptReservation(target: MonitoringTarget, env: Env): Promise<void> {
-  console.log(`[Reserve] Attempting reservation for target ${target.id}`);
+async function attemptReservation(target: MonitoringTarget, env: Env, weeklyContext?: any): Promise<void> {
+  console.log(`[Reserve] Attempting reservation for target ${target.id} [weeklyContext: ${weeklyContext ? 'あり' : 'なし'}]`);
 
   try {
     // 予約上限チェック
@@ -2592,7 +2654,8 @@ async function attemptReservation(target: MonitoringTarget, env: Env): Promise<v
           target.date,
           target.timeSlot,
           sessionId,
-          target
+          target,
+          weeklyContext  // 週間コンテキストを渡す
         );
       } else {
         result = await makeMinatoReservation(

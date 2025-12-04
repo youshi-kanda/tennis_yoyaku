@@ -107,70 +107,156 @@ export async function loginToShinagawa(userId: string, password: string): Promis
   try {
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
     
+    console.log('[Login] 🔐 品川区ログイン開始:', userId.substring(0, 3) + '***');
+    
+    // Step 1: ログイン画面アクセス（セッション確立）
     const initResponse = await fetch(`${baseUrl}/rsvWTransUserLoginAction.do`, {
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'max-age=0',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
       },
       redirect: 'manual',
     });
     
-    // Response Bodyを読み切る（stalled警告を回避）
-    await initResponse.text().catch(() => {});
+    console.log(`[Login] Step1: ログイン画面アクセス - Status: ${initResponse.status}`);
     
+    // Response Bodyを読み取る
+    const initHtml = await initResponse.text().catch(() => '');
+    
+    // Set-Cookie ヘッダーチェック
     const setCookieHeader = initResponse.headers.get('set-cookie');
     if (!setCookieHeader) {
-      console.error('Shinagawa: No session cookie received');
+      console.error('[Login] ❌ No session cookie received from init');
+      console.error(`[Login] Response headers:`, JSON.stringify(Object.fromEntries(initResponse.headers.entries())));
       return null;
     }
     
     const sessionIdMatch = setCookieHeader.match(/JSESSIONID=([^;]+)/);
     if (!sessionIdMatch) {
-      console.error('Shinagawa: Failed to parse JSESSIONID');
+      console.error('[Login] ❌ Failed to parse JSESSIONID from:', setCookieHeader);
       return null;
     }
     
     const sessionId = sessionIdMatch[1];
-    console.log('Shinagawa: Session established:', sessionId.substring(0, 20) + '...');
+    console.log('[Login] ✅ Session established:', sessionId.substring(0, 20) + '...');
     
+    // 隠しフィールド（org.apache.struts.taglib.html.TOKEN など）を抽出
+    const hiddenFields: Record<string, string> = {};
+    const hiddenPattern = /<input[^>]*type=["']?hidden["']?[^>]*>/gi;
+    const matches = initHtml.match(hiddenPattern) || [];
+    for (const match of matches) {
+      const nameMatch = match.match(/name=["']?([^"'\s>]+)["']?/i);
+      const valueMatch = match.match(/value=["']?([^"']*)["']?/i);
+      if (nameMatch && valueMatch) {
+        hiddenFields[nameMatch[1]] = valueMatch[1];
+        console.log('[Login] Hidden field:', nameMatch[1], '=', valueMatch[1].substring(0, 20) + (valueMatch[1].length > 20 ? '...' : ''));
+      }
+    }
+    
+    // Step 2: ログイン実行（隠しフィールドを含める）
     const loginParams = new URLSearchParams({
       'rsvWTransUserLoginForm.usrId': userId,
       'rsvWTransUserLoginForm.usrPswd': password,
+      ...hiddenFields,  // 隠しフィールドを追加
     });
     
     const loginResponse = await fetch(`${baseUrl}/rsvWUserAttestationLoginAction.do`, {
       method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Cookie': `JSESSIONID=${sessionId}`,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Origin': baseUrl,
         'Referer': `${baseUrl}/rsvWTransUserLoginAction.do`,
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Cache-Control': 'max-age=0',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
       },
       body: loginParams.toString(),
       redirect: 'manual',
     });
     
-    if (loginResponse.status === 302 || loginResponse.status === 200) {
-      const responseText = await loginResponse.text();
-      
-      if (responseText.includes('ログインできませんでした') || 
-          responseText.includes('利用者番号またはパスワードが正しくありません')) {
-        console.error('Shinagawa: Login failed - Invalid credentials');
-        return null;
-      }
-      
-      console.log('Shinagawa: Login successful');
-      return sessionId;
-    } else {
-      console.error('Shinagawa: Login failed with status:', loginResponse.status);
+    console.log(`[Login] Step2: ログイン実行 - Status: ${loginResponse.status}`);
+    
+    // レスポンスをShift_JISでデコード
+    const responseBuffer = await loginResponse.arrayBuffer();
+    const decoder = new TextDecoder('shift-jis');
+    const responseText = decoder.decode(responseBuffer);
+    
+    // ログイン失敗チェック
+    if (responseText.includes('ログインできませんでした') || 
+        responseText.includes('利用者番号またはパスワードが正しくありません')) {
+      console.error('[Login] ❌ 認証失敗 - ID or password incorrect');
+      console.error('[Login] Response preview:', responseText.substring(0, 200));
       return null;
     }
     
+    // エラーページチェック
+    if (responseText.includes('pawfa1000.jsp') || responseText.includes('エラーが発生しました')) {
+      console.error('[Login] ❌ エラーページ返却');
+      
+      // エラーメッセージを抽出 - <body>タグ内のテキストコンテンツを取得
+      const bodyMatch = responseText.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        // <script>と<style>タグを除去
+        let bodyText = bodyMatch[1]
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')  // HTMLタグを空白に置換
+          .replace(/\s+/g, ' ')       // 連続する空白を1つに
+          .trim();
+        
+        console.error('[Login] エラー内容:', bodyText.substring(0, 500));
+      } else {
+        console.error('[Login] Response preview:', responseText.substring(0, 1000));
+      }
+      
+      return null;
+    }
+    
+    console.log('[Login] ✅ ログイン成功');
+    console.log('[Login] Response type check - Length:', responseText.length, 'chars');
+    
+    // Step 3: セッション有効性検証（空き状況画面にアクセス可能か）
+    const testResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchInitAction.do`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Referer': `${baseUrl}/rsvWUserAttestationLoginAction.do`,
+      },
+    });
+    
+    const testHtml = await testResponse.text();
+    console.log(`[Login] Step3: セッション検証 - Status: ${testResponse.status}, HTML length: ${testHtml.length}`);
+    
+    if (testHtml.includes('pawfa1000.jsp') || testHtml.includes('ログイン')) {
+      console.error('[Login] ⚠️ セッション検証失敗 - ログインページにリダイレクト');
+      console.error('[Login] Test response preview:', testHtml.substring(0, 300));
+      return null;
+    }
+    
+    console.log('[Login] ✅ セッション検証成功');
+    return sessionId;
+    
   } catch (error) {
-    console.error('Shinagawa: Login error:', error);
+    console.error('[Login] ❌ Exception:', error);
     return null;
   }
 }
@@ -242,28 +328,71 @@ export async function checkShinagawaWeeklyAvailability(
     
     console.log(`[Shinagawa Weekly] Response length: ${htmlText.length} bytes`);
     
+    // デバッグ: HTMLにどのような<td>タグが含まれているか確認
+    const sampleTdPattern = /<td[^>]*id="([^"]*)"[^>]*>/gi;
+    const sampleIds: string[] = [];
+    let sampleMatch;
+    while ((sampleMatch = sampleTdPattern.exec(htmlText)) !== null && sampleIds.length < 20) {
+      if (sampleMatch[1]) sampleIds.push(sampleMatch[1]);
+    }
+    if (sampleIds.length > 0) {
+      console.log(`[Shinagawa Weekly] Sample cell IDs found: ${sampleIds.slice(0, 10).join(', ')}`);
+    } else {
+      console.log(`[Shinagawa Weekly] ⚠️ No <td id="..."> tags found in HTML`);
+      // HTMLの最初の800文字をログ出力
+      console.log(`[Shinagawa Weekly] HTML sample: ${htmlText.substring(0, 800).replace(/\s+/g, ' ')}`);
+    }
+    
     // カレンダーのセルを全てパース
-    // HARファイルから判明したセルID形式: id="YYYYMMDD_HHMM-HHMM" (例: id="20251217_0600-0800")
-    const cellPattern = /<td[^>]*id="(\d{8})_([\d]{4}-[\d]{4})"[^>]*>([\s\S]*?)<\/td>/gi;
+    // 実際のHTML構造: id="YYYYMMDD_時間帯コード" (例: id="20251213_20" で 11:00~)
+    // 時間帯コード: 10=9:00, 20=11:00, 30=13:00, 40=15:00, 50=17:00, 60=19:00
+    const cellPattern = /<td[^>]*\sid="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
     let match;
     let foundCells = 0;
+    let detectedCells = 0;
+    
+    // 時間帯コードから時間帯文字列への変換マップ
+    const timeCodeToSlot: Record<string, string> = {
+      '10': '09:00-11:00',
+      '20': '11:00-13:00',
+      '30': '13:00-15:00',
+      '40': '15:00-17:00',
+      '50': '17:00-19:00',
+      '60': '19:00-21:00',
+    };
     
     while ((match = cellPattern.exec(htmlText)) !== null) {
-      const dateStr = match[1]; // "20251217"
-      const timeCode = match[2]; // "0600-0800"
+      const dateStr = match[1]; // "20251213"
+      const timeCode = match[2]; // "20" (11:00~)
       const cellContent = match[3];
       
       foundCells++;
       
-      // 時間帯コードを時間帯文字列に変換（既に正しい形式）
-      const timeSlot = timeCode;
+      // 時間帯コードを時間帯文字列に変換
+      const timeSlot = timeCodeToSlot[timeCode];
+      if (!timeSlot) {
+        console.log(`[Shinagawa Weekly] Unknown time code: ${timeCode}`);
+        continue;
+      }
       
       // 日付をYYYY-MM-DD形式に変換
       const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
       
       // ステータスを判定（○, ×, 取）
       let status = '×';
-      if (cellContent.includes('○')) {
+      
+      // 画像のalt属性で判定（より確実）
+      if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) {
+        status = '○';
+      } else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) {
+        status = '取';
+      } else if (cellContent.includes('alt="予約あり"') || cellContent.includes('calendar_full')) {
+        status = '×';
+      } else if (cellContent.includes('alt="一部空き"') || cellContent.includes('calendar_few-available')) {
+        status = '△';
+      }
+      // フォールバック: テキストでも判定
+      else if (cellContent.includes('○')) {
         status = '○';
       } else if (cellContent.includes('取')) {
         status = '取';
@@ -277,11 +406,12 @@ export async function checkShinagawaWeeklyAvailability(
       
       // 重要なステータスのみログ（ログサイズ削減）
       if (status === '○' || status === '取') {
+        detectedCells++;
         console.log(`[Shinagawa Weekly] ⚡ ${status}: ${key}`);
       }
     }
     
-    console.log(`[Shinagawa Weekly] Found ${foundCells} cells in calendar`);
+    console.log(`[Shinagawa Weekly] Found ${foundCells} cells in calendar (${detectedCells} available or 取)`);
     
     // HTMLから予約に必要なフォーム情報を抽出
     const reservationContext: ReservationContext = {};
@@ -494,33 +624,83 @@ export async function checkShinagawaAvailability(
     
     const htmlText = await searchResponse.text();
     
+    // デバッグ: HTML長とセルIDパターンをログ出力
+    console.log(`[Shinagawa Individual] Response length: ${htmlText.length} bytes for ${facilityId} ${date} ${timeSlot}`);
+    
     // ログイン失敗チェック
     if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
       throw new Error('Login failed or session expired');
     }
     
-    // 時間帯コード (例: 09:00-11:00 → 10, 11:00-13:00 → 20)
-    const timeSlotHour = parseInt(timeSlot.split(':')[0]);
-    const timeCode = Math.floor(timeSlotHour / 2) * 10 + 10;
+    // デバッグ: 対象日付のセルIDパターンを全て抽出してログ出力
+    const targetDateStr = date.replace(/-/g, '');
+    const allCellsPattern = new RegExp(`<td[^>]*\\sid="${targetDateStr}_([^"]+)"[^>]*>`, 'gi');
+    const foundCellIds: string[] = [];
+    let cellMatch2;
+    while ((cellMatch2 = allCellsPattern.exec(htmlText)) !== null) {
+      foundCellIds.push(`${targetDateStr}_${cellMatch2[1]}`);
+    }
+    if (foundCellIds.length > 0) {
+      console.log(`[Shinagawa Individual] Found cell IDs for ${date}: ${foundCellIds.slice(0, 10).join(', ')}${foundCellIds.length > 10 ? ` (+${foundCellIds.length - 10} more)` : ''}`);
+    } else {
+      console.log(`[Shinagawa Individual] ⚠️ No cells found with pattern "${targetDateStr}_*"`);
+      // HTMLの最初の500文字をログ出力（構造確認用）
+      console.log(`[Shinagawa Individual] HTML sample: ${htmlText.substring(0, 500).replace(/\s+/g, ' ')}`);
+    }
     
-    // 該当セルを抽出 (例: id="20251228_10")
+    // 時間帯を時間帯コードに変換 (HH:MM-HH:MM → コード)
+    // 例: "11:00-13:00" → "20"
+    const timeSlotToCode: Record<string, string> = {
+      '09:00-11:00': '10',
+      '11:00-13:00': '20',
+      '13:00-15:00': '30',
+      '15:00-17:00': '40',
+      '17:00-19:00': '50',
+      '19:00-21:00': '60',
+    };
+    const timeCode = timeSlotToCode[timeSlot];
+    if (!timeCode) {
+      console.log(`[Shinagawa] ⚠️ Unknown time slot: ${timeSlot}`);
+      return {
+        available: false,
+        facilityId,
+        facilityName: '品川区施設',
+        date,
+        timeSlot,
+        currentStatus: '×',
+        changedToAvailable: false,
+      };
+    }
+    
+    // 該当セルを抽出 (例: id="20251213_20")
     const cellIdPattern = `${date.replace(/-/g, '')}_${timeCode}`;
-    const cellMatch = htmlText.match(new RegExp(`<td[^>]*id="${cellIdPattern}"[^>]*>([\\s\\S]*?)<\\/td>`));
+    const cellMatch = htmlText.match(new RegExp(`<td[^>]*\\sid="${cellIdPattern}"[^>]*>([\\s\\S]*?)<\\/td>`));
     
     let currentStatus = '×';
     if (cellMatch) {
       const cellContent = cellMatch[1];
       
-      // 画像のaltまたはsrc属性で判定
-      if (cellContent.includes('calendar_available') || cellContent.includes('alt="空き"')) {
+      // ステータスを判定（○, ×, 取）
+      // 画像のalt属性で判定（最優先）
+      if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) {
         currentStatus = '○';
-      } else if (cellContent.includes('calendar_delete') || cellContent.includes('alt="取消処理中"')) {
+      } else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) {
         currentStatus = '取';
-      } else if (cellContent.includes('calendar_full') || cellContent.includes('alt="予約あり"')) {
+      } else if (cellContent.includes('alt="予約あり"') || cellContent.includes('calendar_full')) {
         currentStatus = '×';
-      } else if (cellContent.includes('calendar_few-available') || cellContent.includes('alt="一部空き"')) {
+      } else if (cellContent.includes('alt="一部空き"') || cellContent.includes('calendar_few-available')) {
         currentStatus = '△';
       }
+      // フォールバック: テキストでも判定
+      else if (cellContent.includes('取')) {
+        currentStatus = '取';
+      } else if (cellContent.includes('○')) {
+        currentStatus = '○';
+      } else if (cellContent.includes('×')) {
+        currentStatus = '×';
+      }
+    } else {
+      console.log(`[Shinagawa] ⚠️ Cell not found: ${cellIdPattern}`);
     }
     
     const isAvailable = currentStatus === '○' || currentStatus === '取';

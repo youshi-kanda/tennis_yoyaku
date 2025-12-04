@@ -1877,6 +1877,7 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
 
     // 🔑 セッションIDを取得または新規ログイン
     let sessionId: string | null = null;
+    let needNewLogin = false;
     
     // 1. KVからセッションIDを取得
     const sessionKey = `session:${target.userId}:${target.site}`;
@@ -1884,14 +1885,34 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     const sessionData = await env.SESSIONS.get(sessionKey);
     
     if (sessionData) {
-      const parsedSession = JSON.parse(sessionData);
-      sessionId = parsedSession.sessionId;
-      if (sessionId) {
-        console.log(`[Check] セッションID取得: ${sessionId.substring(0, 20)}... (from KV)`);
+      try {
+        const parsedSession = JSON.parse(sessionData);
+        const sessionAge = Date.now() - (parsedSession.loginTime || 0);
+        const sessionAgeHours = sessionAge / (1000 * 60 * 60);
+        
+        // セッションが12時間以上古い場合は再ログイン
+        if (sessionAgeHours > 12) {
+          console.log(`[Check] ⚠️ セッション期限切れ (${sessionAgeHours.toFixed(1)}時間経過)`);
+          needNewLogin = true;
+          // 古いセッションを削除
+          await env.SESSIONS.delete(sessionKey);
+        } else {
+          sessionId = parsedSession.sessionId;
+          if (sessionId) {
+            console.log(`[Check] ✅ セッション取得: ${sessionId.substring(0, 20)}... (${sessionAgeHours.toFixed(1)}h old)`);
+          }
+        }
+      } catch (e) {
+        console.error(`[Check] ⚠️ セッションデータ破損:`, e);
+        needNewLogin = true;
       }
     } else {
-      // 2. セッションがない場合は新規ログイン
-      console.log(`[Check] セッションなし、新規ログイン実行 (${target.site})`);
+      needNewLogin = true;
+    }
+    
+    // 2. セッションがない、または期限切れの場合は新規ログイン
+    if (needNewLogin) {
+      console.log(`[Check] 🔐 新規ログイン実行 (${target.site})`);
       if (target.site === 'shinagawa') {
         sessionId = await loginToShinagawa(credentials.username, credentials.password);
       } else {
@@ -2239,13 +2260,15 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     // 日付を週ごとにグループ化（月曜始まり）
     const weekGroups = new Map<string, string[]>();
     for (const date of datesToCheckThisRun) {
-      const d = new Date(date);
+      // 日本時間で日付をパース（UTCのずれを防ぐ）
+      const [year, month, day] = date.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      
       // 週の開始日（月曜日）を計算
       const dayOfWeek = d.getDay();
       const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // 日曜日の場合は前週の月曜、それ以外は今週の月曜
-      const monday = new Date(d);
-      monday.setDate(d.getDate() + diff);
-      const weekKey = monday.toISOString().split('T')[0];
+      const monday = new Date(year, month - 1, day + diff);
+      const weekKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
       
       if (!weekGroups.has(weekKey)) {
         weekGroups.set(weekKey, []);

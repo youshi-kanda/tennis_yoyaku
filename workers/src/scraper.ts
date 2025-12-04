@@ -1736,22 +1736,25 @@ export async function getMinatoFacilities(
  * 港区施設のフォールバックデータ（全テニスコート）
  */
 function getMinatoFacilitiesFallback(): Facility[] {
+  // 港区の全施設で利用可能な時間帯（08:00〜19:00の7時間帯）
+  const minatoTimeSlots = ['08:00', '10:00', '12:00', '13:00', '15:00', '17:00', '19:00'];
+  
   return [
     // 麻布地区: 麻布運動公園（コートA〜D）
-    { facilityId: '1001', facilityName: '麻布運動公園 テニスコートＡ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '1002', facilityName: '麻布運動公園 テニスコートＢ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '1003', facilityName: '麻布運動公園 テニスコートＣ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '1004', facilityName: '麻布運動公園 テニスコートＤ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '1001', facilityName: '麻布運動公園 テニスコートＡ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '1002', facilityName: '麻布運動公園 テニスコートＢ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '1003', facilityName: '麻布運動公園 テニスコートＣ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '1004', facilityName: '麻布運動公園 テニスコートＤ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
     
     // 赤坂地区: 青山運動場（コートA、B）
-    { facilityId: '2001', facilityName: '青山運動場 テニスコートＡ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '2002', facilityName: '青山運動場 テニスコートＢ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '2001', facilityName: '青山運動場 テニスコートＡ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '2002', facilityName: '青山運動場 テニスコートＢ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
     
     // 芝浦港南地区: 芝浦中央公園運動場（コートA〜D）
-    { facilityId: '5001', facilityName: '芝浦中央公園運動場 テニスコートＡ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '5002', facilityName: '芝浦中央公園運動場 テニスコートＢ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '5003', facilityName: '芝浦中央公園運動場 テニスコートＣ', category: 'tennis', isTennisCourt: true },
-    { facilityId: '5004', facilityName: '芝浦中央公園運動場 テニスコートＤ', category: 'tennis', isTennisCourt: true },
+    { facilityId: '5001', facilityName: '芝浦中央公園運動場 テニスコートＡ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '5002', facilityName: '芝浦中央公園運動場 テニスコートＢ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '5003', facilityName: '芝浦中央公園運動場 テニスコートＣ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
+    { facilityId: '5004', facilityName: '芝浦中央公園運動場 テニスコートＤ', category: 'tennis', isTennisCourt: true, site: 'minato', availableTimeSlots: minatoTimeSlots },
   ];
 }
 

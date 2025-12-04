@@ -41,7 +41,7 @@ export default function MonitoringPage() {
   const [monitoringTargets, setMonitoringTargets] = useState<MonitoringTarget[]>([]);
   
   // ウィザードステップ管理
-  const [currentStep, setCurrentStep] = useState(1); // 1: 施設選択, 2: 日時設定, 3: 詳細設定
+  const [currentStep, setCurrentStep] = useState(1); // 1: 日時設定, 2: 施設選択, 3: 詳細設定
   const [showWizard, setShowWizard] = useState(false); // ウィザード表示フラグ
   
   // グループ展開状態の管理
@@ -792,13 +792,13 @@ export default function MonitoringPage() {
   const handleNextStep = () => {
     // バリデーション
     if (currentStep === 1) {
-      if (config.selectedFacilities.length === 0) {
-        setError('少なくとも1つの施設を選択してください');
+      if (config.timeSlots.length === 0) {
+        setError('少なくとも1つの時間帯を選択してください');
         return;
       }
     } else if (currentStep === 2) {
-      if (config.timeSlots.length === 0) {
-        setError('少なくとも1つの時間帯を選択してください');
+      if (config.selectedFacilities.length === 0) {
+        setError('少なくとも1つの施設を選択してください');
         return;
       }
     }
@@ -812,8 +812,8 @@ export default function MonitoringPage() {
     setCurrentStep(currentStep - 1);
   };
 
-  const canProceedStep1 = config.selectedFacilities.length > 0;
-  const canProceedStep2 = config.timeSlots.length > 0;
+  const canProceedStep1 = config.timeSlots.length > 0;
+  const canProceedStep2 = config.selectedFacilities.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -1288,7 +1288,7 @@ export default function MonitoringPage() {
                     1
                   </div>
                   <span className={`text-sm font-medium ${currentStep >= 1 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                    施設選択
+                    日時設定
                   </span>
                 </div>
                 <div className={`h-0.5 w-16 ${currentStep >= 2 ? 'bg-emerald-600' : 'bg-gray-200'}`}></div>
@@ -1299,7 +1299,7 @@ export default function MonitoringPage() {
                     2
                   </div>
                   <span className={`text-sm font-medium ${currentStep >= 2 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                    日時設定
+                    施設選択
                   </span>
                 </div>
                 <div className={`h-0.5 w-16 ${currentStep >= 3 ? 'bg-emerald-600' : 'bg-gray-200'}`}></div>
@@ -1317,8 +1317,220 @@ export default function MonitoringPage() {
             </div>
 
             <div className="space-y-4 mb-6">
-            {/* ステップ1: 施設選択 */}
+            {/* ステップ1: 日時設定 */}
             {currentStep === 1 && (
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">いつ予約したいですか？</h3>
+            
+            {/* 監視期間の設定 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                監視期間
+              </label>
+              
+              {/* 期間モード選択 */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, dateMode: 'single' })}
+                  className={`px-3 py-2 text-sm rounded-lg transition ${
+                    config.dateMode === 'single'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  単一日付
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, dateMode: 'range' })}
+                  className={`px-3 py-2 text-sm rounded-lg transition ${
+                    config.dateMode === 'range'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  期間指定
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, dateMode: 'continuous' })}
+                  className={`px-3 py-2 text-sm rounded-lg transition ${
+                    config.dateMode === 'continuous'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  継続監視
+                </button>
+              </div>
+
+              {/* 日付入力 */}
+              {config.dateMode === 'single' && (
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">監視日</label>
+                  <input
+                    type="date"
+                    value={config.startDate}
+                    min={(() => {
+                      const tomorrow = new Date();
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      return tomorrow.toISOString().split('T')[0];
+                    })()}
+                    max={(() => {
+                      const maxDate = new Date();
+                      const selectedSites = config.selectedFacilities.map(f => f.site);
+                      const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
+                      const maxDays = Math.max(...periods, 90);
+                      maxDate.setDate(maxDate.getDate() + maxDays);
+                      return maxDate.toISOString().split('T')[0];
+                    })()}
+                    onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+
+              {config.dateMode === 'range' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">開始日</label>
+                    <input
+                      type="date"
+                      value={config.startDate}
+                      min={(() => {
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        return tomorrow.toISOString().split('T')[0];
+                      })()}
+                      max={(() => {
+                        const maxDate = new Date();
+                        const selectedSites = config.selectedFacilities.map(f => f.site);
+                        const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
+                        const maxDays = Math.max(...periods, 90);
+                        maxDate.setDate(maxDate.getDate() + maxDays);
+                        return maxDate.toISOString().split('T')[0];
+                      })()}
+                      onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">終了日</label>
+                    <input
+                      type="date"
+                      value={config.endDate}
+                      min={config.startDate}
+                      max={(() => {
+                        const maxDate = new Date();
+                        const selectedSites = config.selectedFacilities.map(f => f.site);
+                        const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
+                        const maxDays = Math.max(...periods, 90);
+                        maxDate.setDate(maxDate.getDate() + maxDays);
+                        return maxDate.toISOString().split('T')[0];
+                      })()}
+                      onChange={(e) => setConfig({ ...config, endDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {config.dateMode === 'continuous' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    ℹ️ 翌日から予約可能な期間まで継続的に監視します（停止するまで継続）
+                  </p>
+                  <p className="text-xs text-blue-700 mt-2">
+                    ※ 各施設の予約受付期間に従って自動的に調整されます
+                  </p>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-600 mt-2">
+                {config.dateMode === 'single' && '※ 指定した1日のみ監視します'}
+                {config.dateMode === 'range' && '※ 指定した期間内の全日程を監視します'}
+                {config.dateMode === 'continuous' && '※ 長期間の自動監視に最適です'}
+              </p>
+            </div>
+
+            {/* 監視する時間帯（複数選択可） */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                監視する時間帯（複数選択可）
+              </label>
+              
+              {/* プリセットボタン */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, timeSlots: TIME_SLOTS.map(t => t.id) })}
+                  className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
+                >
+                  全て選択
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, timeSlots: ['09:00-11:00', '11:00-13:00'] })}
+                  className="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
+                >
+                  朝（9-13時）
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, timeSlots: ['13:00-15:00', '15:00-17:00'] })}
+                  className="px-3 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg transition"
+                >
+                  昼（13-17時）
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, timeSlots: ['17:00-19:00', '19:00-21:00'] })}
+                  className="px-3 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition"
+                >
+                  夕方〜夜（17-21時）
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, timeSlots: [] })}
+                  className="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition"
+                >
+                  選択解除
+                </button>
+              </div>
+
+              {/* チェックボックス */}
+              <div className="grid grid-cols-2 gap-2">
+                {TIME_SLOTS.map((slot) => (
+                  <label
+                    key={slot.id}
+                    className="flex items-center gap-2 p-2 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={config.timeSlots.includes(slot.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setConfig({ ...config, timeSlots: [...config.timeSlots, slot.id] });
+                        } else {
+                          setConfig({ ...config, timeSlots: config.timeSlots.filter(t => t !== slot.id) });
+                        }
+                      }}
+                      className="w-4 h-4 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <span className="text-sm text-gray-900">{slot.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                ※ 選択した時間帯のみ監視します（{config.timeSlots.length}個選択中）
+              </p>
+            </div>
+            </div>
+            )}
+
+            {/* ステップ2: 施設選択 */}
+            {currentStep === 2 && (
             <div>
               <h3 className="text-lg font-bold text-gray-900 mb-4">どの施設を監視しますか？</h3>
               <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -1581,218 +1793,6 @@ export default function MonitoringPage() {
               <p className="text-xs text-gray-600 mt-3">
                 ※ 選択した{config.selectedFacilities.length}施設の全コートが監視対象になります。空きが見つかった際に自動予約されます。
               </p>
-            </div>
-            )}
-
-            {/* ステップ2: 日時・時間帯設定 */}
-            {currentStep === 2 && (
-            <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-4">いつ予約したいですか？</h3>
-            
-            {/* 監視期間の設定 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                監視期間
-              </label>
-              
-              {/* 期間モード選択 */}
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, dateMode: 'single' })}
-                  className={`px-3 py-2 text-sm rounded-lg transition ${
-                    config.dateMode === 'single'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  単一日付
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, dateMode: 'range' })}
-                  className={`px-3 py-2 text-sm rounded-lg transition ${
-                    config.dateMode === 'range'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  期間指定
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, dateMode: 'continuous' })}
-                  className={`px-3 py-2 text-sm rounded-lg transition ${
-                    config.dateMode === 'continuous'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  継続監視
-                </button>
-              </div>
-
-              {/* 日付入力 */}
-              {config.dateMode === 'single' && (
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">監視日</label>
-                  <input
-                    type="date"
-                    value={config.startDate}
-                    min={(() => {
-                      const tomorrow = new Date();
-                      tomorrow.setDate(tomorrow.getDate() + 1);
-                      return tomorrow.toISOString().split('T')[0];
-                    })()}
-                    max={(() => {
-                      const maxDate = new Date();
-                      const selectedSites = config.selectedFacilities.map(f => f.site);
-                      const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
-                      const maxDays = Math.max(...periods, 90);
-                      maxDate.setDate(maxDate.getDate() + maxDays);
-                      return maxDate.toISOString().split('T')[0];
-                    })()}
-                    onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  />
-                </div>
-              )}
-
-              {config.dateMode === 'range' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">開始日</label>
-                    <input
-                      type="date"
-                      value={config.startDate}
-                      min={(() => {
-                        const tomorrow = new Date();
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-                        return tomorrow.toISOString().split('T')[0];
-                      })()}
-                      max={(() => {
-                        const maxDate = new Date();
-                        const selectedSites = config.selectedFacilities.map(f => f.site);
-                        const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
-                        const maxDays = Math.max(...periods, 90);
-                        maxDate.setDate(maxDate.getDate() + maxDays);
-                        return maxDate.toISOString().split('T')[0];
-                      })()}
-                      onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">終了日</label>
-                    <input
-                      type="date"
-                      value={config.endDate}
-                      min={config.startDate}
-                      max={(() => {
-                        const maxDate = new Date();
-                        const selectedSites = config.selectedFacilities.map(f => f.site);
-                        const periods = selectedSites.map(site => reservationPeriods[site]?.maxDaysAhead || 90);
-                        const maxDays = Math.max(...periods, 90);
-                        maxDate.setDate(maxDate.getDate() + maxDays);
-                        return maxDate.toISOString().split('T')[0];
-                      })()}
-                      onChange={(e) => setConfig({ ...config, endDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {config.dateMode === 'continuous' && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
-                    ℹ️ 翌日から予約可能な期間まで継続的に監視します（停止するまで継続）
-                  </p>
-                  <p className="text-xs text-blue-700 mt-2">
-                    ※ 各施設の予約受付期間に従って自動的に調整されます
-                  </p>
-                </div>
-              )}
-
-              <p className="text-xs text-gray-600 mt-2">
-                {config.dateMode === 'single' && '※ 指定した1日のみ監視します'}
-                {config.dateMode === 'range' && '※ 指定した期間内の全日程を監視します'}
-                {config.dateMode === 'continuous' && '※ 長期間の自動監視に最適です'}
-              </p>
-            </div>
-
-            {/* 監視する時間帯（複数選択可） */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                監視する時間帯（複数選択可）
-              </label>
-              
-              {/* プリセットボタン */}
-              <div className="flex flex-wrap gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, timeSlots: TIME_SLOTS.map(t => t.id) })}
-                  className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
-                >
-                  全て選択
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, timeSlots: ['09:00-11:00', '11:00-13:00'] })}
-                  className="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
-                >
-                  朝（9-13時）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, timeSlots: ['13:00-15:00', '15:00-17:00'] })}
-                  className="px-3 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg transition"
-                >
-                  昼（13-17時）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, timeSlots: ['17:00-19:00', '19:00-21:00'] })}
-                  className="px-3 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition"
-                >
-                  夕方〜夜（17-21時）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig({ ...config, timeSlots: [] })}
-                  className="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition"
-                >
-                  選択解除
-                </button>
-              </div>
-
-              {/* チェックボックス */}
-              <div className="grid grid-cols-2 gap-2">
-                {TIME_SLOTS.map((slot) => (
-                  <label
-                    key={slot.id}
-                    className="flex items-center gap-2 p-2 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={config.timeSlots.includes(slot.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setConfig({ ...config, timeSlots: [...config.timeSlots, slot.id] });
-                        } else {
-                          setConfig({ ...config, timeSlots: config.timeSlots.filter(t => t !== slot.id) });
-                        }
-                      }}
-                      className="w-4 h-4 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <span className="text-sm text-gray-900">{slot.label}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-gray-600 mt-2">
-                ※ 選択した時間帯のみ監視します（{config.timeSlots.length}個選択中）
-              </p>
-            </div>
             </div>
             )}
 

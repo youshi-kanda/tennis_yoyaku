@@ -84,6 +84,8 @@ export interface Facility {
   buildingName?: string; // 館名 (例: "しながわ中央公園")
   areaCode?: string;     // 地区コード (例: "1400")
   areaName?: string;     // 地区名 (例: "品川地区")
+  site?: 'shinagawa' | 'minato';  // 自治体
+  availableTimeSlots?: string[];  // 利用可能時間帯 (例: ["09:00", "11:00", "13:00"])
 }
 
 export interface ReservationHistory {
@@ -269,7 +271,8 @@ export async function loginToShinagawa(userId: string, password: string): Promis
 export async function checkShinagawaWeeklyAvailability(
   facilityId: string,
   weekStartDate: string,  // YYYY-MM-DD形式の週開始日
-  sessionId: string
+  sessionId: string,
+  facilityInfo?: Facility  // 施設情報（時間帯フィルタリング用）
 ): Promise<WeeklyAvailabilityResult> {
   const availability = new Map<string, string>();
   const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
@@ -375,6 +378,15 @@ export async function checkShinagawaWeeklyAvailability(
         continue;
       }
       
+      // 施設の利用可能時間帯チェック（指定されている場合）
+      if (facilityInfo?.availableTimeSlots) {
+        const timeStart = timeSlot.split('-')[0]; // "09:00-11:00" → "09:00"
+        if (!facilityInfo.availableTimeSlots.includes(timeStart)) {
+          // この時間帯はこの施設では利用不可
+          continue; // スキップ
+        }
+      }
+      
       // 日付をYYYY-MM-DD形式に変換
       const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
       
@@ -476,7 +488,8 @@ export async function checkShinagawaWeeklyAvailability(
 export async function checkMinatoWeeklyAvailability(
   facilityId: string,
   weekStartDate: string,  // YYYY-MM-DD形式の週開始日
-  sessionId: string
+  sessionId: string,
+  facilityInfo?: Facility  // 施設情報（時間帯フィルタリング用）
 ): Promise<WeeklyAvailabilityResult> {
   const availability = new Map<string, string>();
   const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
@@ -518,6 +531,12 @@ export async function checkMinatoWeeklyAvailability(
       // 時間帯コードから時間帯文字列に変換
       const timeSlot = MINATO_TIMESLOT_MAP[timeCode];
       if (!timeSlot) continue; // 不明な時間帯コードはスキップ
+      
+      // 施設の利用可能時間帯チェック（指定されている場合）
+      if (facilityInfo?.availableTimeSlots && !facilityInfo.availableTimeSlots.includes(timeSlot)) {
+        // この時間帯はこの施設では利用不可
+        continue; // スキップ
+      }
       
       // 日付をYYYY-MM-DD形式に変換
       const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
@@ -1494,27 +1513,30 @@ function parseShinagawaFacilitiesFromHtml(
 function getShinagawaFacilitiesFallback(): Facility[] {
   console.log('[Facilities] Using fallback Shinagawa facilities');
   
+  // 品川区の全施設で利用可能な時間帯（09:00〜19:00の2時間枠）
+  const shinagawaTimeSlots = ['09:00', '11:00', '13:00', '15:00', '17:00', '19:00'];
+  
   const facilities: Facility[] = [
     // 大井地区: しながわ区民公園（コートA〜D）
-    { facilityId: '10400010', facilityName: 'しながわ区民公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
-    { facilityId: '10400020', facilityName: 'しながわ区民公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
-    { facilityId: '10400030', facilityName: 'しながわ区民公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
-    { facilityId: '10400040', facilityName: 'しながわ区民公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区' },
+    { facilityId: '10400010', facilityName: 'しながわ区民公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10400020', facilityName: 'しながわ区民公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10400030', facilityName: 'しながわ区民公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10400040', facilityName: 'しながわ区民公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
     
     // 品川地区: しながわ中央公園（コートA、B）
-    { facilityId: '10100010', facilityName: 'しながわ中央公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区' },
-    { facilityId: '10100020', facilityName: 'しながわ中央公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区' },
+    { facilityId: '10100010', facilityName: 'しながわ中央公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10100020', facilityName: 'しながわ中央公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
     
     // 品川地区: 東品川公園（コートA、B）
-    { facilityId: '10200010', facilityName: '東品川公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区' },
-    { facilityId: '10200020', facilityName: '東品川公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区' },
+    { facilityId: '10200010', facilityName: '東品川公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10200020', facilityName: '東品川公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
     
     // 八潮地区: 八潮北公園（コートA〜E）
-    { facilityId: '10300010', facilityName: '八潮北公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
-    { facilityId: '10300020', facilityName: '八潮北公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
-    { facilityId: '10300030', facilityName: '八潮北公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
-    { facilityId: '10300040', facilityName: '八潮北公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
-    { facilityId: '10300050', facilityName: '八潮北公園 庭球場Ｅ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区' },
+    { facilityId: '10300010', facilityName: '八潮北公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10300020', facilityName: '八潮北公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10300030', facilityName: '八潮北公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10300040', facilityName: '八潮北公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+    { facilityId: '10300050', facilityName: '八潮北公園 庭球場Ｅ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
   ];
   
   return facilities;

@@ -13,6 +13,7 @@ import {
   type AvailabilityResult,
   type ReservationHistory,
   type SiteCredentials,
+  type Facility,
 } from './scraper';
 import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './reservationPeriod';
 import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
@@ -826,6 +827,45 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
     kvMetrics.reads++;
     const sessionData = await env.SESSIONS.get(`session:${userId}:${body.site}`);
     const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
+
+    // 施設情報を取得して時間帯をバリデーション
+    try {
+      kvMetrics.reads++;
+      const settingsData = await env.USERS.get(`settings:${userId}`);
+      if (settingsData) {
+        const settings = JSON.parse(settingsData);
+        const credentials = settings[body.site];
+        
+        if (credentials) {
+          const facilities = await (body.site === 'shinagawa'
+            ? getShinagawaFacilities(credentials, env.MONITORING, userId)
+            : getMinatoFacilities(sessionId || '', env.MONITORING, userId));
+          
+          const facility = facilities.find(f => f.facilityId === body.facilityId);
+          
+          if (facility?.availableTimeSlots) {
+            // 指定された時間帯が施設で利用可能かチェック
+            const invalidTimeSlots = timeSlots.filter(ts => {
+              const timeStart = ts.split('-')[0] || ts; // "09:00-11:00" → "09:00" or "09:00"
+              return !facility.availableTimeSlots!.includes(timeStart);
+            });
+            
+            if (invalidTimeSlots.length > 0) {
+              return jsonResponse({
+                error: `指定された時間帯は施設で利用できません: ${invalidTimeSlots.join(', ')}`,
+                availableTimeSlots: facility.availableTimeSlots,
+                facilityName: facility.facilityName
+              }, 400);
+            }
+            
+            console.log(`[MonitoringCreate] 時間帯バリデーション成功: ${timeSlots.join(', ')}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error(`[MonitoringCreate] 施設情報取得エラー（バリデーションスキップ）: ${error.message}`);
+      // エラーでも続行（バリデーションなしで作成）
+    }
 
     // 予約可能期間を動的取得
     const periodInfo = await getOrDetectReservationPeriod(body.site, sessionId, env.MONITORING);
@@ -1944,6 +1984,23 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       }
     }
 
+    // 施設情報を取得（時間帯フィルタリング用）
+    let facilityInfo: Facility | undefined;
+    try {
+      const credentials = settings[target.site];
+      const facilities = await (target.site === 'shinagawa' 
+        ? getShinagawaFacilities(credentials, env.MONITORING, target.userId)
+        : getMinatoFacilities(sessionId || '', env.MONITORING, target.userId));
+      
+      facilityInfo = facilities.find(f => f.facilityId === target.facilityId);
+      if (facilityInfo?.availableTimeSlots) {
+        console.log(`[Check] 施設時間帯: ${facilityInfo.availableTimeSlots.join(', ')}`);
+      }
+    } catch (error: any) {
+      console.error(`[Check] 施設情報取得エラー: ${error.message}`);
+      // エラーでも続行（時間帯フィルタリングなしで実行）
+    }
+
     // 年ごとの祝日キャッシュを準備
     const holidaysCacheByYear = new Map<number, HolidayInfo[]>();
     const getHolidaysForDate = (dateStr: string): HolidayInfo[] => {
@@ -2286,10 +2343,10 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       console.log(`[Check] 🚀 週間一括取得: ${weekStart}〜 (${dates.length}日分)`);
       
       try {
-        // 週間カレンダーを取得
+        // 週間カレンダーを取得（施設情報を渡して時間帯フィルタリング）
         const weeklyResult = await (target.site === 'shinagawa'
-          ? checkShinagawaWeeklyAvailability(target.facilityId, weekStart, sessionId!)
-          : checkMinatoWeeklyAvailability(target.facilityId, weekStart, sessionId!)
+          ? checkShinagawaWeeklyAvailability(target.facilityId, weekStart, sessionId!, facilityInfo)
+          : checkMinatoWeeklyAvailability(target.facilityId, weekStart, sessionId!, facilityInfo)
         );
         
         // 週間コンテキストを保存（予約に必要）

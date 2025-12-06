@@ -153,19 +153,36 @@ async function encryptPayload(
   const context = new Uint8Array(135); // 1 + 2 + 65 + 2 + 65
   let offset = 0;
 
+  if (clientPublicKeyBytes.length !== 65) {
+    throw new Error(`Invalid client public key length: ${clientPublicKeyBytes.length}`);
+  }
+  if (serverPublicKeyBytes.length !== 65) {
+    throw new Error(`Invalid server public key length: ${serverPublicKeyBytes.length}`);
+  }
+
   // ラベル "P-256" (0x00で終端なし、長さプレフィックス)
   context[offset++] = 0; // ラベル長（廃止済みフィールド）
-  
+
   // クライアント公開鍵長（2バイト、ビッグエンディアン）
   context[offset++] = 0;
   context[offset++] = 65;
-  context.set(clientPublicKeyBytes, offset);
+  try {
+    context.set(clientPublicKeyBytes, offset);
+  } catch (e) {
+    console.error('[Push] Buffer set error (ClientKey):', e, 'Offset:', offset, 'ClientKeyLen:', clientPublicKeyBytes.length);
+    throw e;
+  }
   offset += 65;
 
   // サーバー公開鍵長（2バイト、ビッグエンディアン）
   context[offset++] = 0;
   context[offset++] = 65;
-  context.set(serverPublicKeyBytes, offset);
+  try {
+    context.set(serverPublicKeyBytes, offset);
+  } catch (e) {
+    console.error('[Push] Buffer set error:', e, 'Offset:', offset, 'ServerKeyLen:', serverPublicKeyBytes.length);
+    throw e;
+  }
 
   // 10. IKM生成（HKDF）
   const cekInfo = new Uint8Array(
@@ -187,10 +204,11 @@ async function encryptPayload(
 
   // 12. ペイロードにパディング追加（2バイトのパディング長 + 実データ）
   const paddingLength = 0; // パディングなし
-  const paddedPayload = new Uint8Array(2 + payload.length);
+  const payloadBytes = new TextEncoder().encode(payload);
+  const paddedPayload = new Uint8Array(2 + payloadBytes.length + paddingLength);
   paddedPayload[0] = (paddingLength >> 8) & 0xff;
   paddedPayload[1] = paddingLength & 0xff;
-  paddedPayload.set(new TextEncoder().encode(payload), 2);
+  paddedPayload.set(payloadBytes, 2);
 
   // 13. AES-GCM暗号化
   const key = await crypto.subtle.importKey('raw', ikm, { name: 'AES-GCM' }, false, ['encrypt']);
@@ -296,7 +314,7 @@ async function getUserSubscription(
 ): Promise<PushSubscription | null> {
   const key = `push_subscription:${userId}`;
   const data = await env.USERS.get(key);
-  
+
   if (!data) {
     console.warn(`[Push] No subscription found for user: ${userId}`);
     return null;
@@ -356,15 +374,24 @@ export async function sendPushNotification(
     });
 
     // ペイロードを暗号化（aes128gcm）
-    const encrypted = await encryptPayload(
-      notificationPayload,
-      subscription.keys.p256dh,
-      subscription.keys.auth
-    );
+    let encrypted;
+    try {
+      encrypted = await encryptPayload(
+        notificationPayload,
+        subscription.keys.p256dh,
+        subscription.keys.auth
+      );
+    } catch (e: any) {
+      console.error(`[Push] Encryption failed for user ${userId}:`, e);
+      if (e instanceof RangeError) {
+        console.error('[Push] Keys:', subscription.keys);
+      }
+      return false;
+    }
 
     // Crypto-Keyヘッダー（サーバー公開鍵）
     const serverPublicKeyBase64 = base64UrlEncode(encrypted.serverPublicKey.buffer);
-    
+
     // Encryptionヘッダー（ソルト）
     const saltBase64 = base64UrlEncode(encrypted.salt.buffer);
 

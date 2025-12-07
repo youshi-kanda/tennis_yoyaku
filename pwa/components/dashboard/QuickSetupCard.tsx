@@ -30,11 +30,11 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
 
             // テニスコートのみを抽出するヘルパー
             // ※現状のAPIレスポンスの構造に依存。Wizardと同様にフィルタリングする。
-            // ここでは簡略化のため、返ってきたBuildingInfo[]から全てのコートを抽出する
-            const shinagawaCourts = shinagawaFacilities.flatMap((b: any) =>
+            // APIレスポンスは { success: true, data: [...] } の形式
+            const shinagawaCourts = shinagawaFacilities.data.flatMap((b: any) =>
                 b.courts.map((c: any) => ({ ...c, site: 'shinagawa' }))
             );
-            const minatoCourts = minatoFacilities.flatMap((b: any) =>
+            const minatoCourts = minatoFacilities.data.flatMap((b: any) =>
                 b.courts.map((c: any) => ({ ...c, site: 'minato' }))
             );
 

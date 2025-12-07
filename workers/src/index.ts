@@ -1971,6 +1971,13 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
 
     // 2. セッションがない、または期限切れの場合は新規ログイン
     if (needNewLogin) {
+      // 🕛 時間帯によるログイン制限チェック
+      const timeRestrictions = checkTimeRestrictions();
+      if (!timeRestrictions.canLogin) {
+        console.log(`[Check] ⏳ ログイン制限時間帯(${timeRestrictions.reason})のため、新規ログインをスキップします。監視を中断します。`);
+        return;
+      }
+
       console.log(`[Check] 🔐 新規ログイン実行 (${target.site})`);
       if (target.site === 'shinagawa') {
         const newSession = await loginToShinagawa(credentials.username, credentials.password);

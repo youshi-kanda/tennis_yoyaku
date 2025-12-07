@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api/client';
+import { SITE_TIME_SLOTS, WEEKDAYS } from '@/lib/constants';
 
 // 動的レンダリングを強制
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ export default function MonitoringPage() {
   // グループ展開状態の管理
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  import { SITE_TIME_SLOTS, WEEKDAYS } from '@/lib/constants';
+
 
   // 施設リスト（コート単位で管理）
   interface CourtInfo {

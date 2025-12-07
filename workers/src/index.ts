@@ -579,6 +579,16 @@ export default {
       return; // 5:00処理後は通常監視をスキップ
     }
 
+    // 🌅 4:55 事前ログイン処理 (5:00の5分前)
+    if (jstHours === 4 && jstMinutes === 55) {
+      // 非同期で実行（ここでawaitすると後続の処理が遅れる可能性があるが、
+      // 4:55には通常の監視も並行して走らせたい場合は void で投げるか、
+      // ここで監視スキップするか。
+      // PreLogin中は負荷が高いのでawaitして完了を待つのが安全。
+      // 4:55の通常監視はスキップまたは遅延しても問題ない。
+      await handlePreLogin(env);
+    }
+
     // ⏰ 深夜早朝時間帯チェック（品川区の制約）
     const timeRestrictions = checkTimeRestrictions(now);
     if (timeRestrictions.reason) {
@@ -1772,6 +1782,76 @@ async function resetAllSessions(env: Env): Promise<void> {
   } catch (error) {
     console.error('[Reset] ❌ セッション削除エラー:', error);
     throw error;
+  }
+}
+
+/**
+ * 4:55 事前ログイン処理: 5:00の混雑回避のため、アクティブなユーザーを先行ログインさせる
+ */
+async function handlePreLogin(env: Env): Promise<void> {
+  console.log('[PreLogin] 🌅 4:55 事前ログイン処理開始');
+
+  try {
+    // アクティブなターゲットを持つユーザーを特定（shinagawaのみ）
+    const allTargets = await getAllActiveTargets(env);
+    const usersToLogin = new Set<string>();
+
+    allTargets.forEach(t => {
+      if (t.site === 'shinagawa') {
+        usersToLogin.add(t.userId);
+      }
+    });
+
+    console.log(`[PreLogin] 対象ユーザー: ${usersToLogin.size}件 (品川区)`);
+
+    for (const userId of usersToLogin) {
+      try {
+        // 設定取得
+        const settingsData = await env.USERS.get(`settings:${userId}`);
+        if (!settingsData) continue;
+
+        const settings = JSON.parse(settingsData);
+        const siteSettings = settings.shinagawa;
+
+        if (!siteSettings || !siteSettings.username || !siteSettings.password) continue;
+
+        // パスワード復号化
+        let decryptedPassword = siteSettings.password;
+        if (isEncrypted(siteSettings.password)) {
+          decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
+        }
+
+        // ログイン実行
+        console.log(`[PreLogin] 🔐 品川区ログイン実行: User=${userId.substring(0, 5)}...`);
+        const newSession = await loginToShinagawa(siteSettings.username, decryptedPassword);
+
+        if (newSession && newSession.cookie) {
+          // KVに保存
+          const sessionKey = `session:${userId}:shinagawa`;
+          const newSessionData = {
+            sessionId: newSession.cookie,
+            site: 'shinagawa',
+            loginTime: Date.now(),
+            lastUsed: Date.now(),
+            isValid: true,
+            userId: userId,
+            shinagawaContext: newSession
+          };
+          kvMetrics.writes++;
+          await env.SESSIONS.put(sessionKey, JSON.stringify(newSessionData), {
+            expirationTtl: 86400, // 24時間
+          });
+          console.log(`[PreLogin] ✅ セッション保存完了: ${userId}`);
+        } else {
+          console.warn(`[PreLogin] ⚠️ ログイン失敗 (No session): User=${userId}`);
+        }
+      } catch (e) {
+        console.error(`[PreLogin] ❌ ログインエラー (${userId}):`, e);
+      }
+    }
+    console.log('[PreLogin] 全処理完了');
+  } catch (error) {
+    console.error('[PreLogin] ❌ 処理エラー:', error);
   }
 }
 

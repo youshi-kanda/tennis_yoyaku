@@ -111,6 +111,7 @@ export interface ShinagawaSession {
   loginJKey: string;
   displayNo: string;
   errorParams: Record<string, string>;
+  searchFormParams?: Record<string, string>; // 検索フォーム（rsvWOpeInstSrchVacantAction.do）の初期値
 }
 
 export async function loginToShinagawa(userId: string, password: string): Promise<ShinagawaSession | null> {
@@ -322,10 +323,10 @@ export async function loginToShinagawa(userId: string, password: string): Promis
     loginParams.append('fcflg', '');
     loginParams.append('displayNo', displayNo);
 
-    // エラーメッセージパラメータ
-    Object.entries(errorParams).forEach(([key, value]) => {
-      loginParams.append(key, value);
-    });
+    // エラーメッセージパラメータは送信しない（これを含めるとエラー画面が返される可能性がある）
+    // Object.entries(errorParams).forEach(([key, value]) => {
+    //   loginParams.append(key, value);
+    // });
 
     // 🔥 loginJKey（最重要 - CSRF対策）
     loginParams.append('loginJKey', loginJKey);
@@ -465,11 +466,54 @@ export async function loginToShinagawa(userId: string, password: string): Promis
 
       console.log(`[Login] Context grabbed: loginJKey=${resultLoginJKey.substring(0, 10)}... displayNo=${resultDisplayNo}`);
 
+      // 検索フォーム(rsvWOpeInstSrchVacantAction.do)のパラメータを抽出
+      const searchFormParams: Record<string, string> = {};
+
+      // フォームブロックを探す（簡易的な抽出）
+      // actionが rsvWOpeInstSrchVacantAction.do のフォームを探す
+      // Note: formタグの終了までの範囲を取得するのは正規表現では難しいため、
+      // HTML全体から action="..." を含む form タグを探し、その周辺の input を拾うアプローチをとる
+
+      // まず action="...rsvWOpeInstSrchVacantAction.do" を探す
+      const formActionRegex = /<form[^>]*action="[^"]*rsvWOpeInstSrchVacantAction\.do"[^>]*>([\s\S]*?)<\/form>/i;
+      const formMatch = step3Html.match(formActionRegex);
+
+      if (formMatch) {
+        const formContent = formMatch[1];
+        console.log('[Login] Check: Found vacancy search form');
+
+        // input, select, textarea等を抽出
+        const inputRegex = /<input[^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi;
+        const inputs = [...formContent.matchAll(inputRegex)];
+        for (const m of inputs) {
+          searchFormParams[m[1]] = m[2];
+        }
+
+        // selectのselected optionも抽出（簡易）
+        const selectRegex = /<select[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/select>/gi;
+        const selects = [...formContent.matchAll(selectRegex)];
+        for (const s of selects) {
+          const name = s[1];
+          const content = s[2];
+          const selectedMatch = content.match(/<option[^>]*value=["']([^"']+)["'][^>]*selected[^>]*>/i);
+          if (selectedMatch) {
+            searchFormParams[name] = selectedMatch[1];
+          } else {
+            // selectedがない場合は最初のoption
+            const firstOption = content.match(/<option[^>]*value=["']([^"']+)["'][^>]*>/i);
+            if (firstOption) searchFormParams[name] = firstOption[1];
+          }
+        }
+      } else {
+        console.warn('[Login] ⚠️ Warning: Vacancy search form not found in Step 3');
+      }
+
       return {
         cookie: getCookieHeader(),
         loginJKey: resultLoginJKey,
         displayNo: resultDisplayNo,
-        errorParams: resultErrorParams
+        errorParams: resultErrorParams,
+        searchFormParams: Object.keys(searchFormParams).length > 0 ? searchFormParams : undefined
       };
     }
 
@@ -546,15 +590,18 @@ export async function checkShinagawaWeeklyAvailability(
       const useDay = weekStartDate.replace(/-/g, ''); // YYYYMMDD
 
       // Form Data Construction with Session Context
-      const formData = new URLSearchParams({
+      const params: Record<string, string> = {};
+
+      // Default fallback params (if extraction failed)
+      const defaultParams = {
         date: '4',
         daystart: today,
         days: '31',
         dayofweekClearFlg: '1',
         timezoneClearFlg: '1',
-        selectAreaBcd: '1500_0', // 地域コード
+        selectAreaBcd: '1500_0',
         selectIcd: '',
-        selectPpsClPpscd: '31000000_31011700', // テニス目的
+        selectPpsClPpscd: '31000000_31011700',
         displayNo: currentSession.displayNo || 'prwrc2000',
         displayNoFrm: currentSession.displayNo || 'prwrc2000',
         selectInstCd: facilityId,
@@ -562,15 +609,28 @@ export async function checkShinagawaWeeklyAvailability(
         selectPpsClsCd: '31000000',
         selectPpsCd: '31011700',
         applyFlg: '0',
-        loginJKey: currentSession.loginJKey || '',
-      });
+      };
 
-      // Add Error Params
-      if (currentSession.errorParams) {
-        for (const k in currentSession.errorParams) {
-          formData.append(k, currentSession.errorParams[k]);
-        }
+      if (currentSession.searchFormParams) {
+        // Use extracted params as base
+        Object.assign(params, currentSession.searchFormParams);
+      } else {
+        // Use defaults
+        Object.assign(params, defaultParams);
       }
+
+      // Context overrides (Always set these)
+      params.useDay = useDay;
+      params.selectInstCd = facilityId;
+      params.daystart = today;
+
+      // Ensure displayNo is consistent if session has it
+      if (currentSession.displayNo) {
+        params.displayNo = currentSession.displayNo;
+        params.displayNoFrm = currentSession.displayNo;
+      }
+
+      const formData = new URLSearchParams(params);
 
       console.log(`[Shinagawa Weekly] POST to rsvWOpeInstSrchVacantAction.do with facilityId=${facilityId}, useDay=${useDay} (Attempt ${attempt + 1})`);
 
@@ -941,15 +1001,18 @@ export async function checkShinagawaAvailability(
     const today = new Date().toISOString().split('T')[0];
 
     // HARファイルから判明したパラメータ（週間取得と同じrsvWOpeInstSrchVacantAction.doを使用）
-    const formData = new URLSearchParams({
+    const params: Record<string, string> = {};
+
+    // Default fallback params
+    const defaultParams = {
       date: '4',
       daystart: today,
       days: '31',
       dayofweekClearFlg: '1',
       timezoneClearFlg: '1',
-      selectAreaBcd: '1500_0', // 地域コード（初期値）
+      selectAreaBcd: '1500_0',
       selectIcd: '',
-      selectPpsClPpscd: '31000000_31011700', // テニス目的
+      selectPpsClPpscd: '31000000_31011700',
       displayNo: currentSession.displayNo || 'prwrc2000',
       displayNoFrm: currentSession.displayNo || 'prwrc2000',
       selectInstCd: facilityId,
@@ -957,15 +1020,22 @@ export async function checkShinagawaAvailability(
       selectPpsClsCd: '31000000',
       selectPpsCd: '31011700',
       applyFlg: '0',
-      loginJKey: currentSession.loginJKey || '',
-    });
+    };
 
-    // Add Error Params
-    if (currentSession.errorParams) {
-      for (const k in currentSession.errorParams) {
-        formData.append(k, currentSession.errorParams[k]);
-      }
+    if (currentSession.searchFormParams) {
+      Object.assign(params, currentSession.searchFormParams);
+    } else {
+      Object.assign(params, defaultParams);
     }
+
+    // Overrides
+    params.useDay = useDay;
+    params.selectInstCd = facilityId;
+
+    const formData = new URLSearchParams(params);
+
+    // Error params are implicitly included if they were in searchFormParams, or not needed.
+    // Explicit injection removed to avoid conflicts.
 
     // Cookie文字列の整形
     const cookieHeader = currentSession.cookie;
@@ -1199,232 +1269,196 @@ export async function makeShinagawaReservation(
   timeSlot: string,
   session: ShinagawaSession,
   target: { applicantCount?: number },
-  weeklyContext?: ReservationContext  // 週間カレンダー経由の予約用コンテキスト
+  weeklyContext?: ReservationContext  // 週間カレンダー経由の予約用コンテキスト（互換性のため維持）
 ): Promise<{ success: boolean; message: string }> {
+  // Shinagawaのタイムスロットマッピング (HH:MM -> tzoneNo)
+  const SHINAGAWA_TIMESLOT_MAP: Record<string, string> = {
+    '09:00': '10',
+    '11:00': '20',
+    '13:00': '30',
+    '15:00': '40',
+    '17:00': '50',
+    '19:00': '60',
+  };
   try {
     console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot} [weeklyContext: ${weeklyContext ? 'あり' : 'なし'}]`);
 
-    // セッションIDを使用（自動ログイン不要）
-
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
-    let instNo = '';
-    let dateNo = '';
-    let timeNo = '';
 
-    // 週間コンテキストがある場合は週間カレンダー経由の予約フロー
-    if (weeklyContext && weeklyContext.selectInstCd && weeklyContext.viewDays && weeklyContext.viewDays.length > 0) {
-      console.log(`[Shinagawa] Using weekly calendar context`);
+    // 1. セッションとフォームパラメータの準備
+    // ログイン時や空き状況確認時に取得したパラメータ (session.searchFormParams) を利用
+    // これがないと hidden フィールド不足でエラーになる可能性がある
+    const formParams = { ...session.searchFormParams };
 
-      // 週間カレンダーのコンテキストを使って予約申込画面に遷移
-      const formattedDate = date.replace(/-/g, ''); // YYYYMMDD
+    // 2. AJAXによるスロット選択 (rsvWOpeInstSrchVacantAction.do へのPOST)
 
-      // 週間カレンダーから予約申込に遷移するPOSTリクエスト
-      const applyFormData = new URLSearchParams();
+    // タイムスロットから時間とtzoneNoを特定
+    // SHINAGAWA_TIMESLOT_MAP から逆引き (Map: Code -> TimeString)
+    const startTimeStr = timeSlot.split('-')[0];
+    let tzoneNo = '';
 
-      // コンテキストから取得したパラメータを使用
-      if (weeklyContext.selectBldCd) applyFormData.append('selectBldCd', weeklyContext.selectBldCd);
-      if (weeklyContext.selectBldName) applyFormData.append('selectBldName', weeklyContext.selectBldName);
-      if (weeklyContext.selectInstCd) applyFormData.append('selectInstCd', weeklyContext.selectInstCd);
-      if (weeklyContext.selectInstName) applyFormData.append('selectInstName', weeklyContext.selectInstName);
-      applyFormData.append('useDay', formattedDate);
+    // SHINAGAWA_TIMESLOT_MAP は {10: "09:00", ...} なので value から key を探す
+    for (const [code, start] of Object.entries(SHINAGAWA_TIMESLOT_MAP)) {
+      if (start === startTimeStr) {
+        tzoneNo = code;
+        break;
+      }
+    }
 
-      // viewDay1〜viewDay7を設定
-      weeklyContext.viewDays.forEach((day, index) => {
-        applyFormData.append(`viewDay${index + 1}`, day);
-      });
+    if (!tzoneNo) {
+      return { success: false, message: `Unknown time slot format: ${timeSlot}` };
+    }
 
-      // その他の必須パラメータ
-      applyFormData.append('applyFlg', '1');  // 予約申込フラグ
-      applyFormData.append('selectPpsClsCd', weeklyContext.selectPpsClsCd || '31000000');
-      applyFormData.append('selectPpsCd', weeklyContext.selectPpsCd || '31011700');
-      applyFormData.append('displayNo', 'prwrc2000');
-      applyFormData.append('displayNoFrm', 'prwrc2000');
+    // 開始終了時間の数値化 (HHMM形式)
+    const [sStr, eStr] = timeSlot.split('-');
+    const startTime = sStr.replace(':', '');
+    const endTime = eStr ? eStr.replace(':', '') : '';
 
-      // カレンダーから取得した他のパラメータも追加
-      const additionalParams = ['date', 'daystart', 'days', 'dayofweekClearFlg', 'timezoneClearFlg', 'selectAreaBcd', 'selectIcd', 'selectPpsClPpscd'];
-      additionalParams.forEach(param => {
-        if (weeklyContext[param]) applyFormData.append(param, weeklyContext[param]);
-      });
+    // bldCdの特定 (4桁)
+    const bldCd = facilityId.substring(0, 4);
+    const instCd = facilityId;
+    const useDay = date.replace(/-/g, ''); // YYYYMMDD
 
-      console.log(`[Shinagawa] POST to apply page (weekly context)...`);
-      const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+    // AJAXリクエストボディ
+    const ajaxParams = new URLSearchParams();
+    ajaxParams.append('displayNo', session.displayNo || 'prwrc2000');
+    ajaxParams.append('bldCd', bldCd);
+    ajaxParams.append('instCd', instCd);
+    ajaxParams.append('useDay', useDay);
+    ajaxParams.append('startTime', startTime);
+    ajaxParams.append('endTime', endTime);
+    ajaxParams.append('tzoneNo', tzoneNo);
+    ajaxParams.append('akiNum', '0');
+    ajaxParams.append('selectNum', '0');
+
+    console.log(`[Shinagawa] Selecting slot via AJAX: ${useDay} ${timeSlot} (tzoneNo=${tzoneNo}, bldCd=${bldCd})`);
+
+    const ajaxResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+      method: 'POST',
+      headers: {
+        'Cookie': session.cookie,
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: ajaxParams.toString()
+    });
+
+    if (!ajaxResponse.ok) {
+      return { success: false, message: `AJAX selection failed: ${ajaxResponse.status}` };
+    }
+
+    // 3. 予約申込フォーム送信 (rsvWOpeReservedApplyAction.do)
+    const applyParams = new URLSearchParams();
+    // 既存のフォームパラメータを展開
+    for (const [key, value] of Object.entries(formParams)) {
+      applyParams.append(key, value);
+    }
+
+    // 重要な上書きパラメータ
+    if (!applyParams.has('applyFlg')) applyParams.append('applyFlg', '1');
+    applyParams.set('selectInstCd', instCd);
+    applyParams.set('useDay', useDay);
+
+    console.log('[Shinagawa] Submitting reservation form to rsvWOpeReservedApplyAction.do');
+
+    const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+      method: 'POST',
+      headers: {
+        'Cookie': session.cookie,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
+      },
+      body: applyParams.toString()
+    });
+
+    const applyHtml = await applyResponse.text();
+
+    // 4. 利用規約画面 (rsvWInstUseruleRsvApplyAction.do)
+    if (applyHtml.includes('利用規約')) {
+      console.log('[Shinagawa] Terms of Use screen detected');
+
+      const ruleParams = new URLSearchParams();
+      ruleParams.append('ruleFg', '1'); // 同意
+      ruleParams.append('displayNo', 'prwcd1000');
+
+      const ruleResponse = await fetch(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
         method: 'POST',
         headers: {
+          'Cookie': session.cookie,
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Cookie': session.cookie,
-          'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15',
-        },
-        body: applyFormData.toString(),
-      });
-
-      const applyHtml = await applyResponse.text();
-
-      // instNo, dateNo, timeNoを抽出（利用規約画面から）
-      const linkMatch = applyHtml.match(/instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
-      if (!linkMatch) {
-        console.log('[Shinagawa] Failed to extract reservation params from weekly context');
-        return { success: false, message: '予約パラメータの取得に失敗しました' };
-      }
-      [, instNo, dateNo, timeNo] = linkMatch;
-
-    } else {
-      // 従来の個別日付チェック方式（フォールバック）
-      console.log(`[Shinagawa] Using individual date check (fallback)`);
-
-      const searchParams = new URLSearchParams({
-        'rsvWOpeInstSrchVacantForm.instCd': facilityId,
-        'rsvWOpeInstSrchVacantForm.srchDate': date,
-      });
-
-      const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do?${searchParams}`, {
-        method: 'GET',
-        headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Cookie': session.cookie,
-          'Referer': `${baseUrl}/rsvWOpeInstMenuAction.do`,
+          // Refererは前の画面
+          'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`,
         },
+        body: ruleParams.toString()
       });
+      await ruleResponse.text();
+    }
 
-      const searchHtml = await searchResponse.text();
+    // 5. 確認画面 (rsvWOpeReservedConfirmAction.do)
+    const confirmParams = new URLSearchParams();
 
-      const linkMatch = searchHtml.match(/rsvWOpeReservedApplyAction\.do\?[^"]*instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
-
-      if (!linkMatch) {
-        return { success: false, message: '予約対象が見つかりません' };
-      }
-
+    let instNo = '', dateNo = '', timeNo = '';
+    const linkMatch = applyHtml.match(/instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
+    if (linkMatch) {
       [, instNo, dateNo, timeNo] = linkMatch;
     }
 
-    const applyParams = new URLSearchParams({ instNo, dateNo, timeNo });
+    confirmParams.append('rsvWOpeReservedConfirmForm.instNo', instNo);
+    confirmParams.append('rsvWOpeReservedConfirmForm.dateNo', dateNo);
+    confirmParams.append('rsvWOpeReservedConfirmForm.timeNo', timeNo);
+    confirmParams.append('rsvWOpeReservedConfirmForm.usrNum', (target.applicantCount || 2).toString());
+    confirmParams.append('rsvWOpeReservedConfirmForm.eventName', '');
 
-    // Step 1: 予約画面（利用規約画面）を取得
-    const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do?${applyParams}`, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Cookie': session.cookie,
-        'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
-      },
-    });
-    await applyResponse.text();
-
-    // Step 2: 利用規約に同意
-    const ruleParams = new URLSearchParams({
-      'ruleFg': '1', // 1: 同意する, 2: 同意しない
-    });
-
-    const ruleResponse = await fetch(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': session.cookie,
-        'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do?${applyParams}`,
-      },
-      body: ruleParams.toString(),
-    });
-    await ruleResponse.text();
-
-    // Step 3: 予約内容確認画面へ（利用人数・催し物名を送信）
-    const applicantCount = target.applicantCount?.toString() || '2';
-
-    const confirmParams = new URLSearchParams({
-      'rsvWOpeReservedConfirmForm.instNo': instNo,
-      'rsvWOpeReservedConfirmForm.dateNo': dateNo,
-      'rsvWOpeReservedConfirmForm.timeNo': timeNo,
-      'rsvWOpeReservedConfirmForm.usrNum': applicantCount,
-      'rsvWOpeReservedConfirmForm.eventName': '', // 催し物名（任意）
-    });
+    console.log('[Shinagawa] Submitting to Confirmation (rsvWOpeReservedConfirmAction.do)');
 
     const confirmResponse = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
       method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Content-Type': 'application/x-www-form-urlencoded',
         'Cookie': session.cookie,
-        'Referer': `${baseUrl}/rsvWInstUseruleRsvApplyAction.do`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`,
       },
-      body: confirmParams.toString(),
-    });
-    await confirmResponse.text();
-
-    // Step 4: 予約確定
-    const reserveParams = new URLSearchParams({
-      'rsvWOpeReservedConfirmForm.instNo': instNo,
-      'rsvWOpeReservedConfirmForm.dateNo': dateNo,
-      'rsvWOpeReservedConfirmForm.timeNo': timeNo,
-      'rsvWOpeReservedConfirmForm.usrNum': applicantCount.toString(),
+      body: confirmParams.toString()
     });
 
-    // Cookie文字列の整形
-    const cookieHeader = session.cookie;
+    const confirmHtml = await confirmResponse.text();
 
-    const reserveResponse = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
+    // 6. 完了画面 (rsvWOpeReservedCompleteAction.do)
+    console.log('[Shinagawa] Submitting to Complete (rsvWOpeReservedCompleteAction.do)');
+
+    const compResponse = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
       method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Cookie': session.cookie,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': cookieHeader,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Referer': `${baseUrl}/rsvWOpeReservedConfirmAction.do`,
       },
-      body: reserveParams.toString(),
+      body: ''
     });
 
-    const reserveHtml = await reserveResponse.text();
+    const compHtml = await compResponse.text();
 
-    // 🔍 デバッグ: レスポンスHTMLの詳細をログ出力
-    console.log('[Shinagawa] 🔍 DEBUG: Reservation response status:', reserveResponse.status);
-    console.log('[Shinagawa] 🔍 DEBUG: Response HTML length:', reserveHtml.length);
-    console.log('[Shinagawa] 🔍 DEBUG: Response HTML (first 3000 chars):', reserveHtml.substring(0, 3000));
-
-    // キーワード検索
-    const keywords = ['予約', '完了', '受付', '成功', '失敗', 'エラー', '満室', '空き', '予約済'];
-    console.log('[Shinagawa] 🔍 DEBUG: Keyword search results:');
-    keywords.forEach(keyword => {
-      const index = reserveHtml.indexOf(keyword);
-      if (index !== -1) {
-        // キーワードの前後50文字を表示
-        const start = Math.max(0, index - 50);
-        const end = Math.min(reserveHtml.length, index + keyword.length + 50);
-        const context = reserveHtml.substring(start, end).replace(/\s+/g, ' ');
-        console.log(`  - "${keyword}" found at ${index}: ...${context}...`);
-      }
-    });
-
-    // 成功判定: 「予約完了」画面のタイトルまたはメッセージで判定
-    const hasCompletedTitle = reserveHtml.includes('予約完了');
-    const hasCompletedMessage = reserveHtml.includes('以下の内容で予約しました');
-    const hasReservationNumber = reserveHtml.includes('予約番号');
-
-    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約完了:', hasCompletedTitle);
-    console.log('[Shinagawa] 🔍 DEBUG: Success check - 以下の内容で予約しました:', hasCompletedMessage);
-    console.log('[Shinagawa] 🔍 DEBUG: Success check - 予約番号:', hasReservationNumber);
-
-    if (hasCompletedTitle || hasCompletedMessage || hasReservationNumber) {
-      console.log('[Shinagawa] ✅ Reservation successful');
-
-      // 予約番号を抽出
-      const reservationNumberMatch = reserveHtml.match(/予約番号[：:\s]*(\d+)/);
-      const reservationNumber = reservationNumberMatch ? reservationNumberMatch[1] : '';
-
-      return {
-        success: true,
-        message: reservationNumber ? `予約に成功しました（予約番号: ${reservationNumber}）` : '予約に成功しました'
-      };
+    // 成功判定
+    if (compHtml.includes('予約完了') || compHtml.includes('受け付けました') || compHtml.includes('予約番号')) {
+      const rsvNoMatch = compHtml.match(/予約番号[:\s]*(\d+)/);
+      const reservationId = rsvNoMatch ? rsvNoMatch[1] : `SHINAGAWA_OK_${Date.now()}`;
+      console.log(`[Shinagawa] ✅ Reservation successful: ${reservationId}`);
+      return { success: true, message: `予約完了: ${reservationId}` };
     } else {
       console.error('[Shinagawa] ❌ Reservation failed - success keywords not found');
-      console.error('[Shinagawa] 💡 HINT: Check the DEBUG logs above to find the actual success message');
-      return { success: false, message: '予約に失敗しました（成功メッセージが見つかりませんでした）' };
+      const errMsgMatch = compHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
+      return { success: false, message: `予約失敗: ${errMsgMatch ? errMsgMatch[1] : '完了画面ではありません'}` };
     }
 
   } catch (error: any) {
-    console.error('[Shinagawa] Reservation error:', error);
-    return {
-      success: false,
-      message: `予約エラー: ${error.message}`,
-    };
+    console.error('[Shinagawa] Reservation Error:', error);
+    return { success: false, message: error.message };
   }
 }
 
@@ -2123,8 +2157,11 @@ function getMinatoFacilitiesFallback(): Facility[] {
   ];
 }
 
+
+
 /**
- * 港区で予約実行（4段階フロー: 検索→申込→確認→完了）
+ * 港区で予約実行（AJAX選択 -> フォーム送信フロー）
+ * HAR解析に基づき、Ajaxで選択状態にしてから申込アクションへPOSTする方式に変更
  */
 export async function makeMinatoReservation(
   facilityId: string,
@@ -2132,13 +2169,14 @@ export async function makeMinatoReservation(
   timeSlot: string,
   sessionId: string,
   target: { applicantCount?: number }
-): Promise<{ success: boolean; reservationId?: string; error?: string }> {
+): Promise<{ success: boolean; reservationId?: string; error?: string; message?: string }> {
   try {
-    // セッションIDを使用（自動ログイン不要）
-
+    console.log(`[Minato] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
     const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
 
-    // ステップ1: 空き検索
+    // 1. 検索画面を取得（フォームパラメータとhidden値の取得）
+    // NOTE: 週間表示ではなく「日付順」または「施設ごと」の検索結果画面を想定
+    // ここでは確実に「施設ごと」の空き状況画面(rsvWOpeInstSrchVacantAction.do)を取得する
     const searchParams = new URLSearchParams({
       'rsvWOpeInstSrchVacantForm.instCd': facilityId,
       'rsvWOpeInstSrchVacantForm.srchDate': date,
@@ -2155,125 +2193,214 @@ export async function makeMinatoReservation(
 
     const searchHtml = await searchResponse.text();
 
-    // 時間枠のリンクからrsvYykNoを抽出
-    const rsvYykNoMatch = searchHtml.match(/rsvWOpeRsvRgstAction\.do\?rsvYykNo=([^&"']+)/);
-    if (!rsvYykNoMatch) {
-      return { success: false, error: 'Time slot not available' };
+    // ログインチェック
+    if (searchHtml.includes('ログイン') || searchHtml.includes('セッションが切れました') || searchHtml.includes('再ログイン')) {
+      return { success: false, error: 'Login failed or session expired' };
     }
-    const rsvYykNo = rsvYykNoMatch[1];
 
-    // ステップ2: 予約申込（港区は同意画面スキップ）
-    const applyResponse = await fetch(`${baseUrl}/rsvWOpeRsvRgstAction.do?rsvYykNo=${rsvYykNo}`, {
-      method: 'GET',
+    // 2. フォームパラメータの抽出（<form name="form1" ...> 内のhiddenフィールド）
+    const formParams: Record<string, string> = {};
+    const inputRegex = /<input[^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi;
+    let match;
+    while ((match = inputRegex.exec(searchHtml)) !== null) {
+      formParams[match[1]] = match[2];
+    }
+
+    // 3. AJAXによるスロット選択 (rsvWOpeInstSrchVacantAction.do へのPOST)
+    // タイムスロットからtzoneNoを特定 (MINATO_TIMESLOT_MAP利用)
+    // timeSlot例: "09:00-11:00" -> StartTime="09:00"
+    const startTimeStr = timeSlot.split('-')[0];
+    let tzoneNo = '';
+
+    // マップからコードを逆引き
+    for (const [code, start] of Object.entries(MINATO_TIMESLOT_MAP)) {
+      if (start === startTimeStr) {
+        tzoneNo = code;
+        break;
+      }
+    }
+
+    if (!tzoneNo) {
+      return { success: false, error: `Unknown time slot format: ${timeSlot}` };
+    }
+
+    // 開始終了時間の数値化 (HHMM形式)
+    const [sStr, eStr] = timeSlot.split('-');
+    const startTime = sStr.replace(':', '');
+    const endTime = eStr ? eStr.replace(':', '') : ''; // 終了時間がなければ空? いや、必須のはず
+
+    const bldCd = facilityId.substring(0, 5);
+    const instCd = facilityId;
+    const useDay = date.replace(/-/g, ''); // YYYYMMDD
+
+    // AJAXリクエストボディ
+    const ajaxParams = new URLSearchParams();
+    ajaxParams.append('displayNo', formParams['displayNo'] || 'prwrc2000');
+    ajaxParams.append('bldCd', bldCd);
+    ajaxParams.append('instCd', instCd);
+    ajaxParams.append('useDay', useDay);
+    ajaxParams.append('startTime', startTime);
+    ajaxParams.append('endTime', endTime);
+    ajaxParams.append('tzoneNo', tzoneNo);
+    ajaxParams.append('akiNum', '0');
+    ajaxParams.append('selectNum', '0');
+
+    console.log(`[Minato] Selecting slot via AJAX: ${useDay} ${timeSlot} (tzoneNo=${tzoneNo})`);
+
+    const ajaxResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+      method: 'POST',
       headers: {
         'Cookie': `JSESSIONID=${sessionId}`,
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: ajaxParams.toString()
+    });
+
+    if (!ajaxResponse.ok) {
+      return { success: false, error: `AJAX selection failed: ${ajaxResponse.status}` };
+    }
+
+    // 4. 予約申込フォーム送信 (rsvWOpeReservedApplyAction.do)
+    const applyParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(formParams)) {
+      applyParams.append(key, value);
+    }
+
+    console.log('[Minato] Submitting reservation form to rsvWOpeReservedApplyAction.do');
+
+    const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+      method: 'POST',
+      headers: {
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
       },
+      body: applyParams.toString()
     });
 
     const applyHtml = await applyResponse.text();
 
-    // フォームパラメータ抽出
-    const extractFormValue = (html: string, name: string): string => {
-      const match = html.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`, 'i'));
-      return match ? match[1] : '';
-    };
+    // 画面遷移チェック
+    if (!applyHtml.includes('予約申込')) {
+      if (applyHtml.includes('エラー')) {
+        const errMsgMatch = applyHtml.match(/<div[^>]*class="error-message"[^>]*>([\s\S]*?)<\/div>/) || applyHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
+        const errMsg = errMsgMatch ? errMsgMatch[1].trim() : 'Unknown Error';
+        return { success: false, error: `Apply Error: ${errMsg.substring(0, 100)}` };
+      }
+      return { success: false, error: 'Failed to transition to application page' };
+    }
 
-    const formData = new URLSearchParams({
-      'rsvWOpeRsvRgstForm.rsvYykNo': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.rsvYykNo'),
-      'rsvWOpeRsvRgstForm.instCd': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.instCd'),
-      'rsvWOpeRsvRgstForm.instCls': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.instCls'),
-      'rsvWOpeRsvRgstForm.useStartDate': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.useStartDate'),
-      'rsvWOpeRsvRgstForm.useEndDate': extractFormValue(applyHtml, 'rsvWOpeRsvRgstForm.useEndDate'),
-      'purpose': '2000_2000040',  // テニス（屋外スポーツ）
-      'applyNum': (target.applicantCount || 4).toString(),  // 利用人数（未設定時は港区デフォルトの4人）
-    });
+    // 5. 申込内容入力 -> 確認 -> 完了 のフローへ続く
+    // applyHtmlから次のフォームパラメータを抽出
+    const applyFormParams: Record<string, string> = {};
+    // 5. 詳細情報の入力と送信 (rsvWInstRsvApplyAction.do)
+    // ここで人数(applyNum)や利用目的(purpose)を送信する
+    console.log('[Minato] Parsing application form params for rsvWInstRsvApplyAction.do');
 
-    // ステップ3: 予約確認
-    const confirmResponse = await fetch(`${baseUrl}/rsvWOpeRsvRgstConfAction.do`, {
+    // 次のステップ用のパラメータを抽出
+    const detailsParams: Record<string, string> = {};
+    // selectタグの抽出 (purposeなど)
+    const selectRegex = /<select[^>]*name=["']([^"']+)["'][^>]*>[\s\S]*?<option[^>]*value=["']([^"']+)["'][^>]*selected[^>]*>[\s\S]*?<\/select>/gi;
+    let selectMatch;
+    // デフォルト値を設定しつつ、HTMLから抽出できれば上書き
+    // Tennis: purpose="2000_2000040", ppsdCd="2000", ppsCd="2000040"
+    detailsParams['purpose'] = '2000_2000040';
+    detailsParams['ppsdCd'] = '2000';
+    detailsParams['ppsCd'] = '2000040';
+    detailsParams['applyNum'] = (target.applicantCount || 4).toString();
+
+    // hiddenパラメータ抽出
+    const hiddenRegex = /<input[^>]*type=["']hidden["'][^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi;
+    let hiddenMatch;
+    while ((hiddenMatch = hiddenRegex.exec(applyHtml)) !== null) {
+      detailsParams[hiddenMatch[1]] = hiddenMatch[2];
+    }
+
+    const detailsBody = new URLSearchParams();
+    for (const [key, value] of Object.entries(detailsParams)) {
+      detailsBody.append(key, value);
+    }
+    // 上書き確認
+    detailsBody.set('applyNum', (target.applicantCount || 4).toString());
+    if (!detailsBody.has('applyFlg')) detailsBody.set('applyFlg', '1');
+
+    console.log('[Minato] Submitting details to rsvWInstRsvApplyAction.do');
+
+    const detailsResponse = await fetch(`${baseUrl}/rsvWInstRsvApplyAction.do`, {
       method: 'POST',
       headers: {
         'Cookie': `JSESSIONID=${sessionId}`,
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': `${baseUrl}/rsvWOpeRsvRgstAction.do`,
+        'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`,
       },
-      body: formData.toString(),
+      body: detailsBody.toString(),
+    });
+
+    const detailsHtml = await detailsResponse.text();
+
+    if (!detailsResponse.ok || detailsHtml.includes('エラー')) {
+      const errMsgMatch = detailsHtml.match(/<div[^>]*class="error-message"[^>]*>([\s\S]*?)<\/div>/) || detailsHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
+      const errMsg = errMsgMatch ? errMsgMatch[1].trim() : 'Unknown Error';
+      return { success: false, error: `Details submission failed: ${errMsg.substring(0, 100)}` };
+    }
+
+    // 6. 確認画面 (rsvWOpeReservedConfirmAction.do)
+    console.log('[Minato] Submitting to Confirmation (rsvWOpeReservedConfirmAction.do) [Presumed]');
+
+    const confirmResponse = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
+      method: 'POST',
+      headers: {
+        'Cookie': `JSESSIONID=${sessionId}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': `${baseUrl}/rsvWInstRsvApplyAction.do`,
+      },
+      body: ''
     });
 
     const confirmHtml = await confirmResponse.text();
 
-    // ステップ4: 予約確定
-    const completeResponse = await fetch(`${baseUrl}/rsvWOpeRsvRgstCompAction.do`, {
+    if (!confirmResponse.ok || confirmHtml.includes('エラー')) {
+      const errMsgMatch = confirmHtml.match(/<div[^>]*class="error-message"[^>]*>([\s\S]*?)<\/div>/) || confirmHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
+      const errMsg = errMsgMatch ? errMsgMatch[1].trim() : 'Unknown Error';
+      return { success: false, error: `Confirmation step failed: ${errMsg.substring(0, 100)}` };
+    }
+
+    // 7. 完了画面 (rsvWOpeReservedCompleteAction.do)
+    console.log('[Minato] Submitting to Complete (rsvWOpeReservedCompleteAction.do) [Presumed]');
+
+    const completeResponse = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
       method: 'POST',
       headers: {
         'Cookie': `JSESSIONID=${sessionId}`,
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': `${baseUrl}/rsvWOpeRsvRgstConfAction.do`,
+        'Referer': `${baseUrl}/rsvWOpeReservedConfirmAction.do`,
       },
-      body: formData.toString(),
+      body: ''
     });
 
     const completeHtml = await completeResponse.text();
 
-    // 🔍 デバッグ: レスポンスHTMLの詳細をログ出力
-    console.log('[Minato] 🔍 DEBUG: Reservation response status:', completeResponse.status);
-    console.log('[Minato] 🔍 DEBUG: Response HTML length:', completeHtml.length);
-    console.log('[Minato] 🔍 DEBUG: Response HTML (first 3000 chars):', completeHtml.substring(0, 3000));
-
-    // キーワード検索
-    const keywords = ['予約', '完了', '受付', '番号', '成功', '失敗', 'エラー', '満室', '空き', '予約済'];
-    console.log('[Minato] 🔍 DEBUG: Keyword search results:');
-    keywords.forEach(keyword => {
-      const index = completeHtml.indexOf(keyword);
-      if (index !== -1) {
-        // キーワードの前後50文字を表示
-        const start = Math.max(0, index - 50);
-        const end = Math.min(completeHtml.length, index + keyword.length + 50);
-        const context = completeHtml.substring(start, end).replace(/\s+/g, ' ');
-        console.log(`  - "${keyword}" found at ${index}: ...${context}...`);
-      }
-    });
-
-    // 受付番号の検索パターンをテスト
-    const idPatterns = [
-      { name: '予約受付番号', regex: /予約受付番号[：:]\s*([0-9]+)/ },
-      { name: '受付番号', regex: /受付番号[：:]\s*([0-9]+)/ },
-      { name: '予約番号', regex: /予約番号[：:]\s*([0-9]+)/ },
-      { name: '番号（任意）', regex: /番号[：:]\s*([A-Z0-9-]+)/ },
-    ];
-    console.log('[Minato] 🔍 DEBUG: Reservation ID pattern search:');
-    idPatterns.forEach(pattern => {
-      const match = completeHtml.match(pattern.regex);
-      if (match) {
-        console.log(`  - ${pattern.name}: MATCHED - "${match[0]}" (ID: ${match[1]})`);
-      } else {
-        console.log(`  - ${pattern.name}: NOT MATCHED`);
-      }
-    });
-
-    // 現在の成功判定
-    const hasCompletedMessage = completeHtml.includes('予約が完了しました');
-    const hasReservationId = completeHtml.includes('予約受付番号');
-    console.log('[Minato] 🔍 DEBUG: Success check - 予約が完了しました:', hasCompletedMessage);
-    console.log('[Minato] 🔍 DEBUG: Success check - 予約受付番号:', hasReservationId);
-
-    if (hasCompletedMessage || hasReservationId) {
-      const reservationIdMatch = completeHtml.match(/予約受付番号[：:]\s*([0-9]+)/);
-      const reservationId = reservationIdMatch ? reservationIdMatch[1] : `MINATO_${Date.now()}`;
-
+    if (completeHtml.includes('予約完了') || completeHtml.includes('受け付けました') || completeHtml.includes('予約受付番号')) {
+      const rsvNoMatch = completeHtml.match(/予約受付番号[:\s]*(\d+)/) || completeHtml.match(/予約番号[:\s]*(\d+)/);
+      const reservationId = rsvNoMatch ? rsvNoMatch[1] : `MINATO_OK_${Date.now()}`;
       console.log(`[Minato] ✅ Reservation successful: ${reservationId}`);
-      return { success: true, reservationId };
+      return { success: true, reservationId: reservationId, message: `予約完了: ${reservationId}` };
     } else {
       console.error('[Minato] ❌ Reservation failed - success keywords not found');
-      console.error('[Minato] 💡 HINT: Check the DEBUG logs above to find the actual success message');
-      return { success: false, error: 'Reservation failed at completion step (success keywords not found)' };
+      const errMsgMatch = completeHtml.match(/class="error"[^>]*>([^<]+)</);
+      return { success: false, error: errMsgMatch ? errMsgMatch[1] : 'Unknown error during completion' };
     }
 
   } catch (error: any) {
-    console.error('[Minato] Reservation error:', error);
-    return { success: false, error: error.message || 'Unknown error' };
+    console.error('[Minato] Reservation Error:', error);
+    return { success: false, error: error.message };
   }
 }
+

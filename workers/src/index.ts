@@ -211,7 +211,7 @@ export interface UserMonitoringState {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -2861,7 +2861,7 @@ async function attemptReservation(target: MonitoringTarget, env: Env, weeklyCont
       }, env);
     } else {
       // statusを'failed'に更新（カレンダー表示用）
-      const resultMessage = 'message' in result ? result.message : (result.error || '');
+      const resultMessage = ('message' in result ? result.message : (result.error || '')) || '';
       const state = await env.MONITORING.get(`MONITORING:${target.userId}`, 'json') as UserMonitoringState | null;
       if (state) {
         const targetInState = state.targets.find(t => t.id === target.id);

@@ -31,17 +31,20 @@ interface MonitoringDetailModalProps {
 // facilityIdから施設名を復元する関数
 const getFacilityNameFromId = (facilityId: string, savedName: string): string => {
   // 既に完全な施設名（コート情報含む）がある場合はそのまま返す
-  if (savedName.includes('庭球場') || savedName.includes('テニスコート')) {
+  if (savedName && (savedName.includes('庭球場') || savedName.includes('テニスコート'))) {
     return savedName;
   }
-  
+
+  // 安全対策: facilityIdがない場合はそのまま返す
+  if (!facilityId) return savedName || '施設名未設定';
+
   // facilityIdの末尾からコート番号を推定
   const lastTwo = facilityId.slice(-2);
   const courtMap: { [key: string]: string } = {
     '10': 'Ａ', '20': 'Ｂ', '30': 'Ｃ', '40': 'Ｄ', '50': 'Ｅ',
     '01': 'Ａ', '02': 'Ｂ', '03': 'Ｃ', '04': 'Ｄ',
   };
-  
+
   const court = courtMap[lastTwo];
   if (court) {
     if (savedName.includes('しながわ') || savedName.includes('品川') || savedName.includes('八潮') || savedName.includes('大井')) {
@@ -51,7 +54,7 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
       return `${savedName} テニスコート${court}`;
     }
   }
-  
+
   return savedName;
 };
 
@@ -140,9 +143,8 @@ export function MonitoringDetailModal({
                 {Array.from(selectedGroup.sites).map(site => (
                   <span
                     key={site}
-                    className={`px-2 py-1 rounded-full text-xs font-bold ${
-                      site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
-                    }`}
+                    className={`px-2 py-1 rounded-full text-xs font-bold ${site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
+                      }`}
                   >
                     {site === 'shinagawa' ? '品川' : '港区'}
                   </span>
@@ -169,7 +171,7 @@ export function MonitoringDetailModal({
               <X className="w-6 h-6" />
             </button>
           </div>
-          
+
           {/* グループ情報 */}
           <div className="bg-gray-50 rounded-lg p-3 space-y-2">
             <div className="flex items-center gap-2 text-sm">

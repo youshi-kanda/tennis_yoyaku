@@ -23,40 +23,59 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
 
         try {
             // 1. 施設情報の取得
+            console.log('[QuickSetup] Fetching facilities...');
             const [shinagawaFacilities, minatoFacilities] = await Promise.all([
                 apiClient.getShinagawaFacilities(),
                 apiClient.getMinatoFacilities()
             ]);
 
+            console.log('[QuickSetup] Raw Shinagawa Response:', shinagawaFacilities);
+            console.log('[QuickSetup] Raw Minato Response:', minatoFacilities);
             // テニスコートのみを抽出するヘルパー
             // ※現状のAPIレスポンスの構造に依存。Wizardと同様にフィルタリングする。
             // APIレスポンスは { success: true, data: [...] } の形式
             const shinagawaCourts: any[] = [];
-            const shinagawaData = shinagawaFacilities.data?.data;
+
+            // Check potential structures
+            const shinagawaData = shinagawaFacilities.data?.data || shinagawaFacilities.data || shinagawaFacilities;
+
             if (Array.isArray(shinagawaData)) {
                 shinagawaData.forEach((f: any) => {
-                    // API returns flat list of facilities. Map facilityId/facilityName to id/name
-                    shinagawaCourts.push({
-                        ...f,
-                        id: f.facilityId,
-                        name: f.facilityName,
-                        site: 'shinagawa'
-                    });
+                    // Try multiple property names for robustness
+                    const id = f.facilityId || f.id || f.Id || f.facility_id;
+                    const name = f.facilityName || f.name || f.Name || f.facility_name || f.buildingName + ' ' + f.courtName;
+
+                    if (id && name) {
+                        shinagawaCourts.push({
+                            ...f,
+                            id: id,
+                            name: name,
+                            site: 'shinagawa'
+                        });
+                    }
                 });
             }
+            // console.log('[QuickSetup] Parsed Shinagawa Courts:', shinagawaCourts.length);
 
             const minatoCourts: any[] = [];
-            const minatoData = minatoFacilities.data?.data;
+            const minatoData = minatoFacilities.data?.data || minatoFacilities.data || minatoFacilities;
+
             if (Array.isArray(minatoData)) {
                 minatoData.forEach((f: any) => {
-                    minatoCourts.push({
-                        ...f,
-                        id: f.facilityId,
-                        name: f.facilityName,
-                        site: 'minato'
-                    });
+                    const id = f.facilityId || f.id || f.Id || f.facility_id;
+                    const name = f.facilityName || f.name || f.Name || f.facility_name || f.buildingName + ' ' + f.courtName;
+
+                    if (id && name) {
+                        minatoCourts.push({
+                            ...f,
+                            id: id,
+                            name: name,
+                            site: 'minato'
+                        });
+                    }
                 });
             }
+            // console.log('[QuickSetup] Parsed Minato Courts:', minatoCourts.length);
 
             const targets = [];
 
@@ -64,8 +83,8 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
             // ルール1: 平日夜 (19:00-21:00)
             targets.push(...shinagawaCourts.map((c: any) => ({
                 site: 'shinagawa' as const,
-                facilityId: c.courtId,
-                facilityName: c.fullName,
+                facilityId: c.id,
+                facilityName: c.name,
                 dateMode: 'continuous' as const,
                 timeSlots: ['19:00-21:00'],
                 selectedWeekdays: [1, 2, 3, 4, 5], // 月〜金
@@ -78,8 +97,8 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
             const allShinagawaSlots = SITE_TIME_SLOTS.shinagawa.map(s => s.id);
             targets.push(...shinagawaCourts.map((c: any) => ({
                 site: 'shinagawa' as const,
-                facilityId: c.courtId,
-                facilityName: c.fullName,
+                facilityId: c.id,
+                facilityName: c.name,
                 dateMode: 'continuous' as const,
                 timeSlots: allShinagawaSlots,
                 selectedWeekdays: [0, 6], // 日・土
@@ -93,8 +112,8 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
             // ユーザー要望は「19時以降」だが、港区の19時枠を狙う
             targets.push(...minatoCourts.map((c: any) => ({
                 site: 'minato' as const,
-                facilityId: c.courtId,
-                facilityName: c.fullName,
+                facilityId: c.id,
+                facilityName: c.name,
                 dateMode: 'continuous' as const,
                 timeSlots: ['19:00-21:00'],
                 selectedWeekdays: [1, 2, 3, 4, 5],
@@ -107,8 +126,8 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
             const allMinatoSlots = SITE_TIME_SLOTS.minato.map(s => s.id);
             targets.push(...minatoCourts.map((c: any) => ({
                 site: 'minato' as const,
-                facilityId: c.courtId,
-                facilityName: c.fullName,
+                facilityId: c.id,
+                facilityName: c.name,
                 dateMode: 'continuous' as const,
                 timeSlots: allMinatoSlots,
                 selectedWeekdays: [0, 6],

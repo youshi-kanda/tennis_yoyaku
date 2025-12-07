@@ -46,6 +46,9 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
     return savedName;
   }
 
+  // 安全対策: facilityIdがない場合はそのまま返す
+  if (!facilityId) return savedName;
+
   // facilityIdの末尾からコート番号を推定
   // 品川区: 10400010 → A, 10400020 → B, 10400030 → C, 10400040 → D
   // 港区: 1001 → A, 1002 → B, 1003 → C, 1004 → D

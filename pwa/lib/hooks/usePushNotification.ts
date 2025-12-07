@@ -27,21 +27,31 @@ export function usePushNotification() {
     }
   }, [isSupported]);
 
+
+
   const checkSubscription = async () => {
     try {
       const registration = await navigator.serviceWorker.ready;
       const sub = await registration.pushManager.getSubscription();
-      
+
       if (sub) {
         const subscriptionData = sub.toJSON();
-        setSubscription({
+        const pushSubscription: PushSubscription = {
           endpoint: subscriptionData.endpoint!,
           keys: {
             p256dh: subscriptionData.keys!.p256dh as string,
             auth: subscriptionData.keys!.auth as string,
           },
-        });
+        };
+
+        setSubscription(pushSubscription);
         setIsSubscribed(true);
+
+        // Backendと同期（KVがクリアされている可能性があるため、毎回送信して上書きする）
+        // エラーになってもユーザー操作ではないのでログのみ
+        sendSubscriptionToBackend(pushSubscription).catch(e =>
+          console.warn('[Push] Failed to sync subscription on load:', e)
+        );
       } else {
         setIsSubscribed(false);
       }
@@ -62,7 +72,7 @@ export function usePushNotification() {
     try {
       // Request notification permission
       const permission = await Notification.requestPermission();
-      
+
       if (permission !== 'granted') {
         setError('通知の許可が拒否されました');
         setIsLoading(false);

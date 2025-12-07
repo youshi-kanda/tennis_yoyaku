@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api/client';
+import { usePushNotification } from '@/lib/hooks/usePushNotification';
 
 interface HealthCheckResult {
   service: string;
@@ -34,6 +35,7 @@ export default function AdminMaintenancePage() {
   const [customMessage, setCustomMessage] = useState('システムメンテナンス中です。しばらくお待ちください。');
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const { subscribe, isSupported } = usePushNotification();
 
   useEffect(() => {
     if (!isAdmin) {
@@ -61,7 +63,7 @@ export default function AdminMaintenancePage() {
     try {
       setLoading(true);
       const checks: HealthCheckResult[] = [];
-      
+
       // メンテナンス状態を取得
       await loadMaintenanceStatus();
 
@@ -89,7 +91,7 @@ export default function AdminMaintenancePage() {
         const monitoring = monitoringResponse.monitoring;
         const activeCount = monitoring.filter((m: any) => m.status === 'active').length;
         const pausedCount = monitoring.filter((m: any) => m.status === 'paused').length;
-        
+
         setMonitoringStats({
           total: monitoring.length,
           active: activeCount,
@@ -138,7 +140,7 @@ export default function AdminMaintenancePage() {
 
   const handleClearCache = async () => {
     if (!confirm('メモリキャッシュをクリアします。よろしいですか?\n\n実行時メモリのキャッシュと統計情報がリセットされます。')) return;
-    
+
     try {
       setLoading(true);
       await apiClient.clearMonitoringCache();
@@ -154,7 +156,7 @@ export default function AdminMaintenancePage() {
 
   const handleTestNotification = async () => {
     if (!confirm('プッシュ通知のテストを送信します。よろしいですか?\n\n自分のアカウントにテスト通知が送信されます。')) return;
-    
+
     try {
       setLoading(true);
       const result = await apiClient.sendTestNotification();
@@ -173,7 +175,7 @@ export default function AdminMaintenancePage() {
 
   const handleResetSessions = async () => {
     if (!confirm('全ユーザーのセッションをリセットします。よろしいですか?\n\n⚠️ 全ユーザーが再ログインを求められる可能性があります。')) return;
-    
+
     try {
       setLoading(true);
       const result = await apiClient.resetAllSessions();
@@ -280,16 +282,15 @@ export default function AdminMaintenancePage() {
             <div>
               <p className="font-semibold text-gray-900">メンテナンスモード</p>
               <p className="text-sm text-gray-600 mt-1">
-                {maintenanceStatus?.maintenanceMode.enabled 
-                  ? maintenanceStatus.maintenanceMode.message 
+                {maintenanceStatus?.maintenanceMode.enabled
+                  ? maintenanceStatus.maintenanceMode.message
                   : '通常運用中'}
               </p>
             </div>
-            <div className={`px-4 py-2 rounded-full font-semibold ${
-              maintenanceStatus?.maintenanceMode.enabled
-                ? 'bg-orange-100 text-orange-700'
-                : 'bg-emerald-100 text-emerald-700'
-            }`}>
+            <div className={`px-4 py-2 rounded-full font-semibold ${maintenanceStatus?.maintenanceMode.enabled
+              ? 'bg-orange-100 text-orange-700'
+              : 'bg-emerald-100 text-emerald-700'
+              }`}>
               {maintenanceStatus?.maintenanceMode.enabled ? '🛠️ 有効' : '✅ 無効'}
             </div>
           </div>
@@ -299,8 +300,8 @@ export default function AdminMaintenancePage() {
             <div>
               <p className="font-semibold text-gray-900">監視設定状態</p>
               <p className="text-sm text-gray-600 mt-1">
-                全{maintenanceStatus?.monitoring.total || 0}件 
-                (アクティブ: {maintenanceStatus?.monitoring.active || 0}件 
+                全{maintenanceStatus?.monitoring.total || 0}件
+                (アクティブ: {maintenanceStatus?.monitoring.active || 0}件
                 / 停止中: {maintenanceStatus?.monitoring.paused || 0}件)
               </p>
             </div>
@@ -392,13 +393,12 @@ export default function AdminMaintenancePage() {
             healthChecks.map((check, index) => (
               <div
                 key={index}
-                className={`p-4 rounded-lg border-l-4 ${
-                  check.status === 'healthy'
-                    ? 'bg-green-50 border-green-500'
-                    : check.status === 'warning'
+                className={`p-4 rounded-lg border-l-4 ${check.status === 'healthy'
+                  ? 'bg-green-50 border-green-500'
+                  : check.status === 'warning'
                     ? 'bg-yellow-50 border-yellow-500'
                     : 'bg-red-50 border-red-500'
-                }`}
+                  }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -407,8 +407,8 @@ export default function AdminMaintenancePage() {
                         {check.status === 'healthy'
                           ? '✅'
                           : check.status === 'warning'
-                          ? '⚠️'
-                          : '❌'}
+                            ? '⚠️'
+                            : '❌'}
                       </span>
                       <h3 className="font-semibold text-gray-900">{check.service}</h3>
                     </div>
@@ -492,6 +492,35 @@ export default function AdminMaintenancePage() {
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
             >
               📱 テスト送信
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div>
+              <h3 className="font-semibold text-gray-900">通知設定の修復</h3>
+              <p className="text-sm text-gray-600">ブラウザとサーバーの通知設定を同期</p>
+            </div>
+            <button
+              onClick={async () => {
+                if (!confirm('通知設定を再同期しますか？')) return;
+                try {
+                  setIsProcessing(true);
+                  const result = await subscribe();
+                  if (result) {
+                    alert('✅ 通知設定を修復・同期しました');
+                  } else {
+                    alert('⚠️ 通知設定の修復に失敗しました。通知がブロックされていないか確認してください。');
+                  }
+                } catch (e: any) {
+                  alert('❌ エラー: ' + e.message);
+                } finally {
+                  setIsProcessing(false);
+                }
+              }}
+              disabled={isProcessing || !isSupported}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50"
+            >
+              🔄 修復・同期
             </button>
           </div>
 
@@ -586,11 +615,10 @@ export default function AdminMaintenancePage() {
                   if (showConfirm === 'resumeAll') handleResumeAll();
                 }}
                 disabled={isProcessing}
-                className={`flex-1 px-4 py-2 text-white font-semibold rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors ${
-                  showConfirm === 'enable' || showConfirm === 'pauseAll' 
-                    ? 'bg-red-500 hover:bg-red-600' 
-                    : 'bg-emerald-500 hover:bg-emerald-600'
-                }`}
+                className={`flex-1 px-4 py-2 text-white font-semibold rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors ${showConfirm === 'enable' || showConfirm === 'pauseAll'
+                  ? 'bg-red-500 hover:bg-red-600'
+                  : 'bg-emerald-500 hover:bg-emerald-600'
+                  }`}
               >
                 {isProcessing ? '処理中...' : '実行'}
               </button>

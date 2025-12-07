@@ -24,15 +24,24 @@ export function MonitoringEditModal({ target, isOpen, onClose, onSave }: Monitor
   const [autoReserve, setAutoReserve] = useState(target.autoReserve);
   const [isSaving, setIsSaving] = useState(false);
 
-  const timeSlotOptions = [
-    '07:00-09:00',
-    '09:00-11:00',
-    '11:00-13:00',
-    '13:00-15:00',
-    '15:00-17:00',
-    '17:00-19:00',
-    '19:00-21:00',
-  ];
+  const timeSlotOptions = target.site === 'minato'
+    ? [
+      '08:00-10:00',
+      '10:00-12:00',
+      '12:00-13:00',
+      '13:00-15:00',
+      '15:00-17:00',
+      '17:00-19:00',
+      '19:00-21:00',
+    ]
+    : [
+      '09:00-11:00',
+      '11:00-13:00',
+      '13:00-15:00',
+      '15:00-17:00',
+      '17:00-19:00',
+      '19:00-21:00',
+    ];
 
   const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -121,11 +130,10 @@ export function MonitoringEditModal({ target, isOpen, onClose, onSave }: Monitor
                 <button
                   key={slot}
                   onClick={() => handleTimeSlotToggle(slot)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    timeSlots.includes(slot)
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${timeSlots.includes(slot)
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                    }`}
                 >
                   {slot}
                 </button>
@@ -144,11 +152,10 @@ export function MonitoringEditModal({ target, isOpen, onClose, onSave }: Monitor
                   <button
                     key={index}
                     onClick={() => handleWeekdayToggle(index)}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedWeekdays.includes(index)
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${selectedWeekdays.includes(index)
                         ? 'bg-emerald-600 text-white'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
+                      }`}
                   >
                     {name}
                   </button>

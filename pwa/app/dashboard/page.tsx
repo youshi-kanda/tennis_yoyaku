@@ -9,6 +9,7 @@ import { MonitoringDetailModal } from '@/components/monitoring/MonitoringDetailM
 import { MonitoringEditModal } from '@/components/monitoring/MonitoringEditModal';
 import { MonitoringTarget } from '@/lib/types';
 import { useRouter } from 'next/navigation';
+import { QuickSetupCard } from '@/components/dashboard/QuickSetupCard';
 
 interface Stats {
   activeMonitoring: number;
@@ -44,7 +45,7 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
   if (savedName.includes('庭球場') || savedName.includes('テニスコート')) {
     return savedName;
   }
-  
+
   // facilityIdの末尾からコート番号を推定
   // 品川区: 10400010 → A, 10400020 → B, 10400030 → C, 10400040 → D
   // 港区: 1001 → A, 1002 → B, 1003 → C, 1004 → D
@@ -53,9 +54,9 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
     '10': 'Ａ', '20': 'Ｂ', '30': 'Ｃ', '40': 'Ｄ', '50': 'Ｅ',
     '01': 'Ａ', '02': 'Ｂ', '03': 'Ｃ', '04': 'Ｄ',
   };
-  
+
   const court = courtMap[lastTwo];
-  
+
   if (court) {
     // 品川区の場合
     if (savedName.includes('しながわ') || savedName.includes('品川') || savedName.includes('八潮') || savedName.includes('大井')) {
@@ -66,7 +67,7 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
       return `${savedName} テニスコート${court}`;
     }
   }
-  
+
   return savedName;
 };
 
@@ -109,20 +110,20 @@ export default function DashboardHome() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      
+
       // 監視ターゲットを取得
       const monitoringResponse = await apiClient.getMonitoringList();
       const monitoringTargets = monitoringResponse.data || [];
       setTargets(monitoringTargets);
-      
+
       const activeCount = monitoringTargets.filter((t: MonitoringTarget) => t.status === 'active' || t.status === 'monitoring').length;
-      
+
       // 予約履歴を取得
       const historyResponse = await apiClient.getReservationHistory(100);
       const reservations = historyResponse.data || [];
       const successCount = reservations.filter((r: { status: string }) => r.status === 'success').length;
       const successRate = reservations.length > 0 ? Math.round((successCount / reservations.length) * 100) : 0;
-      
+
       setStats({
         activeMonitoring: activeCount,
         totalReservations: reservations.length,
@@ -137,7 +138,7 @@ export default function DashboardHome() {
 
   const handleDelete = async (target: MonitoringTarget) => {
     if (!confirm('この監視設定を削除しますか？\n\n削除すると、この設定による自動監視が完全に停止されます。')) return;
-    
+
     try {
       await apiClient.deleteMonitoring(target.id);
       await loadData();
@@ -149,7 +150,7 @@ export default function DashboardHome() {
 
   const handlePause = async (target: MonitoringTarget) => {
     if (!confirm('この監視を一時停止しますか？\n\n設定は保持されたまま、自動監視のみが停止されます。')) return;
-    
+
     try {
       await apiClient.pauseMonitoring(target.id);
       await loadData();
@@ -161,7 +162,7 @@ export default function DashboardHome() {
 
   const handleResume = async (target: MonitoringTarget) => {
     if (!confirm('この監視を再開しますか？\n\n設定通りに自動監視が再開されます。')) return;
-    
+
     try {
       await apiClient.resumeMonitoring(target.id);
       await loadData();
@@ -260,7 +261,7 @@ export default function DashboardHome() {
     autoReserve?: boolean;
   }) => {
     if (!editingTarget) return;
-    
+
     try {
       await apiClient.updateMonitoring(editingTarget.id, updates);
       await loadData();
@@ -307,6 +308,8 @@ export default function DashboardHome() {
       </div>
 
       {/* 統計カード */}
+      <QuickSetupCard onSuccess={loadData} />
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
         {/* 監視中の施設 */}
         <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
@@ -457,7 +460,7 @@ export default function DashboardHome() {
                   groupedSettings.set(groupKey, {
                     targets: [target],
                     timeSlots: target.timeSlots || [],
-                    selectedWeekdays: target.selectedWeekdays || [0,1,2,3,4,5,6],
+                    selectedWeekdays: target.selectedWeekdays || [0, 1, 2, 3, 4, 5, 6],
                     includeHolidays: target.includeHolidays ?? true,
                     sites: new Set([target.site]),
                   });
@@ -469,7 +472,7 @@ export default function DashboardHome() {
                   <div className="flex justify-between items-center mb-4">
                     <p className="text-sm text-gray-600">
                       {groupedSettings.size}グループ・{targets.length}施設を監視中
-                      （アクティブ: {targets.filter((t) => t.status === 'active').length}件 / 
+                      （アクティブ: {targets.filter((t) => t.status === 'active').length}件 /
                       停止中: {targets.filter((t) => t.status === 'paused').length}件）
                     </p>
                     <button
@@ -479,20 +482,20 @@ export default function DashboardHome() {
                       全て表示
                     </button>
                   </div>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {Array.from(groupedSettings.entries()).map(([groupKey, group]) => {
                       // グループのタイトル生成
-                      const weekdayLabels = group.selectedWeekdays.map(d => ['日','月','火','水','木','金','土'][d]);
+                      const weekdayLabels = group.selectedWeekdays.map(d => ['日', '月', '火', '水', '木', '金', '土'][d]);
                       let title = '';
-                      
+
                       if (group.selectedWeekdays.length === 7) {
                         title = '毎日';
-                      } else if (group.selectedWeekdays.length === 5 && 
-                                 JSON.stringify(group.selectedWeekdays) === JSON.stringify([1,2,3,4,5])) {
+                      } else if (group.selectedWeekdays.length === 5 &&
+                        JSON.stringify(group.selectedWeekdays) === JSON.stringify([1, 2, 3, 4, 5])) {
                         title = '平日';
-                      } else if (group.selectedWeekdays.length === 2 && 
-                                 JSON.stringify(group.selectedWeekdays) === JSON.stringify([0,6])) {
+                      } else if (group.selectedWeekdays.length === 2 &&
+                        JSON.stringify(group.selectedWeekdays) === JSON.stringify([0, 6])) {
                         title = '週末';
                       } else {
                         title = weekdayLabels.join('・');
@@ -510,8 +513,8 @@ export default function DashboardHome() {
                       const pausedCount = group.targets.filter(t => t.status === 'paused').length;
 
                       return (
-                        <div 
-                          key={groupKey} 
+                        <div
+                          key={groupKey}
                           className="bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:border-emerald-400 transition-all duration-200"
                         >
                           {/* カードヘッダー */}
@@ -522,9 +525,8 @@ export default function DashboardHome() {
                                 {Array.from(group.sites).map(site => (
                                   <span
                                     key={site}
-                                    className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                      site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
-                                    }`}
+                                    className={`px-2 py-1 rounded-full text-xs font-bold ${site === 'shinagawa' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'
+                                      }`}
                                   >
                                     {site === 'shinagawa' ? '品川' : '港区'}
                                   </span>
@@ -585,9 +587,8 @@ export default function DashboardHome() {
                                     key={target.id}
                                     className="flex items-center gap-2 text-xs"
                                   >
-                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                      target.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400'
-                                    }`} />
+                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${target.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400'
+                                      }`} />
                                     <span className="text-gray-700 truncate">
                                       {getFacilityNameFromId(target.facilityId, target.facilityName)}
                                     </span>

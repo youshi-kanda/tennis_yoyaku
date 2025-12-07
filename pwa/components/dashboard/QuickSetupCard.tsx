@@ -32,24 +32,29 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
             // ※現状のAPIレスポンスの構造に依存。Wizardと同様にフィルタリングする。
             // APIレスポンスは { success: true, data: [...] } の形式
             const shinagawaCourts: any[] = [];
-            if (Array.isArray(shinagawaFacilities.data)) {
-                shinagawaFacilities.data.forEach((b: any) => {
-                    if (Array.isArray(b.courts)) {
-                        b.courts.forEach((c: any) => {
-                            shinagawaCourts.push({ ...c, site: 'shinagawa' });
-                        });
-                    }
+            const shinagawaData = shinagawaFacilities.data?.data;
+            if (Array.isArray(shinagawaData)) {
+                shinagawaData.forEach((f: any) => {
+                    // API returns flat list of facilities. Map facilityId/facilityName to id/name
+                    shinagawaCourts.push({
+                        ...f,
+                        id: f.facilityId,
+                        name: f.facilityName,
+                        site: 'shinagawa'
+                    });
                 });
             }
 
             const minatoCourts: any[] = [];
-            if (Array.isArray(minatoFacilities.data)) {
-                minatoFacilities.data.forEach((b: any) => {
-                    if (Array.isArray(b.courts)) {
-                        b.courts.forEach((c: any) => {
-                            minatoCourts.push({ ...c, site: 'minato' });
-                        });
-                    }
+            const minatoData = minatoFacilities.data?.data;
+            if (Array.isArray(minatoData)) {
+                minatoData.forEach((f: any) => {
+                    minatoCourts.push({
+                        ...f,
+                        id: f.facilityId,
+                        name: f.facilityName,
+                        site: 'minato'
+                    });
                 });
             }
 

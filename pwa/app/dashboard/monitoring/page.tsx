@@ -1372,11 +1372,18 @@ export default function MonitoringPage() {
                             type="button"
                             onClick={() => {
                               const targetFacilities = config.selectedRegion === 'shinagawa' ? facilities.shinagawa : facilities.minato;
-                              const allItems = targetFacilities.flatMap(b => b.courts.map(c => ({
-                                site: config.selectedRegion,
-                                id: c.courtId,
-                                name: c.fullName
-                              })));
+                              const allItems: any[] = [];
+                              targetFacilities.forEach(b => {
+                                if (Array.isArray(b.courts)) {
+                                  b.courts.forEach(c => {
+                                    allItems.push({
+                                      site: config.selectedRegion,
+                                      id: c.courtId,
+                                      name: c.fullName
+                                    });
+                                  });
+                                }
+                              });
                               setConfig({ ...config, selectedFacilities: allItems });
                             }}
                             className="text-xs px-2 py-1 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-600 font-medium"

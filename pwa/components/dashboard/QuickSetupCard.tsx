@@ -14,6 +14,8 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const [enableAutoReserve, setEnableAutoReserve] = useState(false);
+
     const handleQuickSetup = async () => {
         setIsProcessing(true);
         setError(null);
@@ -48,7 +50,7 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
                 timeSlots: ['19:00-21:00'],
                 selectedWeekdays: [1, 2, 3, 4, 5], // 月〜金
                 includeHolidays: false,
-                autoReserve: false, // Step 2で有効化するため最初はfalse
+                autoReserve: enableAutoReserve,
                 priority: 3
             })));
 
@@ -62,7 +64,7 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
                 timeSlots: allShinagawaSlots,
                 selectedWeekdays: [0, 6], // 日・土
                 includeHolidays: true, // 祝日も含む
-                autoReserve: false,
+                autoReserve: enableAutoReserve,
                 priority: 3
             })));
 
@@ -77,7 +79,7 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
                 timeSlots: ['19:00-21:00'],
                 selectedWeekdays: [1, 2, 3, 4, 5],
                 includeHolidays: false,
-                autoReserve: false,
+                autoReserve: enableAutoReserve,
                 priority: 3
             })));
 
@@ -91,7 +93,7 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
                 timeSlots: allMinatoSlots,
                 selectedWeekdays: [0, 6],
                 includeHolidays: true,
-                autoReserve: false,
+                autoReserve: enableAutoReserve,
                 priority: 3
             })));
 
@@ -181,7 +183,26 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
                     </div>
                 </div>
 
-                <div className="w-full md:w-auto flex flex-col items-center gap-2 shrink-0">
+                <div className="w-full md:w-auto flex flex-col items-center gap-4 shrink-0">
+                    <label className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors max-w-[300px]">
+                        <div className="relative flex items-center h-5 mt-0.5">
+                            <input
+                                type="checkbox"
+                                checked={enableAutoReserve}
+                                onChange={(e) => setEnableAutoReserve(e.target.checked)}
+                                className="w-5 h-5 border-gray-300 rounded text-gray-900 focus:ring-gray-900 transition-all cursor-pointer"
+                            />
+                        </div>
+                        <div className="text-sm">
+                            <span className="block font-bold text-gray-900 mb-0.5">
+                                空き枠が見つかったら自動で予約する
+                            </span>
+                            <span className="block text-xs text-gray-500 leading-relaxed">
+                                ※チェックを入れると、空きを検知した瞬間に予約を実行します。
+                            </span>
+                        </div>
+                    </label>
+
                     <button
                         onClick={handleQuickSetup}
                         disabled={isProcessing}
@@ -192,7 +213,7 @@ export function QuickSetupCard({ onSuccess }: QuickSetupCardProps) {
                         ) : (
                             <Zap className="w-5 h-5 text-yellow-400" />
                         )}
-                        設定を適用する
+                        {enableAutoReserve ? '自動予約モードで設定' : '通知のみで設定'}
                     </button>
                     <p className="text-[10px] text-gray-400">
                         ※既存の設定は維持され、新しい設定が追加されます

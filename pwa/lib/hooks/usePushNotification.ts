@@ -35,20 +35,26 @@ export function usePushNotification() {
       const sub = await registration.pushManager.getSubscription();
 
       if (sub) {
-        const subscriptionData = sub.toJSON();
+        // Robust key extraction for iOS
+        const p256dh = arrayBufferToBase64(sub.getKey('p256dh'));
+        const auth = arrayBufferToBase64(sub.getKey('auth'));
+
+        if (!p256dh || !auth) {
+          console.warn('[Push] Existing subscription missing keys. Unsubscribing to fix.');
+          await sub.unsubscribe().catch(e => console.error(e));
+          setIsSubscribed(false);
+          return;
+        }
+
         const pushSubscription: PushSubscription = {
-          endpoint: subscriptionData.endpoint!,
-          keys: {
-            p256dh: subscriptionData.keys!.p256dh as string,
-            auth: subscriptionData.keys!.auth as string,
-          },
+          endpoint: sub.endpoint,
+          keys: { p256dh, auth },
         };
 
         setSubscription(pushSubscription);
         setIsSubscribed(true);
 
-        // Backendと同期（KVがクリアされている可能性があるため、毎回送信して上書きする）
-        // エラーになってもユーザー操作ではないのでログのみ
+        // Backendと同期
         sendSubscriptionToBackend(pushSubscription).catch(e =>
           console.warn('[Push] Failed to sync subscription on load:', e)
         );
@@ -97,16 +103,17 @@ export function usePushNotification() {
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
       });
 
-      if (!subscriptionData.keys?.p256dh || !subscriptionData.keys?.auth) {
-        throw new Error('プッシュ通知の鍵情報の取得に失敗しました');
+      // Robust key extraction
+      const p256dh = arrayBufferToBase64(sub.getKey('p256dh'));
+      const auth = arrayBufferToBase64(sub.getKey('auth'));
+
+      if (!p256dh || !auth) {
+        throw new Error('プッシュ通知の鍵情報の取得に失敗しました (iOS compatible mode)');
       }
 
       const pushSubscription: PushSubscription = {
-        endpoint: subscriptionData.endpoint!,
-        keys: {
-          p256dh: subscriptionData.keys.p256dh as string,
-          auth: subscriptionData.keys.auth as string,
-        },
+        endpoint: sub.endpoint,
+        keys: { p256dh, auth },
       };
 
       setSubscription(pushSubscription);
@@ -183,6 +190,15 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer | null): string {
+  if (!buffer) return '';
+  const binary = String.fromCharCode(...new Uint8Array(buffer));
+  return window.btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
 async function sendSubscriptionToBackend(subscription: PushSubscription) {

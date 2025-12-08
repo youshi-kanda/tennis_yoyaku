@@ -97,12 +97,15 @@ export function usePushNotification() {
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
       });
 
-      const subscriptionData = sub.toJSON();
+      if (!subscriptionData.keys?.p256dh || !subscriptionData.keys?.auth) {
+        throw new Error('プッシュ通知の鍵情報の取得に失敗しました');
+      }
+
       const pushSubscription: PushSubscription = {
         endpoint: subscriptionData.endpoint!,
         keys: {
-          p256dh: subscriptionData.keys!.p256dh as string,
-          auth: subscriptionData.keys!.auth as string,
+          p256dh: subscriptionData.keys.p256dh as string,
+          auth: subscriptionData.keys.auth as string,
         },
       };
 
@@ -116,7 +119,13 @@ export function usePushNotification() {
       return true;
     } catch (err: any) {
       console.error('Failed to subscribe:', err);
-      setError(err.message || 'プッシュ通知の登録に失敗しました');
+      // 詳細なエラー情報をログに残す
+      if (err.response?.data) {
+        console.error('Backend Error Details:', err.response.data);
+      }
+
+      const errorMessage = err.response?.data?.error || err.message || 'プッシュ通知の登録に失敗しました';
+      setError(errorMessage);
       setIsLoading(false);
       return false;
     }

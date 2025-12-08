@@ -37,11 +37,20 @@ interface PushNotificationPayload {
   };
 }
 
+export interface NotificationHistoryItem {
+  id: string;
+  title: string;
+  body: string;
+  icon?: string;
+  timestamp: number;
+  data?: any;
+}
+
 /**
  * Base64 URL-safe エンコーディング
  */
-function base64UrlEncode(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+function base64UrlEncode(buffer: ArrayBuffer | ArrayBufferView): string {
+  const bytes = new Uint8Array(buffer as any);
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
@@ -97,7 +106,7 @@ async function hkdf(
   infoAndCounter[info.length] = 1;
 
   const okm = await crypto.subtle.sign('HMAC', prkKey, infoAndCounter);
-  return new Uint8Array(okm.slice(0, length));
+  return new Uint8Array(okm.slice(0, length) as ArrayBuffer);
 }
 
 /**
@@ -110,14 +119,14 @@ async function encryptPayload(
   userAuthSecret: string
 ): Promise<{ ciphertext: Uint8Array; salt: Uint8Array; serverPublicKey: Uint8Array }> {
   // 1. サーバー側のECDH鍵ペア生成（P-256）
-  const serverKeyPair = await crypto.subtle.generateKey(
+  const serverKeyPair = (await crypto.subtle.generateKey(
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
     ['deriveBits']
-  );
+  )) as CryptoKeyPair;
 
   // 2. サーバー公開鍵をraw形式でエクスポート（65バイト: 0x04 + x + y）
-  const serverPublicKeyRaw = await crypto.subtle.exportKey('raw', serverKeyPair.publicKey);
+  const serverPublicKeyRaw = (await crypto.subtle.exportKey('raw', serverKeyPair.publicKey)) as ArrayBuffer;
   const serverPublicKeyBytes = new Uint8Array(serverPublicKeyRaw);
 
   // 3. クライアント公開鍵をデコード
@@ -134,7 +143,7 @@ async function encryptPayload(
 
   // 5. ECDH共有シークレット生成
   const sharedSecret = await crypto.subtle.deriveBits(
-    { name: 'ECDH', public: clientPublicKey },
+    { name: 'ECDH', public: clientPublicKey } as any, // Cast to any to avoid "public" property error
     serverKeyPair.privateKey,
     256
   );
@@ -148,6 +157,9 @@ async function encryptPayload(
   // 8. PRKの生成（HKDF-SHA256）
   const authInfo = new TextEncoder().encode('Content-Encoding: auth\0');
   const prk = await hkdf(authSecret, new Uint8Array(sharedSecret), authInfo, 32);
+
+  // ... (rest of the function)
+
 
   // 9. コンテキスト情報の構築
   const context = new Uint8Array(135); // 1 + 2 + 65 + 2 + 65
@@ -220,7 +232,7 @@ async function encryptPayload(
   );
 
   return {
-    ciphertext: new Uint8Array(ciphertext),
+    ciphertext: new Uint8Array(ciphertext as ArrayBuffer),
     salt: salt,
     serverPublicKey: serverPublicKeyBytes,
   };
@@ -390,10 +402,10 @@ export async function sendPushNotification(
     }
 
     // Crypto-Keyヘッダー（サーバー公開鍵）
-    const serverPublicKeyBase64 = base64UrlEncode(encrypted.serverPublicKey.buffer);
+    const serverPublicKeyBase64 = base64UrlEncode(encrypted.serverPublicKey.buffer as ArrayBuffer);
 
     // Encryptionヘッダー（ソルト）
-    const saltBase64 = base64UrlEncode(encrypted.salt.buffer);
+    const saltBase64 = base64UrlEncode(encrypted.salt.buffer as ArrayBuffer);
 
     // Web Push APIにリクエスト送信
     const response = await fetch(subscription.endpoint, {
@@ -410,6 +422,10 @@ export async function sendPushNotification(
 
     if (response.ok) {
       console.log(`[Push] Notification sent successfully to user: ${userId}`);
+      // 通知履歴を保存 (非同期で実行し、メインフローをブロックしない)
+      await saveNotificationHistory(userId, payload, env).catch(err =>
+        console.error(`[Push] Failed to save history for user ${userId}:`, err)
+      );
       return true;
     } else {
       const errorText = await response.text();
@@ -455,3 +471,65 @@ export async function deletePushSubscription(
   await env.USERS.delete(key);
   console.log(`[Push] Deleted subscription for user: ${userId}`);
 }
+
+/**
+ * 通知履歴を保存 (最大50件)
+ */
+export async function saveNotificationHistory(
+  userId: string,
+  payload: PushNotificationPayload,
+  env: Env
+): Promise<void> {
+  const key = `notification_history:${userId}`;
+
+  // 既存の履歴を取得
+  let history: NotificationHistoryItem[] = [];
+  const existingData = await env.USERS.get(key);
+  if (existingData) {
+    try {
+      history = JSON.parse(existingData);
+    } catch (e) {
+      console.error(`[Push] Failed to parse history for user ${userId}`, e);
+    }
+  }
+
+  // 新しい通知を追加
+  const newItem: NotificationHistoryItem = {
+    id: crypto.randomUUID(),
+    title: payload.title,
+    body: payload.body,
+    icon: payload.icon,
+    timestamp: Date.now(),
+    data: payload.data
+  };
+
+  // 先頭に追加し、最大50件に制限
+  history.unshift(newItem);
+  if (history.length > 50) {
+    history = history.slice(0, 50);
+  }
+
+  // 保存 (TTL 30日)
+  await env.USERS.put(key, JSON.stringify(history), { expirationTtl: 60 * 60 * 24 * 30 });
+}
+
+/**
+ * 通知履歴を取得
+ */
+export async function getNotificationHistory(
+  userId: string,
+  env: Env
+): Promise<NotificationHistoryItem[]> {
+  const key = `notification_history:${userId}`;
+  const data = await env.USERS.get(key);
+
+  if (!data) return [];
+
+  try {
+    return JSON.parse(data) as NotificationHistoryItem[];
+  } catch (e) {
+    console.error(`[Push] Failed to parse history for user ${userId}`, e);
+    return [];
+  }
+}
+

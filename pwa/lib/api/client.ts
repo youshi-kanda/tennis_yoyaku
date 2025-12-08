@@ -187,6 +187,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getNotificationHistory() {
+    const response = await this.client.get('/api/notifications/history');
+    return response.data;
+  }
+
   // 設定API
   async getSiteCredentials() {
     const response = await this.client.get('/api/settings/credentials');

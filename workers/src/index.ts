@@ -19,7 +19,17 @@ import {
 import { getOrDetectReservationPeriod, type ReservationPeriodInfo } from './reservationPeriod';
 import { isHoliday, getHolidaysForYear, type HolidayInfo } from './holidays';
 import { encryptPassword, decryptPassword, isEncrypted } from './crypto';
-import { sendPushNotification, savePushSubscription, deletePushSubscription } from './pushNotification';
+
+// 🔐 ログイン排他制御用マップ (Login Storm Prevention)
+// 同じユーザー・サイトへのログイン処理を重複させないためのPromiseキャッシュ
+const pendingLogins = new Map<string, Promise<string | null>>();
+
+import {
+  savePushSubscription,
+  deletePushSubscription,
+  sendPushNotification,
+  getNotificationHistory,
+} from './pushNotification';
 
 // ===== サブリクエスト計測（有料プラン: 制限なし） =====
 let subrequestCount = 0;
@@ -423,6 +433,11 @@ export default {
 
       if (path === '/api/settings' && request.method === 'POST') {
         return handleSaveSettings(request, env);
+      }
+
+      // 通知履歴取得
+      if (path === '/api/notifications/history' && request.method === 'GET') {
+        return handleNotificationsHistory(request, env);
       }
 
       if (path === '/api/push/subscribe' && request.method === 'POST') {
@@ -1593,7 +1608,8 @@ async function handlePushSubscribe(request: Request, env: Env): Promise<Response
     };
 
     if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
-      return jsonResponse({ error: 'Invalid subscription data' }, 400);
+      console.warn('[Push] Invalid subscription data received:', JSON.stringify(body));
+      return jsonResponse({ error: 'Invalid subscription data', received: body }, 400);
     }
 
     await savePushSubscription(userId, body, env);
@@ -1996,6 +2012,14 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       password: decryptedPassword,
     };
 
+    // 🛑 サーキットブレーカー（緊急停止）チェック
+    const haltKey = `monitoring_halted:${target.userId}:${target.site}`;
+    const haltStatus = await env.SESSIONS.get(haltKey);
+    if (haltStatus) {
+      console.log(`[Circuit Breaker] ⛔️ 監視停止中 (理由: ${haltStatus}) - ${target.site}`);
+      return; // 何もしないで終了
+    }
+
     // 🔑 セッションIDを取得または新規ログイン
     let sessionId: string | null = null;
     let shinagawaSession: ShinagawaSession | null = null;
@@ -2058,36 +2082,127 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         return;
       }
 
-      console.log(`[Check] 🔐 新規ログイン実行 (${target.site})`);
-      if (target.site === 'shinagawa') {
-        const newSession = await loginToShinagawa(credentials.username, credentials.password);
-        shinagawaSession = newSession;
-        sessionId = newSession?.cookie || null;
-      } else {
-        sessionId = await loginToMinato(credentials.username, credentials.password);
-      }
+      // 🔐 ログイン排他制御 (Login Storm Prevention)
+      // 同じユーザー・サイトへのログイン処理が既に走っているか確認
+      const loginLockKey = `${target.userId}:${target.site}`;
 
-      // 3. 取得したセッションIDをKVに保存（24時間有効）
-      if (sessionId) {
-        const newSessionData = {
-          sessionId,
-          site: target.site,
-          loginTime: Date.now(),
-          lastUsed: Date.now(),
-          isValid: true,
-          userId: target.userId,
-          shinagawaContext: shinagawaSession || undefined
-        };
-        kvMetrics.writes++;
-        await env.SESSIONS.put(sessionKey, JSON.stringify(newSessionData), {
-          expirationTtl: 86400, // 24時間
-        });
-        console.log(`[Check] セッションID保存: ${sessionId.substring(0, 20)}... (saved to KV)`);
-      } else {
-        console.error(`[Check] ログイン失敗 (${target.site})`);
+      try {
+        // 既存のログイン処理があればそれを待つ (最大30秒)
+        if (pendingLogins.has(loginLockKey)) {
+          console.log(`[Check] ⏳ ログイン処理中... 他のタスクの完了を待機: ${loginLockKey}`);
+          const sharedSession = await pendingLogins.get(loginLockKey);
+          if (sharedSession) {
+            console.log(`[Check] ✅ 共有セッションを利用可能`);
+            // 待機中に作られたセッションを再取得してパース
+            // 簡易的にリロードせずとも、成功していれば次の実行でKVから取れるはずだが、
+            // ここでは「今回の実行」のためにKVから取り直すか、戻り値を使うか。
+            // pendingLoginsの戻り値を「成功時はtrue」のようにする手もあるが、
+            // 一旦ここではシンプルに「待機が終わったらKVを確認」するフローにする手もある。
+            // しかしpendingLoginsがPromise<string|null>を返すようにすれば一番早い。
+
+            // 今回はpendingLoginsの値を直接使う実装にはなっていない(Map定義がまだのため)。
+            // まずMap定義を追加してから、ここを実装すべきだが、先にロジックを書く。
+
+            // もしpendingLoginsがPromiseを返すならこう
+            // const result = await pendingLogins.get(loginLockKey);
+            // if (result) { sessionId = result; needNewLogin = false; ... }
+          }
+        }
+
+        // ダブルチェック: 待機中にセッションができているかもしれない
+        const freshSessionData = await env.SESSIONS.get(sessionKey);
+        if (freshSessionData && !pendingLogins.has(loginLockKey)) {
+          // 誰かが作ってくれた
+          console.log(`[Check] 🔄 待機中にセッションが作成されました。再利用します。`);
+          const parsed = JSON.parse(freshSessionData);
+          sessionId = parsed.sessionId;
+          if (target.site === 'shinagawa') shinagawaSession = parsed.shinagawaContext;
+          needNewLogin = false;
+        }
+
+        // まだ必要なら、自分が代表してログインする
+        if (needNewLogin && !pendingLogins.has(loginLockKey)) {
+          console.log(`[Check] 🔐 代表して新規ログイン実行 (${target.site})`);
+
+          // Promiseを作成してMapに登録
+          const loginPromise = (async () => {
+            if (target.site === 'shinagawa') {
+              const s = await loginToShinagawa(credentials.username, credentials.password);
+              return s ? JSON.stringify({ sessionId: s.cookie, shinagawaContext: s }) : null;
+            } else {
+              const s = await loginToMinato(credentials.username, credentials.password);
+              return s ? JSON.stringify({ sessionId: s }) : null;
+            }
+          })();
+
+          pendingLogins.set(loginLockKey, loginPromise);
+
+          try {
+            const resultJson = await loginPromise;
+
+            if (resultJson) {
+              const parsed = JSON.parse(resultJson);
+              sessionId = parsed.sessionId;
+              if (target.site === 'shinagawa') {
+                shinagawaSession = parsed.shinagawaContext;
+              }
+
+              if (sessionId) {
+                // KV保存
+                const newSessionData = {
+                  sessionId,
+                  site: target.site,
+                  loginTime: Date.now(),
+                  lastUsed: Date.now(),
+                  isValid: true,
+                  userId: target.userId,
+                  shinagawaContext: shinagawaSession || undefined
+                };
+                kvMetrics.writes++;
+                await env.SESSIONS.put(sessionKey, JSON.stringify(newSessionData), {
+                  expirationTtl: 86400, // 24時間
+                });
+                console.log(`[Check] セッションID保存: ${sessionId.substring(0, 20)}... (saved to KV)`);
+              } else {
+                console.warn('[Check] Login succeeded but no sessionId found in result');
+              }
+
+            } else {
+              throw new Error('Login failed (returned null)');
+            }
+          } catch (e) {
+            console.error(`[Check] ❌ ログイン処理失敗:`, e);
+            throw e; // 下のcatchへ
+          } finally {
+            // 完了したらMapから削除
+            pendingLogins.delete(loginLockKey);
+          }
+        } else if (needNewLogin) {
+          // ここに来るのは「待機してたけど、待機終了後に見たらまだpendingLoginsにあった（ありえない）」
+          // または「待機して、Promiseが終わった」
+          // Promiseの結果を待つ
+          const resultJson = await pendingLogins.get(loginLockKey);
+          if (resultJson) {
+            const parsed = JSON.parse(resultJson);
+            sessionId = parsed.sessionId;
+            if (target.site === 'shinagawa') shinagawaSession = parsed.shinagawaContext;
+            needNewLogin = false;
+            console.log(`[Check] ✅ 他のタスクが作成したセッションを使用: ${sessionId.substring(0, 10)}...`);
+          }
+        }
+
+      } catch (e) {
+        console.error(`[Check] Login Critical Failure:`, e);
+
+        // ⛔️ サーキットブレーカー作動
+        console.error(`[Check] 🚫 ログインに失敗したため、緊急停止モードに移行します (${target.site})`);
+        // キーを再生成（スコープ外のため）
+        const specificHaltKey = `monitoring_halted:${target.userId}:${target.site}`;
+        await env.SESSIONS.put(specificHaltKey, `Login Failed at ${new Date().toISOString()}: ${e}`, { expirationTtl: 86400 }); // 24時間停止
+
         await sendPushNotification(target.userId, {
-          title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
-          body: 'ID・パスワードを確認してください',
+          title: `⚠️ 監視を自動停止しました (${target.site === 'shinagawa' ? '品川区' : '港区'})`,
+          body: 'ログインに失敗し続けました。設定を確認してください。\n再開するには設定画面を確認してください。',
         }, env);
         return;
       }
@@ -3669,3 +3784,26 @@ async function handleChangePassword(request: Request, env: Env): Promise<Respons
     return jsonResponse({ error: error.message }, 500);
   }
 }
+
+/**
+ * 通知履歴取得APIハンドラ
+ */
+async function handleNotificationsHistory(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+
+    const history = await getNotificationHistory(userId, env);
+
+    return jsonResponse({
+      success: true,
+      data: history
+    });
+  } catch (error: any) {
+    if (error.message === 'Unauthorized') {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+

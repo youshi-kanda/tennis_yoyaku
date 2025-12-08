@@ -342,6 +342,14 @@ class ApiClient {
     return response.data;
   }
 
+  async adminMonitoringCheck(targetId: string, userId: string) {
+    const response = await this.client.post('/api/admin/monitoring/check', {
+      targetId,
+      userId,
+    });
+    return response.data;
+  }
+
   async pauseAllMonitoring() {
     const response = await this.client.post('/api/admin/monitoring/pause-all');
     return response.data;

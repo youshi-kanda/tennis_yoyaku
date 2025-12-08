@@ -31,10 +31,12 @@ export default function AdminMaintenancePage() {
   const [healthChecks, setHealthChecks] = useState<HealthCheckResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [monitoringStats, setMonitoringStats] = useState<any>(null);
+  const [allTargets, setAllTargets] = useState<any[]>([]);
   const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceStatus | null>(null);
   const [customMessage, setCustomMessage] = useState('システムメンテナンス中です。しばらくお待ちください。');
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [checkingTargetId, setCheckingTargetId] = useState<string | null>(null);
   const { subscribe, isSupported } = usePushNotification();
 
   useEffect(() => {
@@ -97,6 +99,7 @@ export default function AdminMaintenancePage() {
           active: activeCount,
           paused: pausedCount,
         });
+        setAllTargets(monitoring);
 
         checks.push({
           service: '監視設定',
@@ -252,6 +255,36 @@ export default function AdminMaintenancePage() {
       alert('監視一括再開に失敗しました: ' + error.message);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleManualCheck = async (target: any) => {
+    if (!confirm(`監視ターゲット「${target.facilityName} (${target.date})」の手動チェックを実行しますか？\n\n・即座に施設の空き状況を確認します。\n・Cronを待たずに実行されます。\n・結果は履歴またはログで確認してください。`)) return;
+
+    try {
+      setCheckingTargetId(target.id);
+      await apiClient.adminMonitoringCheck(target.id, target.userId);
+      alert('✅ チェックリクエストを送信しました。\n結果はログまたは履歴を確認してください。');
+    } catch (error: any) {
+      console.error('Failed to manual check:', error);
+      alert('❌ 手動チェックに失敗しました: ' + error.message);
+    } finally {
+      setCheckingTargetId(null);
+    }
+  };
+
+  const handleManualCheck = async (target: any) => {
+    if (!confirm(`監視ターゲット「${target.facilityName} (${target.date})」の手動チェックを実行しますか？\n\n・即座に施設の空き状況を確認します。\n・Cronを待たずに実行されます。\n・結果は履歴またはログで確認してください。`)) return;
+
+    try {
+      setCheckingTargetId(target.id);
+      await apiClient.adminMonitoringCheck(target.id, target.userId);
+      alert('✅ チェックリクエストを送信しました。\n結果はログまたは履歴を確認してください。');
+    } catch (error: any) {
+      console.error('Failed to manual check:', error);
+      alert('❌ 手動チェックに失敗しました: ' + error.message);
+    } finally {
+      setCheckingTargetId(null);
     }
   };
 
@@ -566,8 +599,70 @@ export default function AdminMaintenancePage() {
         </div>
       </div>
 
+      {/* 手動監視実行ツール */}
+      <div className="bg-white rounded-xl shadow-md border">
+        <div className="p-6 border-b">
+          <h2 className="text-xl font-bold text-gray-900">手動監視実行 (テスト予約)</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            アクティブな監視ターゲットを選択して、即座に空き確認を実行します。
+          </p>
+        </div>
+        <div className="p-6">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID / ユーザー</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">施設 / 日付</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {allTargets.filter(t => t.status === 'active').map((target) => (
+                  <tr key={target.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      <div className="font-mono text-xs text-gray-500">{target.id.substring(0, 8)}...</div>
+                      <div className="text-xs text-blue-600">{target.userId}</div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      <div className="font-medium">{target.facilityName}</div>
+                      <div className="text-gray-500 text-xs text-nowrap">
+                        {target.date || `${target.startDate}~`}
+                        {target.timeSlots && ` (${target.timeSlots.length})`}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                        {target.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleManualCheck(target)}
+                        disabled={!!checkingTargetId}
+                        className="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition disabled:opacity-50 text-nowrap"
+                      >
+                        {checkingTargetId === target.id ? '実行中...' : '▶️ テスト'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {allTargets.filter(t => t.status === 'active').length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      アクティブな監視設定がありません
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div >
+
       {/* 注意事項 */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+      < div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6" >
         <div className="flex items-start gap-3">
           <span className="text-2xl">⚠️</span>
           <div>
@@ -581,51 +676,53 @@ export default function AdminMaintenancePage() {
             </ul>
           </div>
         </div>
-      </div>
+      </div >
 
       {/* 確認ダイアログ */}
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">
-              {showConfirm === 'enable' && '🛠️ メンテナンスモード有効化'}
-              {showConfirm === 'disable' && '✅ メンテナンスモード無効化'}
-              {showConfirm === 'pauseAll' && '⏸️ 全監視一括停止'}
-              {showConfirm === 'resumeAll' && '▶️ 全監視一括再開'}
-            </h3>
-            <p className="text-gray-700 mb-6 whitespace-pre-wrap">
-              {showConfirm === 'enable' && 'メンテナンスモードを有効にしますか？\nCron実行時の監視処理が全てスキップされます。'}
-              {showConfirm === 'disable' && 'メンテナンスモードを無効にしますか？\n通常の監視処理が再開されます。'}
-              {showConfirm === 'pauseAll' && `全ての監視設定を一括停止しますか？\n${maintenanceStatus?.monitoring.active || 0}件の監視が停止されます。`}
-              {showConfirm === 'resumeAll' && `全ての監視設定を一括再開しますか？\n${maintenanceStatus?.monitoring.paused || 0}件の監視が再開されます。`}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirm(null)}
-                disabled={isProcessing}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={() => {
-                  if (showConfirm === 'enable') handleEnableMaintenance();
-                  if (showConfirm === 'disable') handleDisableMaintenance();
-                  if (showConfirm === 'pauseAll') handlePauseAll();
-                  if (showConfirm === 'resumeAll') handleResumeAll();
-                }}
-                disabled={isProcessing}
-                className={`flex-1 px-4 py-2 text-white font-semibold rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors ${showConfirm === 'enable' || showConfirm === 'pauseAll'
-                  ? 'bg-red-500 hover:bg-red-600'
-                  : 'bg-emerald-500 hover:bg-emerald-600'
-                  }`}
-              >
-                {isProcessing ? '処理中...' : '実行'}
-              </button>
+      {
+        showConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">
+                {showConfirm === 'enable' && '🛠️ メンテナンスモード有効化'}
+                {showConfirm === 'disable' && '✅ メンテナンスモード無効化'}
+                {showConfirm === 'pauseAll' && '⏸️ 全監視一括停止'}
+                {showConfirm === 'resumeAll' && '▶️ 全監視一括再開'}
+              </h3>
+              <p className="text-gray-700 mb-6 whitespace-pre-wrap">
+                {showConfirm === 'enable' && 'メンテナンスモードを有効にしますか？\nCron実行時の監視処理が全てスキップされます。'}
+                {showConfirm === 'disable' && 'メンテナンスモードを無効にしますか？\n通常の監視処理が再開されます。'}
+                {showConfirm === 'pauseAll' && `全ての監視設定を一括停止しますか？\n${maintenanceStatus?.monitoring.active || 0}件の監視が停止されます。`}
+                {showConfirm === 'resumeAll' && `全ての監視設定を一括再開しますか？\n${maintenanceStatus?.monitoring.paused || 0}件の監視が再開されます。`}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowConfirm(null)}
+                  disabled={isProcessing}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => {
+                    if (showConfirm === 'enable') handleEnableMaintenance();
+                    if (showConfirm === 'disable') handleDisableMaintenance();
+                    if (showConfirm === 'pauseAll') handlePauseAll();
+                    if (showConfirm === 'resumeAll') handleResumeAll();
+                  }}
+                  disabled={isProcessing}
+                  className={`flex-1 px-4 py-2 text-white font-semibold rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors ${showConfirm === 'enable' || showConfirm === 'pauseAll'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-emerald-500 hover:bg-emerald-600'
+                    }`}
+                >
+                  {isProcessing ? '処理中...' : '実行'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }

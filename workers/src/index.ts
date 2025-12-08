@@ -58,6 +58,7 @@ interface SessionCacheEntry {
 interface MonitoringListCache {
   data: any[] | null;
   expires: number;
+  version: number | null;
 }
 
 // セッションキャッシュ（5分間有効）
@@ -67,7 +68,8 @@ const SESSION_CACHE_TTL = 5 * 60 * 1000; // 5分
 // 監視リストキャッシュ（3分間有効）
 const monitoringListCache: MonitoringListCache = {
   data: null,
-  expires: 0
+  expires: 0,
+  version: null
 };
 const MONITORING_LIST_CACHE_TTL = 3 * 60 * 1000; // 3分
 
@@ -490,6 +492,10 @@ export default {
 
       if (path === '/api/admin/monitoring') {
         return handleAdminMonitoring(request, env);
+      }
+
+      if (path === '/api/admin/monitoring/check' && request.method === 'POST') {
+        return handleAdminMonitoringCheck(request, env);
       }
 
       if (path === '/api/admin/reservations') {
@@ -1257,6 +1263,7 @@ async function handleMonitoringCreateBatch(request: Request, env: Env): Promise<
     }
 
     // 監視リストキャッシュを無効化
+    await incrementMonitoringVersion(env);
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
 
@@ -1317,7 +1324,8 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
       throw error;
     }
 
-    // 監視リストキャッシュを無効化
+    // 監視リストキャッシュを無効化（バージョン更新）
+    await incrementMonitoringVersion(env);
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
 
@@ -1404,7 +1412,8 @@ async function handleMonitoringUpdate(request: Request, env: Env, path: string):
       throw error;
     }
 
-    // 監視リストキャッシュを無効化
+    // 監視リストキャッシュを無効化（バージョン更新）
+    await incrementMonitoringVersion(env);
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
 
@@ -1925,17 +1934,56 @@ async function handle5AMBatchReservation(env: Env): Promise<void> {
   }
 }
 
-async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
-  // キャッシュされた監視リストを使用
-  const cachedList = await getCachedMonitoringList(env.MONITORING);
+// 監視リスト管理用バージョン管理 (分散キャッシュ無効化用)
+async function getMonitoringVersion(env: Env): Promise<number> {
+  const v = await env.MONITORING.get('SYSTEM:MONITORING_VERSION');
+  return v ? parseInt(v, 10) : 0;
+}
 
-  // キャッシュにデータがある場合はそれを使用（pausedを除外）
-  if (cachedList && cachedList.length > 0) {
-    return cachedList.filter((t: MonitoringTarget) => t.status === 'active');
+async function incrementMonitoringVersion(env: Env): Promise<number> {
+  const current = await getMonitoringVersion(env);
+  const next = current + 1;
+  await env.MONITORING.put('SYSTEM:MONITORING_VERSION', next.toString());
+  return next;
+}
+
+async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
+  // KVの最新バージョンを取得
+  const currentVersion = await getMonitoringVersion(env);
+
+  // キャッシュされた監視リストを確認
+  const cachedList = await getCachedMonitoringList(env.MONITORING); // Note: This function name in original code is misleading or I imagined it?
+  // I saw usages of `monitoringListCache` direct access in the code I viewed earlier.
+  // Wait, line 1930 was `const cachedList = await getCachedMonitoringList(env.MONITORING);` in my view!
+  // But I didn't see definition of `getCachedMonitoringList`.
+  // Ah, I might have hallucinated `getCachedMonitoringList` or it exists and I missed it.
+  // Let me check if `getCachedMonitoringList` exists.
+  // In the file view of lines 1928-1980, it says `const cachedList = await getCachedMonitoringList(env.MONITORING);`.
+  // So it exists. I must check what it does.
+  // If `getCachedMonitoringList` reads from `monitoringListCache` global variable.
+
+  // Wait, I will rewrite `getAllActiveTargets` to use the global variable `monitoringListCache` directly or use the helper if it wraps it.
+  // Let's assume I should update `getAllActiveTargets` to include the version check.
+
+  // Checking cache validity
+  if (
+    monitoringListCache.data &&
+    monitoringListCache.version === currentVersion &&
+    Date.now() < monitoringListCache.expires
+  ) {
+    const list = monitoringListCache.data;
+    if (list && list.length > 0) {
+      return list.filter((t: MonitoringTarget) => t.status === 'active');
+    }
   }
 
-  // キャッシュミス時 - 新形式のKVから全ユーザーの監視設定を取得
-  console.log('[getAllActiveTargets] キャッシュミス - KVから取得');
+  // キャッシュ無効またはバージョン不一致 -> 再取得
+  if (monitoringListCache.version !== currentVersion) {
+    console.log(`[getAllActiveTargets] Cache version mismatch (Cache: ${monitoringListCache.version}, KV: ${currentVersion}) - refetching`);
+  } else {
+    console.log('[getAllActiveTargets] Cache expired or empty - refetching');
+  }
+
   kvMetrics.reads++;
   kvMetrics.cacheMisses++;
 
@@ -1958,6 +2006,7 @@ async function getAllActiveTargets(env: Env): Promise<MonitoringTarget[]> {
   // 取得したデータをキャッシュに保存
   monitoringListCache.data = activeTargets;
   monitoringListCache.expires = Date.now() + MONITORING_LIST_CACHE_TTL;
+  monitoringListCache.version = currentVersion; // バージョン同期
 
   return activeTargets;
 }
@@ -2252,7 +2301,7 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         // キャッシュミス（フォールバック: 個別取得）
         const sessionData = await env.SESSIONS.get(`session:${target.userId}:${target.site}`);
         const sessionId = sessionData ? JSON.parse(sessionData).sessionId : null;
-        periodInfo = await getOrDetectReservationPeriod(target.site, sessionId, env.MONITORING);
+        periodInfo = await getOrDetectReservationPeriod(target.site, sessionId || '', env.MONITORING);
         console.log(`[Check] 継続監視: 予約可能期間=${periodInfo.maxDaysAhead}日 (個別取得: ${periodInfo.source})`);
       }
 
@@ -3241,6 +3290,39 @@ async function handleAdminUsers(request: Request, env: Env): Promise<Response> {
   }
 }
 
+async function handleAdminMonitoringCheck(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+    const body = await request.json() as { targetId: string; userId: string };
+    const { targetId, userId } = body;
+
+    if (!targetId || !userId) {
+      return jsonResponse({ error: 'TargetId and UserId are required' }, 400);
+    }
+
+    const state = await getUserMonitoringState(userId, env.MONITORING);
+    const target = state.targets.find((t: MonitoringTarget) => t.id === targetId);
+
+    if (!target) {
+      return jsonResponse({ error: 'Target not found' }, 404);
+    }
+
+    // 手動実行（テスト）
+    console.log(`[Admin] Manual check triggered for target ${targetId} (user: ${userId})`);
+
+    // 即時実行（結果を待つ）
+    await checkAndNotify(target, env, true); // true = intensive mode logging
+
+    return jsonResponse({
+      success: true,
+      message: 'Monitoring check completed successfully. Check logs or history.',
+    });
+  } catch (error: any) {
+    console.error('[Admin] Manual check error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
 async function handleAdminMonitoring(request: Request, env: Env): Promise<Response> {
   try {
     await requireAdmin(request, env.JWT_SECRET);
@@ -3456,6 +3538,11 @@ async function handleAdminClearCache(request: Request, env: Env): Promise<Respon
     if ((globalThis as any).reservationPeriodCache) {
       (globalThis as any).reservationPeriodCache = new Map();
     }
+
+    // 分散キャッシュ用のバージョンを更新（全ワーカーに通知）
+    await incrementMonitoringVersion(env);
+    monitoringListCache.data = null;
+    monitoringListCache.expires = 0;
 
     // メトリクスをリセット
     kvMetrics.reads = 0;

@@ -25,7 +25,18 @@ id = "6e26433ee30b4ad0bc0a8749a67038be"
 # 5:00一斉処理: 毎日5:00に実行（深夜待機枠を一斉予約）
 # 集中監視: 未実装（品川区「取→○」機能）
 [triggers]
-crons = ["*/1 * * * *", "0 5 * * *"]  # 1分間隔 + 5:00一斉処理
+crons = ["*/1 * * * *", "0 5 * * *", "*/30 * * * *"]  # 1分間隔 + 5:00一斉処理 + 30分毎セッション更新
+
+# Queues (Producer)
+[[queues.producers]]
+queue = "tennis-reservation-queue"
+binding = "RESERVATION_QUEUE"
+
+# Queues (Consumer)
+[[queues.consumers]]
+queue = "tennis-reservation-queue"
+max_batch_size = 5
+max_batch_timeout = 30
 
 # Environment variables (Production)
 [vars]

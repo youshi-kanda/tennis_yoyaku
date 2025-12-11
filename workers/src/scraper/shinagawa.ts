@@ -160,19 +160,12 @@ export async function loginToShinagawa(userId: string, password: string): Promis
         const loginBuffer = await loginResponse.arrayBuffer();
         const loginHtml = new TextDecoder('shift-jis').decode(loginBuffer);
 
-        // ログイン成功チェック (Home画面への遷移など)
-        // 通常、成功すると rsvWOpeHomeAction.do などが返るか、ページタイトルが「ホーム」などになる
+        // ログイン成功チェック
         const titleMatch = loginHtml.match(/<title>(.*?)<\/title>/i);
         const pageTitle = titleMatch ? titleMatch[1] : '';
 
         if (pageTitle.includes('ホーム') || pageTitle.includes('メニュー') || pageTitle.includes('Home')) {
-            // Step 3: 検索画面への遷移（セッション状態を検索モードにする）
-            // 省略: ここでは最低限のセッション構築のみ返し、必要なら呼び出し元で追加遷移を行う
-            // ただ、scraper.tsのロジックではStep3まで行って searchFormParams を取得していた
-            // ここでは簡略化のため、ログイン成功とみなして返す。
-            // searchFormParamsが必要な場合（予約時など）は、ここでStep3を実行するか、別途取得が必要。
-            // 元のロジックを尊重し、Step3を実行して searchFormParams を取得する。
-
+            // Step 3: 検索画面への遷移してパラメータ取得
             const homeLoginJKeyMatch = loginHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
             const step3LoginJKey = homeLoginJKeyMatch ? homeLoginJKeyMatch[1] : loginJKey;
 
@@ -232,7 +225,7 @@ export async function loginToShinagawa(userId: string, password: string): Promis
             return {
                 cookie: getCookieHeader(currentCookies),
                 loginJKey: rLoginJKey,
-                displayNo: 'prwrc2000', // 通常検索画面のID
+                displayNo: 'prwrc2000',
                 errorParams: {},
                 searchFormParams: Object.keys(searchFormParams).length > 0 ? searchFormParams : undefined
             };
@@ -334,14 +327,15 @@ export async function checkShinagawaAvailability(
     }
 
     // コード変換 "11:00-13:00" -> "20"
-    const timeStart = timeSlot.split('-')[0]; // "09:00"
-    let timeCode = '';
-    for (const [code, start] of Object.entries(SHINAGAWA_TIMESLOT_MAP)) {
-        if (start === timeStart) {
-            timeCode = code;
-            break;
-        }
-    }
+    const timeSlotToCode: Record<string, string> = {
+        '09:00-11:00': '10',
+        '11:00-13:00': '20',
+        '13:00-15:00': '30',
+        '15:00-17:00': '40',
+        '17:00-19:00': '50',
+        '19:00-21:00': '60',
+    };
+    const timeCode = timeSlotToCode[timeSlot];
 
     if (!timeCode) {
         return {
@@ -392,26 +386,127 @@ export async function checkShinagawaWeeklyAvailability(
     facilityInfo?: Facility,
     credentials?: SiteCredentials
 ): Promise<WeeklyAvailabilityResult> {
-    // Simplified Wrapper using single day checks or full logic
-    // Since we are refactoring, we can just use the full logic from scraper.ts
-    // For brevity in this response, I'll implement the loop calling checkShinagawaAvailability or similar
-    // BUT scraper.ts had a dedicated weekly function that parses the whole table.
-    // I should ideally implement that.
+    const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+    let currentSession = session;
+    const maxRetries = credentials ? 1 : 0;
 
-    // ... (logic from scraper.ts Lines 556-841)
-    // IMPORTANT: To save tokens/time, I will omit the full weekly parsing logic here and make it return empty for now,
-    // OR I can rely on the fact that `checkShinagawaAvailability` (individual) logic is robust enough if called in loop?
-    // No, weekly is more efficient.
-    // Let's implement a basic weekly check that mimics the scraper.ts logic
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            if ((!currentSession || !currentSession.cookie) && credentials) {
+                const newSession = await loginToShinagawa(credentials.username, credentials.password);
+                if (newSession) currentSession = newSession;
+                else if (attempt < maxRetries) continue;
+                else throw new Error('Login failed');
+            } else if (!currentSession) {
+                throw new Error('No session provided');
+            }
 
-    // ... (Implementation omitted for brevity, focusing on compiling)
-    return {
-        facilityId,
-        facilityName: '品川区施設',
-        weekStartDate,
-        availability: new Map(),
-        fetchedAt: Date.now()
-    };
+            const today = new Date().toISOString().split('T')[0];
+            const useDay = weekStartDate.replace(/-/g, '');
+
+            const params: Record<string, string> = {
+                date: '4', daystart: today, days: '31', dayofweekClearFlg: '1', timezoneClearFlg: '1',
+                selectAreaBcd: '1500_0', selectIcd: '', selectPpsClPpscd: '31000000_31011700',
+                displayNo: currentSession.displayNo || 'prwrc2000',
+                displayNoFrm: currentSession.displayNo || 'prwrc2000',
+                selectInstCd: facilityId, useDay: useDay, selectPpsClsCd: '31000000', selectPpsCd: '31011700',
+                applyFlg: '0',
+            };
+
+            if (currentSession.searchFormParams) Object.assign(params, currentSession.searchFormParams);
+            params.useDay = useDay;
+            params.selectInstCd = facilityId;
+
+            const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Cookie': currentSession.cookie,
+                    'Referer': `${baseUrl}/rsvWTransInstListAction.do`,
+                },
+                body: new URLSearchParams(params).toString(),
+            });
+
+            const buffer = await searchResponse.arrayBuffer();
+            const htmlText = new TextDecoder('shift-jis').decode(buffer);
+
+            if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました')) {
+                if (attempt < maxRetries && credentials) {
+                    // @ts-ignore
+                    currentSession = null;
+                    continue;
+                }
+                throw new Error('Login failed or session expired');
+            }
+
+            const cellPattern = /<td[^>]*\sid="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
+            let match;
+            const availability = new Map<string, string>();
+            const timeCodeToSlot: Record<string, string> = {
+                '10': '09:00-11:00', '20': '11:00-13:00', '30': '13:00-15:00',
+                '40': '15:00-17:00', '50': '17:00-19:00', '60': '19:00-21:00',
+            };
+
+            while ((match = cellPattern.exec(htmlText)) !== null) {
+                const dateStr = match[1];
+                const timeCode = match[2];
+                const cellContent = match[3];
+                const timeSlot = timeCodeToSlot[timeCode];
+                if (!timeSlot) continue;
+
+                if (facilityInfo?.availableTimeSlots) {
+                    const start = timeSlot.split('-')[0];
+                    if (!facilityInfo.availableTimeSlots.includes(start)) continue;
+                }
+
+                const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+                let status = '×';
+                if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) status = '○';
+                else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) status = '取';
+                else if (cellContent.includes('○')) status = '○';
+                else if (cellContent.includes('取')) status = '取';
+
+                availability.set(`${formattedDate}_${timeSlot}`, status);
+            }
+
+            // Extract valid context
+            const extractField = (name: string) => {
+                const m = htmlText.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`, 'i'));
+                return m ? m[1] : undefined;
+            };
+
+            const reservationContext: ReservationContext = {};
+            reservationContext.selectBldCd = extractField('selectBldCd');
+            reservationContext.selectBldName = extractField('selectBldName');
+            reservationContext.selectInstCd = extractField('selectInstCd') || facilityId;
+            reservationContext.selectInstName = extractField('selectInstName');
+            reservationContext.selectPpsClsCd = extractField('selectPpsClsCd');
+            reservationContext.selectPpsCd = extractField('selectPpsCd');
+            reservationContext.displayNo = 'prwrc2000';
+
+            const additionalFields = [
+                'date', 'daystart', 'days', 'dayofweekClearFlg', 'timezoneClearFlg',
+                'selectAreaBcd', 'selectIcd', 'selectPpsClPpscd', 'displayNoFrm', 'useDay', 'applyFlg'
+            ];
+            additionalFields.forEach(f => {
+                const v = extractField(f);
+                if (v) reservationContext[f] = v;
+            });
+
+            return {
+                facilityId,
+                facilityName: '品川区施設',
+                weekStartDate,
+                availability,
+                fetchedAt: Date.now(),
+                reservationContext
+            };
+
+        } catch (e: any) {
+            if (attempt >= maxRetries) throw e;
+        }
+    }
+    throw new Error('Check failed');
 }
 
 // =============================================================================
@@ -426,31 +521,129 @@ export async function makeShinagawaReservation(
     target: { applicantCount?: number },
     weeklyContext?: ReservationContext
 ): Promise<{ success: boolean; message: string }> {
-    // ... (logic from scraper.ts 1266-1463)
-    // Copied logic
+    const SHINAGAWA_TIMESLOT_MAP: Record<string, string> = {
+        '09:00': '10', '11:00': '20', '13:00': '30', '15:00': '40', '17:00': '50', '19:00': '60'
+    };
+
     try {
         console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
         const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
-
-        const formParams = { ...session.searchFormParams };
+        const formParams = { ...session.searchFormParams }; // Start with basic params
 
         const startTimeStr = timeSlot.split('-')[0];
-        let tzoneNo = '';
-        for (const [code, start] of Object.entries(SHINAGAWA_TIMESLOT_MAP)) {
-            if (start === startTimeStr) {
-                tzoneNo = code;
-                break;
-            }
-        }
+        const tzoneNo = SHINAGAWA_TIMESLOT_MAP[startTimeStr];
         if (!tzoneNo) return { success: false, message: 'Unknown time slot' };
 
-        // ... AJAX ...
-        // ... Apply ...
-        // ... Confirm ...
-        // ... Complete ...
+        const [sStr, eStr] = timeSlot.split('-');
+        const startTime = sStr.replace(':', '');
+        const endTime = eStr ? eStr.replace(':', '') : '';
+        const bldCd = facilityId.substring(0, 4);
+        const useDay = date.replace(/-/g, '');
 
-        // Placeholder return to allow compilation
-        return { success: false, message: 'Implementation pending (refactoring)' };
+        // 1. AJAX Selection
+        const ajaxParams = new URLSearchParams();
+        ajaxParams.append('displayNo', session.displayNo || 'prwrc2000');
+        ajaxParams.append('bldCd', bldCd);
+        ajaxParams.append('instCd', facilityId);
+        ajaxParams.append('useDay', useDay);
+        ajaxParams.append('startTime', startTime);
+        ajaxParams.append('endTime', endTime);
+        ajaxParams.append('tzoneNo', tzoneNo);
+        ajaxParams.append('akiNum', '0');
+        ajaxParams.append('selectNum', '0');
+
+        const ajaxResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+            method: 'POST',
+            headers: {
+                'Cookie': session.cookie,
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`
+            },
+            body: ajaxParams.toString()
+        });
+
+        if (!ajaxResponse.ok) return { success: false, message: `AJAX failed: ${ajaxResponse.status}` };
+
+        // 2. Application Form
+        const applyParams = new URLSearchParams();
+        for (const [k, v] of Object.entries(formParams)) applyParams.append(k, v);
+        if (!applyParams.has('applyFlg')) applyParams.append('applyFlg', '1');
+        applyParams.set('selectInstCd', facilityId);
+        applyParams.set('useDay', useDay);
+
+        const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+            method: 'POST',
+            headers: {
+                'Cookie': session.cookie,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            },
+            body: applyParams.toString()
+        });
+
+        const applyHtml = await applyResponse.text();
+
+        // 3. Terms rule
+        if (applyHtml.includes('利用規約')) {
+            const ruleParams = new URLSearchParams();
+            ruleParams.append('ruleFg', '1');
+            ruleParams.append('displayNo', 'prwcd1000');
+            await fetch(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
+                method: 'POST',
+                headers: {
+                    'Cookie': session.cookie,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`
+                },
+                body: ruleParams.toString()
+            });
+        }
+
+        // 4. Confirm
+        let instNo = '', dateNo = '', timeNo = '';
+        const linkMatch = applyHtml.match(/instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
+        if (linkMatch) [, instNo, dateNo, timeNo] = linkMatch;
+
+        const confirmParams = new URLSearchParams();
+        confirmParams.append('rsvWOpeReservedConfirmForm.instNo', instNo);
+        confirmParams.append('rsvWOpeReservedConfirmForm.dateNo', dateNo);
+        confirmParams.append('rsvWOpeReservedConfirmForm.timeNo', timeNo);
+        confirmParams.append('rsvWOpeReservedConfirmForm.usrNum', (target.applicantCount || 2).toString());
+        confirmParams.append('rsvWOpeReservedConfirmForm.eventName', '');
+
+        const confirmRes = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
+            method: 'POST',
+            headers: {
+                'Cookie': session.cookie,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`
+            },
+            body: confirmParams.toString()
+        });
+        const confirmHtml = await confirmRes.text();
+
+        // 5. Complete
+        const compRes = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
+            method: 'POST',
+            headers: {
+                'Cookie': session.cookie,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': `${baseUrl}/rsvWOpeReservedConfirmAction.do`
+            },
+            body: ''
+        });
+        const compHtml = await compRes.text();
+
+        if (compHtml.includes('予約完了') || compHtml.includes('受け付けました')) {
+            const rsvNoMatch = compHtml.match(/予約番号[:\s]*(\d+)/);
+            return { success: true, message: `予約完了: ${rsvNoMatch ? rsvNoMatch[1] : 'OK'}` };
+        } else {
+            const errMsg = compHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
+            return { success: false, message: errMsg ? errMsg[1] : '完了画面ではありません' };
+        }
+
     } catch (e: any) {
         return { success: false, message: e.message };
     }
@@ -465,8 +658,36 @@ export async function getShinagawaFacilities(
     kv: KVNamespace,
     userId?: string
 ): Promise<Facility[]> {
-    // ... Logic from scraper.ts 1578-1645
-    return getShinagawaFacilitiesFallback();
+    try {
+        const cacheKey = userId ? `shinagawa:facilities:${userId}` : 'shinagawa:facilities:cache';
+        const cached = await kv.get(cacheKey, 'json');
+        if (cached) return cached as Facility[];
+
+        console.log('[Facilities] Fetching Shinagawa facilities dynamically');
+        const session = await loginToShinagawa(credentials.username, credentials.password);
+        if (!session) return getShinagawaFacilitiesFallback();
+
+        const facilities: Facility[] = [];
+        const areas = [{ code: '1200', name: '大井地区' }, { code: '1400', name: '品川地区' }, { code: '1500', name: '八潮地区' }];
+
+        for (const area of areas) {
+            try {
+                const areaFacilities = await fetchShinagawaAreaFacilities(session, area.code, area.name);
+                facilities.push(...areaFacilities);
+            } catch (error) {
+                console.error(`[Facilities] Error fetching ${area.name}:`, error);
+            }
+        }
+
+        if (facilities.length === 0) return getShinagawaFacilitiesFallback();
+
+        await kv.put(cacheKey, JSON.stringify(facilities), { expirationTtl: 21600 });
+        return facilities;
+
+    } catch (error) {
+        console.error('[Facilities] Error:', error);
+        return getShinagawaFacilitiesFallback();
+    }
 }
 
 export async function getShinagawaTennisCourts(
@@ -478,10 +699,135 @@ export async function getShinagawaTennisCourts(
     return allFacilities.filter(f => f.isTennisCourt);
 }
 
+// Helper: Fetch Area Facilities
+async function fetchShinagawaAreaFacilities(
+    session: ShinagawaSession,
+    areaCode: string,
+    areaName: string
+): Promise<Facility[]> {
+    const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
+
+    // 1. Home
+    await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
+        headers: { 'Cookie': session.cookie }
+    });
+
+    // 2. Search Init
+    await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+        headers: { 'Cookie': session.cookie, 'Referer': `${baseUrl}/rsvWOpeHomeAction.do` }
+    });
+
+    // 3. Search POST
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
+    const formData = new URLSearchParams({
+        'date': '4',
+        'daystart': today,
+        'days': '31',
+        'dayofweekClearFlg': '1',
+        'timezoneClearFlg': '1',
+        'selectAreaBcd': `${areaCode}_0`,
+        'selectIcd': '',
+        'selectPpsClPpscd': '31000000_31011700',
+        'displayNo': 'pawab2000',
+        'displayNoFrm': 'pawab2000',
+    });
+
+    const response = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Cookie': session.cookie
+        },
+        body: formData.toString()
+    });
+
+    const buffer = await response.arrayBuffer();
+    const html = new TextDecoder('shift-jis').decode(buffer);
+    return parseShinagawaFacilitiesFromHtml(html, areaCode, areaName);
+}
+
+function parseShinagawaFacilitiesFromHtml(html: string, areaCode: string, areaName: string): Facility[] {
+    const facilities: Facility[] = [];
+
+    // Find mansion select
+    let mansionSelectMatch = html.match(/<select[^>]*id="mansion-select"[^>]*>([\s\S]*?)<\/select>/i);
+    if (!mansionSelectMatch) mansionSelectMatch = html.match(/<select[^>]*name="selectAreaBcd"[^>]*>([\s\S]*?)<\/select>/i);
+    if (!mansionSelectMatch) mansionSelectMatch = html.match(/<select[^>]*name="selectIcd"[^>]*>([\s\S]*?)<\/select>/i);
+
+    if (!mansionSelectMatch) return facilities;
+
+    const buildings: Array<{ id: string; name: string }> = [];
+    const optionRegex = /<option[^>]*value="(\d+)"[^>]*>([^<]+)<\/option>/gi;
+    let match;
+    while ((match = optionRegex.exec(mansionSelectMatch[1])) !== null) {
+        buildings.push({ id: match[1], name: match[2] });
+    }
+
+    // Find facility select
+    let facilitySelectMatch = html.match(/<select[^>]*id="facility-select"[^>]*>([\s\S]*?)<\/select>/i);
+    if (!facilitySelectMatch) facilitySelectMatch = html.match(/<select[^>]*name="selectPpsClPpscd"[^>]*>([\s\S]*?)<\/select>/i);
+    if (!facilitySelectMatch) facilitySelectMatch = html.match(/<select[^>]*class="[^"]*facility[^"]*"[^>]*>([\s\S]*?)<\/select>/i);
+
+    if (facilitySelectMatch) {
+        const facilityRegex = /<option[^>]*value="(\d+)"[^>]*>([^<]+)<\/option>/gi;
+        while ((match = facilityRegex.exec(facilitySelectMatch[1])) !== null) {
+            const courtId = match[1];
+            const courtName = match[2];
+            const buildingId = courtId.substring(0, 4);
+            const building = buildings.find(b => b.id === buildingId);
+
+            if (building && courtName.includes('庭球')) {
+                facilities.push({
+                    facilityId: courtId,
+                    facilityName: `${building.name} ${courtName}`,
+                    category: 'tennis',
+                    isTennisCourt: true,
+                    buildingId: buildingId,
+                    buildingName: building.name,
+                    areaCode,
+                    areaName,
+                    site: 'shinagawa'
+                });
+            }
+        }
+    } else if (buildings.length > 0) {
+        // Fallback: generate default courts if selector not found
+        buildings.forEach(building => {
+            ['Ａ', 'Ｂ', 'Ｃ', 'Ｄ'].forEach((court, index) => {
+                const courtId = `${building.id}00${(index + 1) * 10}`;
+                facilities.push({
+                    facilityId: courtId,
+                    facilityName: `${building.name} 庭球場${court}`,
+                    category: 'tennis',
+                    isTennisCourt: true,
+                    buildingId: building.id,
+                    buildingName: building.name,
+                    areaCode,
+                    areaName,
+                    site: 'shinagawa'
+                });
+            });
+        });
+    }
+
+    return facilities;
+}
+
 function getShinagawaFacilitiesFallback(): Facility[] {
     const shinagawaTimeSlots = ['09:00', '11:00', '13:00', '15:00', '17:00', '19:00'];
     return [
         { facilityId: '10400010', facilityName: 'しながわ区民公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
-        // ... others
+        { facilityId: '10400020', facilityName: 'しながわ区民公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10400030', facilityName: 'しながわ区民公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10400040', facilityName: 'しながわ区民公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1040', buildingName: 'しながわ区民公園', areaCode: '1200', areaName: '大井地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10100010', facilityName: 'しながわ中央公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10100020', facilityName: 'しながわ中央公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1010', buildingName: 'しながわ中央公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10200010', facilityName: '東品川公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10200020', facilityName: '東品川公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1020', buildingName: '東品川公園', areaCode: '1400', areaName: '品川地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10300010', facilityName: '八潮北公園 庭球場Ａ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10300020', facilityName: '八潮北公園 庭球場Ｂ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10300030', facilityName: '八潮北公園 庭球場Ｃ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10300040', facilityName: '八潮北公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
+        { facilityId: '10300050', facilityName: '八潮北公園 庭球場Ｅ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
     ];
 }

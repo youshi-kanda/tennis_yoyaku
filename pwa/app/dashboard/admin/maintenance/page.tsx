@@ -273,20 +273,7 @@ export default function AdminMaintenancePage() {
     }
   };
 
-  const handleManualCheck = async (target: any) => {
-    if (!confirm(`監視ターゲット「${target.facilityName} (${target.date})」の手動チェックを実行しますか？\n\n・即座に施設の空き状況を確認します。\n・Cronを待たずに実行されます。\n・結果は履歴またはログで確認してください。`)) return;
 
-    try {
-      setCheckingTargetId(target.id);
-      await apiClient.adminMonitoringCheck(target.id, target.userId);
-      alert('✅ チェックリクエストを送信しました。\n結果はログまたは履歴を確認してください。');
-    } catch (error: any) {
-      console.error('Failed to manual check:', error);
-      alert('❌ 手動チェックに失敗しました: ' + error.message);
-    } finally {
-      setCheckingTargetId(null);
-    }
-  };
 
   if (!isAdmin) return null;
 

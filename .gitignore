@@ -49,3 +49,4 @@ workers/dist/
 lambda/.aws-sam/
 lambda/node_modules/
 lambda/dist/
+.vercel

@@ -124,14 +124,15 @@ export function usePushNotification() {
       await sendSubscriptionToBackend(pushSubscription);
 
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to subscribe:', err);
       // 詳細なエラー情報をログに残す
-      if (err.response?.data) {
-        console.error('Backend Error Details:', err.response.data);
+      const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+      if (axiosError.response?.data) {
+        console.error('Backend Error Details:', axiosError.response.data);
       }
 
-      const errorMessage = err.response?.data?.error || err.message || 'プッシュ通知の登録に失敗しました';
+      const errorMessage = axiosError.response?.data?.error || axiosError.message || 'プッシュ通知の登録に失敗しました';
       setError(errorMessage);
       setIsLoading(false);
       return false;
@@ -159,9 +160,10 @@ export function usePushNotification() {
 
       setIsLoading(false);
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to unsubscribe:', err);
-      setError(err.message || 'プッシュ通知の解除に失敗しました');
+      const errorMsg = (err instanceof Error) ? err.message : 'プッシュ通知の解除に失敗しました';
+      setError(errorMsg);
       setIsLoading(false);
       return false;
     }

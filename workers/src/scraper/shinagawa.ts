@@ -638,10 +638,15 @@ export async function makeShinagawaReservation(
 
         if (compHtml.includes('予約完了') || compHtml.includes('受け付けました')) {
             const rsvNoMatch = compHtml.match(/予約番号[:\s]*(\d+)/);
+            console.log(`[Shinagawa] ✅ Reservation Success! No: ${rsvNoMatch ? rsvNoMatch[1] : 'Unknown'}`);
             return { success: true, message: `予約完了: ${rsvNoMatch ? rsvNoMatch[1] : 'OK'}` };
         } else {
+            // 🚨 デバッグ用: 失敗時のHTMLをログ出力して判定ロジックを修正できるようにする
+            console.error('[Shinagawa] ❌ Reservation might have failed. HTML preview:');
+            console.log(compHtml.substring(0, 2000)); // 先頭2000文字を出力
+
             const errMsg = compHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
-            return { success: false, message: errMsg ? errMsg[1] : '完了画面ではありません' };
+            return { success: false, message: errMsg ? errMsg[1] : '完了画面ではありません (詳細はログを確認)' };
         }
 
     } catch (e: any) {

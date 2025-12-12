@@ -103,75 +103,75 @@ function PasswordChangeSection() {
 
   return (
     <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            現在のパスワード
-          </label>
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            placeholder="現在のパスワードを入力"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-            disabled={isChanging}
-          />
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          現在のパスワード
+        </label>
+        <input
+          type="password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          placeholder="現在のパスワードを入力"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+          disabled={isChanging}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          新しいパスワード
+        </label>
+        <input
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder="新しいパスワード（8文字以上）"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+          disabled={isChanging}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          新しいパスワード（確認）
+        </label>
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          placeholder="新しいパスワードを再入力"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+          disabled={isChanging}
+        />
+      </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-800">{error}</p>
         </div>
+      )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            新しいパスワード
-          </label>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="新しいパスワード（8文字以上）"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-            disabled={isChanging}
-          />
+      {success && (
+        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-sm text-green-800 font-medium">
+            ✓ パスワードを変更しました。ログイン画面に移動します...
+          </p>
         </div>
+      )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            新しいパスワード（確認）
-          </label>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="新しいパスワードを再入力"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-            disabled={isChanging}
-          />
-        </div>
+      <button
+        onClick={handleChangePassword}
+        disabled={isChanging || success}
+        className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isChanging ? '変更中...' : 'パスワードを変更'}
+      </button>
 
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
-
-        {success && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-800 font-medium">
-              ✓ パスワードを変更しました。ログイン画面に移動します...
-            </p>
-          </div>
-        )}
-
-        <button
-          onClick={handleChangePassword}
-          disabled={isChanging || success}
-          className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isChanging ? '変更中...' : 'パスワードを変更'}
-        </button>
-
-        <div className="text-xs text-gray-500 space-y-1">
-          <p>• パスワードは8文字以上で設定してください</p>
-          <p>• 変更後は自動的にログアウトされます</p>
-          <p>• 新しいパスワードで再度ログインしてください</p>
-        </div>
+      <div className="text-xs text-gray-500 space-y-1">
+        <p>• パスワードは8文字以上で設定してください</p>
+        <p>• 変更後は自動的にログアウトされます</p>
+        <p>• 新しいパスワードで再度ログインしてください</p>
+      </div>
     </div>
   );
 }
@@ -180,15 +180,17 @@ export default function SettingsPage() {
   const { logout } = useLogout();
   const { user } = useAuthStore();
   const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotification();
-  
+
   const [shinagawaId, setShinagawaId] = useState('');
   const [shinagawaPassword, setShinagawaPassword] = useState('');
   const [shinagawaSessionId, setShinagawaSessionId] = useState('');
+  const [shinagawaManualSessionId, setShinagawaManualSessionId] = useState(''); // 手動入力用
   const [shinagawaSessionUpdated, setShinagawaSessionUpdated] = useState<number | null>(null);
-  
+
   const [minatoId, setMinatoId] = useState('');
   const [minatoPassword, setMinatoPassword] = useState('');
   const [minatoSessionId, setMinatoSessionId] = useState('');
+  const [minatoManualSessionId, setMinatoManualSessionId] = useState(''); // 手動入力用
   const [minatoSessionUpdated, setMinatoSessionUpdated] = useState<number | null>(null);
 
   const [reservationLimits, setReservationLimits] = useState({
@@ -265,6 +267,26 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveShinagawaManualSession = async () => {
+    if (!shinagawaManualSessionId) {
+      alert('セッションIDを入力してください');
+      return;
+    }
+
+    try {
+      await apiClient.saveSettings({
+        shinagawaSessionId: shinagawaManualSessionId,
+      });
+      setShinagawaSessionId(shinagawaManualSessionId);
+      setShinagawaSessionUpdated(Date.now());
+      setShinagawaManualSessionId('');
+      alert('品川区のセッションIDを保存しました');
+    } catch (err: any) {
+      console.error('Save error:', err);
+      alert(`保存に失敗しました: ${err.message}`);
+    }
+  };
+
   const handleSaveShinagawa = async () => {
     if (!shinagawaId || !shinagawaPassword) {
       alert('利用者IDとパスワードを入力してください');
@@ -314,6 +336,26 @@ export default function SettingsPage() {
     } catch (err: any) {
       console.error('Session fetch error:', err);
       alert(`セッション取得に失敗しました: ${err.message}`);
+    }
+  };
+
+  const handleSaveMinatoManualSession = async () => {
+    if (!minatoManualSessionId) {
+      alert('セッションIDを入力してください');
+      return;
+    }
+
+    try {
+      await apiClient.saveSettings({
+        minatoSessionId: minatoManualSessionId,
+      });
+      setMinatoSessionId(minatoManualSessionId);
+      setMinatoSessionUpdated(Date.now());
+      setMinatoManualSessionId('');
+      alert('港区のセッションIDを保存しました');
+    } catch (err: any) {
+      console.error('Save error:', err);
+      alert(`保存に失敗しました: ${err.message}`);
     }
   };
 
@@ -384,9 +426,8 @@ export default function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 ロール
               </label>
-              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                user?.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
-              }`}>
+              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${user?.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
+                }`}>
                 {user?.role === 'admin' ? '管理者' : '一般ユーザー'}
               </span>
             </div>
@@ -422,8 +463,8 @@ export default function SettingsPage() {
               <p className="text-sm font-medium text-blue-900 mb-2">セットアップ手順</p>
               <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
                 <li>
-                  <a 
-                    href="https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do" 
+                  <a
+                    href="https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-emerald-600 underline hover:text-emerald-700"
@@ -439,10 +480,47 @@ export default function SettingsPage() {
 
             <button
               onClick={handleGetShinagawaSession}
-              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
+              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium flex items-center justify-center gap-2"
             >
-              セッション取得
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              自動取得（PC Chrome/Edge推奨）
             </button>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-gray-300"></div>
+              </div>
+              <div className="relative flex justify-center">
+                <span className="px-2 bg-white text-sm text-gray-500">または手動入力（iPhone/Safari等）</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                セッションID (JSESSIONID)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={shinagawaManualSessionId}
+                  onChange={(e) => setShinagawaManualSessionId(e.target.value)}
+                  placeholder="ここにJSESSIONIDを貼り付け"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
+                <button
+                  onClick={handleSaveShinagawaManualSession}
+                  disabled={!shinagawaManualSessionId}
+                  className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  保存
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">
+                ※ 開発者ツール等で `JSESSIONID` クッキーの値を確認して入力してください
+              </p>
+            </div>
 
             {shinagawaSessionId && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -471,54 +549,54 @@ export default function SettingsPage() {
               </p>
             </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                利用者ID
-              </label>
-              <input
-                type="text"
-                value={shinagawaId}
-                onChange={(e) => setShinagawaId(e.target.value)}
-                placeholder="84005349"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              />
-            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  利用者ID
+                </label>
+                <input
+                  type="text"
+                  value={shinagawaId}
+                  onChange={(e) => setShinagawaId(e.target.value)}
+                  placeholder="84005349"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                パスワード
-              </label>
-              <input
-                type="password"
-                value={shinagawaPassword}
-                onChange={(e) => setShinagawaPassword(e.target.value)}
-                placeholder="パスワードを入力"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                パスワードは暗号化して安全に保存されます
-              </p>
-            </div>
-
-            <button
-              onClick={handleSaveShinagawa}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
-            >
-              保存
-            </button>
-
-            {shinagawaId && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800 font-medium">
-                  ✓ 認証情報設定済み
-                </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  パスワード
+                </label>
+                <input
+                  type="password"
+                  value={shinagawaPassword}
+                  onChange={(e) => setShinagawaPassword(e.target.value)}
+                  placeholder="パスワードを入力"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
                 <p className="text-xs text-gray-500 mt-1">
-                  ログインに失敗する場合はプッシュ通知でお知らせします
+                  パスワードは暗号化して安全に保存されます
                 </p>
               </div>
-            )}
-          </div>
+
+              <button
+                onClick={handleSaveShinagawa}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
+              >
+                保存
+              </button>
+
+              {shinagawaId && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-sm text-green-800 font-medium">
+                    ✓ 認証情報設定済み
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    ログインに失敗する場合はプッシュ通知でお知らせします
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </CollapsibleCard>
 
@@ -540,8 +618,8 @@ export default function SettingsPage() {
               <p className="text-sm font-medium text-blue-900 mb-2">セットアップ手順</p>
               <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
                 <li>
-                  <a 
-                    href="https://web101.rsv.ws-scs.jp/web/" 
+                  <a
+                    href="https://web101.rsv.ws-scs.jp/web/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-emerald-600 underline hover:text-emerald-700"
@@ -558,10 +636,47 @@ export default function SettingsPage() {
 
             <button
               onClick={handleGetMinatoSession}
-              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
+              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium flex items-center justify-center gap-2"
             >
-              セッション取得
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              自動取得（PC Chrome/Edge推奨）
             </button>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-gray-300"></div>
+              </div>
+              <div className="relative flex justify-center">
+                <span className="px-2 bg-white text-sm text-gray-500">または手動入力（iPhone/Safari等）</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                セッションID (JSESSIONID)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={minatoManualSessionId}
+                  onChange={(e) => setMinatoManualSessionId(e.target.value)}
+                  placeholder="ここにJSESSIONIDを貼り付け"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
+                <button
+                  onClick={handleSaveMinatoManualSession}
+                  disabled={!minatoManualSessionId}
+                  className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  保存
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">
+                ※ 開発者ツール等で `JSESSIONID` クッキーの値を確認して入力してください
+              </p>
+            </div>
 
             {minatoSessionId && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -704,7 +819,7 @@ export default function SettingsPage() {
             {(reservationLimits.perWeek > 0 || reservationLimits.perMonth > 0) && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
                 <p className="text-sm text-emerald-800 font-medium">
-                  ✓ 設定中: 
+                  ✓ 設定中:
                   {reservationLimits.perWeek > 0 && ` 週${reservationLimits.perWeek}回まで`}
                   {reservationLimits.perWeek > 0 && reservationLimits.perMonth > 0 && ' / '}
                   {reservationLimits.perMonth > 0 && ` 月${reservationLimits.perMonth}回まで`}
@@ -716,7 +831,7 @@ export default function SettingsPage() {
 
         {/* 通知設定 */}
         <CollapsibleCard title="通知設定">
-          
+
           {!isSupported ? (
             <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-sm text-yellow-800">
@@ -740,11 +855,10 @@ export default function SettingsPage() {
                 <button
                   onClick={handleTogglePush}
                   disabled={isLoading}
-                  className={`px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                    isSubscribed
+                  className={`px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${isSubscribed
                       ? 'bg-red-600 text-white hover:bg-red-700'
                       : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  }`}
+                    }`}
                 >
                   {isLoading ? '処理中...' : isSubscribed ? '無効にする' : '有効にする'}
                 </button>

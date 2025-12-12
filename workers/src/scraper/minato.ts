@@ -407,10 +407,15 @@ export async function makeMinatoReservation(
         if (completeHtml.includes('予約完了') || completeHtml.includes('受け付けました')) {
             const rsvNoMatch = completeHtml.match(/予約受付番号[:\s]*(\d+)/) || completeHtml.match(/予約番号[:\s]*(\d+)/);
             const reservationId = rsvNoMatch ? rsvNoMatch[1] : `MINATO_OK_${Date.now()}`;
+            console.log(`[Minato] ✅ Reservation Success! ID: ${reservationId}`);
             return { success: true, reservationId: reservationId, message: `予約完了: ${reservationId}` };
         } else {
+            // 🚨 デバッグ用: 失敗時のHTMLをログ出力して判定ロジックを修正できるようにする
+            console.error('[Minato] ❌ Reservation might have failed. HTML preview:');
+            console.log(completeHtml.substring(0, 2000)); // 先頭2000文字を出力
+
             const errMsg = completeHtml.match(/class="error"[^>]*>([^<]+)</);
-            return { success: false, error: errMsg ? errMsg[1] : 'Unknown error during completion' };
+            return { success: false, error: errMsg ? errMsg[1] : 'Unknown error during completion (See logs)' };
         }
 
     } catch (e: any) {

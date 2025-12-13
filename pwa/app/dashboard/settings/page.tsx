@@ -198,6 +198,9 @@ export default function SettingsPage() {
     perMonth: 0, // 0 = 制限なし
   });
 
+  const [testNotificationStatus, setTestNotificationStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [testNotificationMessage, setTestNotificationMessage] = useState('');
+
   // 保存済みの設定を読み込む
   useEffect(() => {
     const loadSettings = async () => {
@@ -405,6 +408,21 @@ export default function SettingsPage() {
       if (success) {
         alert('プッシュ通知を有効にしました');
       }
+    }
+  };
+
+  const handleTestNotification = async () => {
+    setTestNotificationStatus('sending');
+    setTestNotificationMessage('');
+    try {
+      await apiClient.sendTestNotification();
+      setTestNotificationStatus('success');
+      setTestNotificationMessage('テスト通知を送信しました。届かない場合は端末の通知設定を確認してください。');
+      setTimeout(() => setTestNotificationStatus('idle'), 5000);
+    } catch (err: any) {
+      console.error('Failed to send test notification:', err);
+      setTestNotificationStatus('error');
+      setTestNotificationMessage(`送信失敗: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -856,8 +874,8 @@ export default function SettingsPage() {
                   onClick={handleTogglePush}
                   disabled={isLoading}
                   className={`px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${isSubscribed
-                      ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
                     }`}
                 >
                   {isLoading ? '処理中...' : isSubscribed ? '無効にする' : '有効にする'}

@@ -303,7 +303,7 @@ class ApiClient {
 
   // 保守点検API
   async sendTestNotification(userId?: string) {
-    const response = await this.client.post('/api/admin/test-notification', { userId });
+    const response = await this.client.post('/api/test-notification', { userId });
     return response.data;
   }
 

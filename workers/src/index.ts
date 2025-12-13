@@ -722,85 +722,83 @@ export default {
       }
 
       // 保守点検API
+      // 保守点検API
       if (path === '/api/admin/test-notification' && request.method === 'POST') {
         return handleAdminTestNotification(request, env);
-        // 保守点検API
-        if (path === '/api/admin/test-notification' && request.method === 'POST') {
-          return handleAdminTestNotification(request, env);
-        }
-
-        // ユーザー自身のテスト通知
-        if (path === '/api/test-notification' && request.method === 'POST') {
-          return handleTestNotification(request, env);
-        }
-
-        if (path === '/api/admin/reset-sessions' && request.method === 'POST') {
-          return handleAdminResetSessions(request, env);
-        }
-
-        if (path === '/api/admin/clear-cache' && request.method === 'POST') {
-          return handleAdminClearCache(request, env);
-        }
-
-        // メンテナンスモード管理API
-        if (path === '/api/admin/maintenance/status' && request.method === 'GET') {
-          return handleAdminMaintenanceStatus(request, env);
-        }
-
-        if (path === '/api/admin/maintenance/enable' && request.method === 'POST') {
-          return handleAdminMaintenanceEnable(request, env);
-        }
-
-        if (path === '/api/admin/maintenance/disable' && request.method === 'POST') {
-          return handleAdminMaintenanceDisable(request, env);
-        }
-
-        // 監視一括管理API
-        if (path === '/api/admin/monitoring/pause-all' && request.method === 'POST') {
-          return handleAdminPauseAllMonitoring(request, env);
-        }
-
-        if (path === '/api/admin/monitoring/resume-all' && request.method === 'POST') {
-          return handleAdminResumeAllMonitoring(request, env);
-        }
-
-        // ユーザー向けAPI（メンテナンスモードチェック）
-        if (path === '/api/user/change-password' && request.method === 'POST') {
-          return handleChangePassword(request, env);
-        }
-
-        return jsonResponse({ error: 'Not found' }, 404);
-      } catch (error: any) {
-        console.error('Error:', error);
-        return jsonResponse({ error: error.message || 'Internal server error' }, 500);
       }
-    },
 
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise < void> {
-      // メトリクス初期化（初回Cron実行時のみ）
-      initializeMetricsIfNeeded();
+      // ユーザー自身のテスト通知
+      if (path === '/api/test-notification' && request.method === 'POST') {
+        return handleTestNotification(request, env);
+      }
+
+      if (path === '/api/admin/reset-sessions' && request.method === 'POST') {
+        return handleAdminResetSessions(request, env);
+      }
+
+      if (path === '/api/admin/clear-cache' && request.method === 'POST') {
+        return handleAdminClearCache(request, env);
+      }
+
+      // メンテナンスモード管理API
+      if (path === '/api/admin/maintenance/status' && request.method === 'GET') {
+        return handleAdminMaintenanceStatus(request, env);
+      }
+
+      if (path === '/api/admin/maintenance/enable' && request.method === 'POST') {
+        return handleAdminMaintenanceEnable(request, env);
+      }
+
+      if (path === '/api/admin/maintenance/disable' && request.method === 'POST') {
+        return handleAdminMaintenanceDisable(request, env);
+      }
+
+      // 監視一括管理API
+      if (path === '/api/admin/monitoring/pause-all' && request.method === 'POST') {
+        return handleAdminPauseAllMonitoring(request, env);
+      }
+
+      if (path === '/api/admin/monitoring/resume-all' && request.method === 'POST') {
+        return handleAdminResumeAllMonitoring(request, env);
+      }
+
+      // ユーザー向けAPI（メンテナンスモードチェック）
+      if (path === '/api/user/change-password' && request.method === 'POST') {
+        return handleChangePassword(request, env);
+      }
+
+      return jsonResponse({ error: 'Not found' }, 404);
+    } catch (error: any) {
+      console.error('Error:', error);
+      return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+    }
+  },
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // メトリクス初期化（初回Cron実行時のみ）
+    initializeMetricsIfNeeded();
 
     const now = new Date();
-      const minutes = now.getMinutes();
-      const hours = now.getHours();
-      const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000); // JST変換
-      const jstHours = jstTime.getHours();
-      const jstMinutes = jstTime.getMinutes();
+    const minutes = now.getMinutes();
+    const hours = now.getHours();
+    const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000); // JST変換
+    const jstHours = jstTime.getHours();
+    const jstMinutes = jstTime.getMinutes();
 
-      console.log('[Cron] Started:', jstTime.toISOString(), `(JST: ${jstTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`);
+    console.log('[Cron] Started:', jstTime.toISOString(), `(JST: ${jstTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`);
 
-      // 🛠️ メンテナンスモードチェック（KVベース）
-      const maintenanceJson = await env.MONITORING.get('SYSTEM:MAINTENANCE');
-      const isMaintenanceMode = maintenanceJson ? JSON.parse(maintenanceJson).enabled : false;
+    // 🛠️ メンテナンスモードチェック（KVベース）
+    const maintenanceJson = await env.MONITORING.get('SYSTEM:MAINTENANCE');
+    const isMaintenanceMode = maintenanceJson ? JSON.parse(maintenanceJson).enabled : false;
 
-      if(isMaintenanceMode) {
-        const maintenanceInfo = JSON.parse(maintenanceJson!);
-        console.log(`[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: ${maintenanceInfo.message}`);
-        // return removed to allow admin monitoring
-      }
+    if (isMaintenanceMode) {
+      const maintenanceInfo = JSON.parse(maintenanceJson!);
+      console.log(`[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: ${maintenanceInfo.message}`);
+      // return removed to allow admin monitoring
+    }
 
     // 🌅 5:00一斉処理（毎日5:00:00に実行）
-    if(jstHours === 5 && jstMinutes === 0) {
+    if (jstHours === 5 && jstMinutes === 0) {
       console.log('[Cron] 🌅 5:00一斉処理開始');
       try {
         await handle5AMBatchReservation(env);

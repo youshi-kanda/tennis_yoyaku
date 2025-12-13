@@ -320,7 +320,7 @@ async function generateVapidJWT(
 /**
  * ユーザーのプッシュ通知サブスクリプションを取得
  */
-async function getUserSubscription(
+export async function getUserSubscription(
   userId: string,
   env: Env
 ): Promise<PushSubscription | null> {

@@ -205,6 +205,7 @@ import {
   deletePushSubscription,
   sendPushNotification,
   getNotificationHistory,
+  getUserSubscription,
 } from './pushNotification';
 
 // ===== サブリクエスト計測（有料プラン: 制限なし） =====
@@ -3867,6 +3868,16 @@ async function handleAdminTestNotification(request: Request, env: Env): Promise<
     const body = await request.json() as { userId?: string };
     const targetUserId = body.userId || userId;
 
+    // Check subscription first
+    const subscription = await getUserSubscription(targetUserId, env);
+    if (!subscription) {
+      return jsonResponse({
+        success: false,
+        error: 'No push subscription found for this user.',
+        message: 'No push subscription found. Please check notification settings.',
+      }, 400);
+    }
+
     // テスト通知を送信
     const success = await sendPushNotification(targetUserId, {
       title: '🔔 テスト通知',
@@ -3885,7 +3896,8 @@ async function handleAdminTestNotification(request: Request, env: Env): Promise<
     } else {
       return jsonResponse({
         success: false,
-        message: 'Failed to send notification. User may not have push subscription.',
+        error: 'Failed to send notification (Provider rejected).',
+        message: 'Failed to send notification. The subscription might be invalid or expired.',
       }, 400);
     }
   } catch (error: any) {
@@ -3901,6 +3913,16 @@ async function handleTestNotification(request: Request, env: Env): Promise<Respo
   try {
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
+
+    // Check subscription first
+    const subscription = await getUserSubscription(userId, env);
+    if (!subscription) {
+      return jsonResponse({
+        success: false,
+        error: 'No push subscription found.',
+        message: '通知設定が見つかりません。「プッシュ通知の修復・同期」をお試しください。',
+      }, 400);
+    }
 
     // 自分自身への通知のみ許可
     const success = await sendPushNotification(userId, {
@@ -3920,7 +3942,8 @@ async function handleTestNotification(request: Request, env: Env): Promise<Respo
     } else {
       return jsonResponse({
         success: false,
-        message: 'Failed to send notification. Please check your push subscription.',
+        error: 'Failed to send notification.',
+        message: '通知の送信に失敗しました。「プッシュ通知を解除」して再度「有効」にしてください。',
       }, 400);
     }
   } catch (error: any) {

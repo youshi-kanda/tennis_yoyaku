@@ -181,7 +181,24 @@ export default function SettingsPage() {
   const { user } = useAuthStore();
   const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotification();
 
-  const [shinagawaId, setShinagawaId] = useState('');
+  const [testNotificationStatus, setTestNotificationStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [testNotificationMessage, setTestNotificationMessage] = useState('');
+  const [swStatus, setSwStatus] = useState<string>('checking...');
+
+  // SWの状態を確認
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        if (regs.length === 0) {
+          setSwStatus('未登録');
+        } else {
+          setSwStatus(`${regs.length}個のActive SW: ` + regs.map(r => r.scope).join(', '));
+        }
+      });
+    } else {
+      setSwStatus('非対応');
+    }
+  }, []);
   const [shinagawaPassword, setShinagawaPassword] = useState('');
   const [shinagawaSessionId, setShinagawaSessionId] = useState('');
   const [shinagawaManualSessionId, setShinagawaManualSessionId] = useState(''); // 手動入力用
@@ -198,8 +215,7 @@ export default function SettingsPage() {
     perMonth: 0, // 0 = 制限なし
   });
 
-  const [testNotificationStatus, setTestNotificationStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
-  const [testNotificationMessage, setTestNotificationMessage] = useState('');
+  const [shinagawaId, setShinagawaId] = useState('');
 
   // 保存済みの設定を読み込む
   useEffect(() => {
@@ -426,9 +442,61 @@ export default function SettingsPage() {
     }
   };
 
+  // ローカル通知テスト（バックエンドを経由しない）
+  const handleLocalNotificationCheck = async () => {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        alert('Service Worker非対応です');
+        return;
+      }
+
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification('ローカルテスト通知', {
+        body: 'これは端末内部から直接送信されたテスト通知です。\nこれが表示されない場合、端末の通知設定がオフになっています。',
+        icon: '/icon-192x192.png',
+        tag: 'local-test-' + Date.now(),
+      });
+      alert('ローカル通知を送信命令を出しました。通知が表示されたか確認してください。');
+    } catch (e: any) {
+      console.error(e);
+      alert(`ローカル通知エラー: ${e.message}`);
+    }
+  };
+
+  // 古いSWを削除してリロード
+  const handleForceUnregister = async () => {
+    if (!confirm('通知システムをリセットします。よろしいですか？')) return;
+
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        await registration.unregister();
+        console.log('Unregistered SW:', registration.scope);
+      }
+      alert('リセット完了。ページをリロードします。');
+      window.location.reload();
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">設定</h1>
+
+      {/* デバッグ情報（管理者またはデバッグ時のみ表示推奨だが、トラブルシューティングのため表示） */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg text-xs font-mono text-gray-600 border border-gray-200">
+        <p className="font-bold mb-1">🔍 通知デバッグ情報</p>
+        <p>SW Status: {swStatus}</p>
+        <p>Supported: {isSupported ? 'YES' : 'NO'}</p>
+        <p>Subscribed: {isSubscribed ? 'YES' : 'NO'}</p>
+        <div className="mt-2 flex gap-2">
+          <button onClick={handleLocalNotificationCheck} className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+            📱 ローカル通知テスト (SW直接)
+          </button>
+          <button onClick={handleForceUnregister} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded">
+            🗑️ 通知システムリセット (SW削除)
+          </button>
+        </div>
+      </div>
 
       <div className="space-y-4">
         {/* アカウント情報 */}

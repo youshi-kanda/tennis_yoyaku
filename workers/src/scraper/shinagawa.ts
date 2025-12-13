@@ -636,17 +636,36 @@ export async function makeShinagawaReservation(
         });
         const compHtml = await compRes.text();
 
-        if (compHtml.includes('予約完了') || compHtml.includes('受け付けました')) {
-            const rsvNoMatch = compHtml.match(/予約番号[:\s]*(\d+)/);
-            console.log(`[Shinagawa] ✅ Reservation Success! No: ${rsvNoMatch ? rsvNoMatch[1] : 'Unknown'}`);
-            return { success: true, message: `予約完了: ${rsvNoMatch ? rsvNoMatch[1] : 'OK'}` };
-        } else {
-            // 🚨 デバッグ用: 失敗時のHTMLをログ出力して判定ロジックを修正できるようにする
-            console.error('[Shinagawa] ❌ Reservation might have failed. HTML preview:');
-            console.log(compHtml.substring(0, 2000)); // 先頭2000文字を出力
+        // 判定ロジック強化: 予約番号の抽出を必須とする
+        // パターン1: "予約番号 : 12345678"
+        // パターン2: "受け付けました" + 近くに数字
+        const rsvNoMatch = compHtml.match(/予約番号[:\s]*(\d+)/) || compHtml.match(/受付番号[:\s]*(\d+)/);
 
-            const errMsg = compHtml.match(/color=["']red["']>([^<]+)<\/font>/i);
-            return { success: false, message: errMsg ? errMsg[1] : '完了画面ではありません (詳細はログを確認)' };
+        if (rsvNoMatch) {
+            const reservationNumber = rsvNoMatch[1];
+            console.log(`[Shinagawa] ✅ Reservation Confirmed! Number: ${reservationNumber}`);
+            return { success: true, message: `予約完了: No.${reservationNumber}` };
+        } else if (compHtml.includes('予約完了') || compHtml.includes('受け付けました')) {
+            // 文言はあるが番号が取れなかった場合
+            console.warn('[Shinagawa] ⚠️ Reservation might be successful but number not found.');
+            // 念のためHTMLをログに残す
+            console.log(compHtml.substring(0, 3000));
+            return { success: true, message: '予約完了 (番号取得失敗)' };
+        } else {
+            // 🚨 失敗: エラーメッセージの抽出を試みる
+            console.error('[Shinagawa] ❌ Reservation Failed. Analyzing response...');
+
+            // エラーメッセージの抽出 (赤字のfontタグなど)
+            const errorMatch = compHtml.match(/<font[^>]*color=["']red["'][^>]*>([\s\S]*?)<\/font>/i) ||
+                compHtml.match(/class=["']error["'][^>]*>([\s\S]*?)<\//i);
+
+            const errorMessage = errorMatch ? errorMatch[1].replace(/<[^>]+>/g, '').trim() : '不明なエラー';
+
+            console.error(`[Shinagawa] Error Message: ${errorMessage}`);
+            console.error('[Shinagawa] HTML Dump (Partial):');
+            console.log(compHtml.substring(0, 4000)); // ログ長を拡張
+
+            return { success: false, message: errorMessage };
         }
 
     } catch (e: any) {

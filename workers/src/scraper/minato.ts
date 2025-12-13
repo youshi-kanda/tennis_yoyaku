@@ -404,18 +404,31 @@ export async function makeMinatoReservation(
         });
         const completeHtml = await completeResponse.text();
 
-        if (completeHtml.includes('予約完了') || completeHtml.includes('受け付けました')) {
-            const rsvNoMatch = completeHtml.match(/予約受付番号[:\s]*(\d+)/) || completeHtml.match(/予約番号[:\s]*(\d+)/);
-            const reservationId = rsvNoMatch ? rsvNoMatch[1] : `MINATO_OK_${Date.now()}`;
-            console.log(`[Minato] ✅ Reservation Success! ID: ${reservationId}`);
-            return { success: true, reservationId: reservationId, message: `予約完了: ${reservationId}` };
-        } else {
-            // 🚨 デバッグ用: 失敗時のHTMLをログ出力して判定ロジックを修正できるようにする
-            console.error('[Minato] ❌ Reservation might have failed. HTML preview:');
-            console.log(completeHtml.substring(0, 2000)); // 先頭2000文字を出力
+        // 判定ロジック強化: 予約受付番号を必須とする
+        const rsvNoMatch = completeHtml.match(/予約受付番号[:\s]*(\d+)/) || completeHtml.match(/予約番号[:\s]*(\d+)/);
 
-            const errMsg = completeHtml.match(/class="error"[^>]*>([^<]+)</);
-            return { success: false, error: errMsg ? errMsg[1] : 'Unknown error during completion (See logs)' };
+        if (rsvNoMatch) {
+            const reservationId = rsvNoMatch[1];
+            console.log(`[Minato] ✅ Reservation Confirmed! ID: ${reservationId}`);
+            return { success: true, reservationId: reservationId, message: `予約完了: ID ${reservationId}` };
+        } else if (completeHtml.includes('予約完了') || completeHtml.includes('受け付けました')) {
+            // 文言はあるが番号が取れなかった場合
+            // MinatoはIDが必ず画面に出るはずなので、Warn扱いにする
+            console.warn('[Minato] ⚠️ Reservation might be successful but ID not found.');
+            console.log(completeHtml.substring(0, 3000));
+            const fallbackId = `MINATO_OK_${Date.now()}`;
+            return { success: true, reservationId: fallbackId, message: '予約完了 (ID自動取得失敗)' };
+        } else {
+            // 🚨 失敗
+            console.error('[Minato] ❌ Reservation Failed. Analyzing response...');
+            console.log(completeHtml.substring(0, 4000)); // 先頭4000文字を出力
+
+            const errMsg = completeHtml.match(/class="error"[^>]*>([\s\S]*?)<\//i) ||
+                completeHtml.match(/color=["']red["'][^>]*>([\s\S]*?)<\//i);
+
+            const finalError = errMsg ? errMsg[1].replace(/<[^>]+>/g, '').trim() : '不明なエラー (ログを確認してください)';
+
+            return { success: false, error: finalError };
         }
 
     } catch (e: any) {

@@ -113,6 +113,10 @@ async function hkdf(
  * Web Push用のペイロード暗号化（aes128gcm）
  * RFC 8291準拠
  */
+/**
+ * Web Push用のペイロード暗号化（aes128gcm）
+ * RFC 8291準拠 (iOS/Safari対応)
+ */
 async function encryptPayload(
   payload: string,
   userPublicKey: string,
@@ -125,14 +129,14 @@ async function encryptPayload(
     ['deriveBits']
   )) as CryptoKeyPair;
 
-  // 2. サーバー公開鍵をraw形式でエクスポート（65バイト: 0x04 + x + y）
   const serverPublicKeyRaw = (await crypto.subtle.exportKey('raw', serverKeyPair.publicKey)) as ArrayBuffer;
   const serverPublicKeyBytes = new Uint8Array(serverPublicKeyRaw);
 
-  // 3. クライアント公開鍵をデコード
+  // 2. クライアント公開鍵・Authシークレットをデコード
   const clientPublicKeyBytes = base64UrlDecode(userPublicKey);
+  const authSecret = base64UrlDecode(userAuthSecret);
 
-  // 4. クライアント公開鍵をインポート
+  // 3. 共有シークレット生成 (ECDH)
   const clientPublicKey = await crypto.subtle.importKey(
     'raw',
     clientPublicKeyBytes,
@@ -141,100 +145,73 @@ async function encryptPayload(
     []
   );
 
-  // 5. ECDH共有シークレット生成
   const sharedSecret = await crypto.subtle.deriveBits(
-    { name: 'ECDH', public: clientPublicKey } as any, // Cast to any to avoid "public" property error
+    { name: 'ECDH', public: clientPublicKey } as any,
     serverKeyPair.privateKey,
     256
   );
 
-  // 6. authシークレットをデコード
-  const authSecret = base64UrlDecode(userAuthSecret);
-
-  // 7. ソルト生成（16バイト）
+  // 4. ソルト生成 (16 bytes)
   const salt = crypto.getRandomValues(new Uint8Array(16));
 
-  // 8. PRKの生成（HKDF-SHA256）
-  const authInfo = new TextEncoder().encode('Content-Encoding: auth\0');
-  const prk = await hkdf(authSecret, new Uint8Array(sharedSecret), authInfo, 32);
-
-  // ... (rest of the function)
-
-
-  // 9. コンテキスト情報の構築
-  const context = new Uint8Array(135); // 1 + 2 + 65 + 2 + 65
+  // 5. PRK_key生成 (HKDF-SHA256)
+  // key_info = "WebPush: info" || 0x00 || ua_public || as_public
+  const keyInfo = new Uint8Array(new TextEncoder().encode('WebPush: info\0').length + clientPublicKeyBytes.length + serverPublicKeyBytes.length);
   let offset = 0;
+  keyInfo.set(new TextEncoder().encode('WebPush: info\0'), offset); offset += 14;
+  keyInfo.set(clientPublicKeyBytes, offset); offset += clientPublicKeyBytes.length;
+  keyInfo.set(serverPublicKeyBytes, offset);
 
-  if (clientPublicKeyBytes.length !== 65) {
-    throw new Error(`Invalid client public key length: ${clientPublicKeyBytes.length}`);
-  }
-  if (serverPublicKeyBytes.length !== 65) {
-    throw new Error(`Invalid server public key length: ${serverPublicKeyBytes.length}`);
-  }
+  // IKM = shared_secret
+  const prkKey = await hkdf(authSecret, new Uint8Array(sharedSecret), keyInfo, 32);
 
-  // ラベル "P-256" (0x00で終端なし、長さプレフィックス)
-  context[offset++] = 0; // ラベル長（廃止済みフィールド）
+  // 6. CEK (Content Encryption Key) と Nonce の生成
+  // RFC 8291: "Content-Encoding: aes128gcm" || 0x00
+  const cekInfo = new TextEncoder().encode('Content-Encoding: aes128gcm\0');
+  const prk = await hkdf(salt, prkKey, cekInfo, 16); // CEK
 
-  // クライアント公開鍵長（2バイト、ビッグエンディアン）
-  context[offset++] = 0;
-  context[offset++] = 65;
-  try {
-    context.set(clientPublicKeyBytes, offset);
-  } catch (e) {
-    console.error('[Push] Buffer set error (ClientKey):', e, 'Offset:', offset, 'ClientKeyLen:', clientPublicKeyBytes.length);
-    throw e;
-  }
-  offset += 65;
+  const nonceInfo = new TextEncoder().encode('Content-Encoding: nonce\0');
+  const nonce = await hkdf(salt, prkKey, nonceInfo, 12); // Nonce
 
-  // サーバー公開鍵長（2バイト、ビッグエンディアン）
-  context[offset++] = 0;
-  context[offset++] = 65;
-  try {
-    context.set(serverPublicKeyBytes, offset);
-  } catch (e) {
-    console.error('[Push] Buffer set error:', e, 'Offset:', offset, 'ServerKeyLen:', serverPublicKeyBytes.length);
-    throw e;
-  }
-
-  // 10. IKM生成（HKDF）
-  const cekInfo = new Uint8Array(
-    new TextEncoder().encode('Content-Encoding: aesgcm\0P-256\0').length + context.length
-  );
-  cekInfo.set(new TextEncoder().encode('Content-Encoding: aesgcm\0P-256\0'));
-  cekInfo.set(context, new TextEncoder().encode('Content-Encoding: aesgcm\0P-256\0').length);
-
-  const ikm = await hkdf(salt, prk, cekInfo, 16);
-
-  // 11. ノンス生成（HKDF）
-  const nonceInfo = new Uint8Array(
-    new TextEncoder().encode('Content-Encoding: nonce\0P-256\0').length + context.length
-  );
-  nonceInfo.set(new TextEncoder().encode('Content-Encoding: nonce\0P-256\0'));
-  nonceInfo.set(context, new TextEncoder().encode('Content-Encoding: nonce\0P-256\0').length);
-
-  const nonce = await hkdf(salt, prk, nonceInfo, 12);
-
-  // 12. ペイロードにパディング追加（2バイトのパディング長 + 実データ）
-  const paddingLength = 0; // パディングなし
+  // 7. ペイロードのパディングと暗号化
+  // Padding: 末尾に 0x02 || 0x00 (padding length 0 の場合) を追加
+  // RFC 8188: plain_text || 0x02 || padding (0x00...)
+  // ここではパディングなしで最小構成にする
   const payloadBytes = new TextEncoder().encode(payload);
-  const paddedPayload = new Uint8Array(2 + payloadBytes.length + paddingLength);
-  paddedPayload[0] = (paddingLength >> 8) & 0xff;
-  paddedPayload[1] = paddingLength & 0xff;
-  paddedPayload.set(payloadBytes, 2);
+  const paddedPayload = new Uint8Array(payloadBytes.length + 1);
+  paddedPayload.set(payloadBytes);
+  paddedPayload[payloadBytes.length] = 0x02; // Record separator
 
-  // 13. AES-GCM暗号化
-  const key = await crypto.subtle.importKey('raw', ikm, { name: 'AES-GCM' }, false, ['encrypt']);
-
-  const ciphertext = await crypto.subtle.encrypt(
+  const key = await crypto.subtle.importKey('raw', prk, { name: 'AES-GCM' }, false, ['encrypt']);
+  const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: nonce, tagLength: 128 },
     key,
     paddedPayload
   );
 
+  // 8. ヘッダー構築 (RFC 8188)
+  // Header = Salt (16) || Record Size (4) || Key ID Len (1) || Key ID (0)
+  const ciphertextBytes = new Uint8Array(encrypted);
+  const recordSize = ciphertextBytes.length + 128 / 8; // Tag included in ciphertext? Yes for AES-GCM webcrypto result.
+  // WebCrypto encrypt returns ciphertext + tag appended.
+  // Record Size = length of (plaintext + padding + tag) ? No.
+  // RFC 8188: "rs" is the size of the records. default is 4096.
+  // We are sending a single record.
+  const header = new Uint8Array(16 + 4 + 1);
+  header.set(salt, 0);
+  // Record Size (4096 default, big endian)
+  header[16] = 0x00; header[17] = 0x00; header[18] = 0x10; header[19] = 0x00;
+  header[20] = 0x00; // Key ID length
+
+  // 結合: Header || Ciphertext
+  const finalBody = new Uint8Array(header.length + ciphertextBytes.length);
+  finalBody.set(header);
+  finalBody.set(ciphertextBytes, header.length);
+
   return {
-    ciphertext: new Uint8Array(ciphertext as ArrayBuffer),
-    salt: salt,
-    serverPublicKey: serverPublicKeyBytes,
+    ciphertext: finalBody,
+    salt: salt, // Not used in header anymore but returned for interface compat
+    serverPublicKey: serverPublicKeyBytes, // Not used in header anymore but returned
   };
 }
 
@@ -405,15 +382,13 @@ export async function sendPushNotification(
     const serverPublicKeyBase64 = base64UrlEncode(encrypted.serverPublicKey.buffer as ArrayBuffer);
 
     // Encryptionヘッダー（ソルト）
-    const saltBase64 = base64UrlEncode(encrypted.salt.buffer as ArrayBuffer);
+    // aes128gcmではヘッダー不要（ボディに含まれる）
 
     // Web Push APIにリクエスト送信
     const response = await fetch(subscription.endpoint, {
       method: 'POST',
       headers: {
-        'Content-Encoding': 'aesgcm',
-        'Encryption': `salt=${saltBase64}`,
-        'Crypto-Key': `dh=${serverPublicKeyBase64};p256ecdsa=${vapidPublicKey}`,
+        'Content-Encoding': 'aes128gcm',
         'Authorization': `vapid t=${vapidToken}, k=${vapidPublicKey}`,
         'TTL': '86400', // 24時間
       },

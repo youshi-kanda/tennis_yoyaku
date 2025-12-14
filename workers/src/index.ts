@@ -105,9 +105,9 @@ class SafeSessionWrapper {
       if (this.site === 'shinagawa') {
         session = await loginToShinagawa(creds.username, password);
       } else {
-        // Minato (Simple ID)
-        const sid = await loginToMinato(creds.username, password);
-        if (sid) session = { cookie: sid };
+        // Minato: reCAPTCHAにより自動ログイン不可。手動更新必須。
+        console.warn(`[SafeSession] Minato requires manual login. Skipping auto-login.`);
+        throw new Error('MINATO_LOGIN_REQUIRED');
       }
 
       if (!session || !session.cookie) {
@@ -3149,6 +3149,16 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     }
 
   } catch (error: any) {
+    if (error.message === 'MINATO_LOGIN_REQUIRED') {
+      console.warn(`[Check] ⚠️ Minato session expired/missing for ${target.userId}. Notification sent.`);
+      await sendPushNotification(target.userId, {
+        title: '⚠️ 港区：セッション更新が必要です',
+        body: 'reCAPTCHAのため自動ログインできません。設定画面から手動でログインしてください。',
+        data: { type: 'session_expired', site: 'minato', targetId: target.id }
+      }, env);
+      return;
+    }
+
     console.error(`[Check] ❌ Error for target ${target.id}:`, error);
     console.error(`[Check] ❌ Error message: ${error.message}`);
     console.error(`[Check] ❌ Error stack: ${error.stack}`);
@@ -3246,80 +3256,53 @@ async function executeReservation(target: MonitoringTarget, env: Env, weeklyCont
     return;
   }
 
-  // 🔑 セッションIDを取得（KVから再利用または新規ログイン）
+  // 🔑 セッションIDを取得（SafeSessionWrapperを使用）
   let sessionId: string | null = null;
   let shinagawaSession: ShinagawaSession | null = null;
+  const sessionManager = new SafeSessionWrapper(env, target.userId, target.site);
 
-  // 1. KVからセッションIDを取得
-  const sessionKey = `session:${target.userId}:${target.site}`;
-  kvMetrics.reads++;
-  const sessionData = await env.SESSIONS.get(sessionKey);
-
-  if (sessionData) {
-    const parsedSession = JSON.parse(sessionData);
+  try {
+    sessionId = await sessionManager.getSession();
 
     if (target.site === 'shinagawa') {
-      shinagawaSession = parsedSession.shinagawaContext || null;
-      sessionId = parsedSession.sessionId;
-      // コンテキストがない場合は再ログインさせる
-      if (!shinagawaSession) sessionId = null;
-    } else {
-      sessionId = parsedSession.sessionId;
-    }
-
-    if (sessionId) {
-      console.log(`[Reserve] セッションID取得: ${sessionId.substring(0, 20)}... (from KV)`);
-    }
-  }
-
-  // 2. セッションがない場合は新規ログイン
-  if (!sessionId && siteSettings.username && siteSettings.password) {
-    console.log(`[Reserve] セッションなし、新規ログイン実行 (${target.site})`);
-
-    // パスワードを復号化
-    let decryptedPassword = siteSettings.password;
-    if (isEncrypted(siteSettings.password)) {
-      try {
-        decryptedPassword = await decryptPassword(siteSettings.password, env.ENCRYPTION_KEY);
-      } catch (error) {
-        console.error('[Reserve] Failed to decrypt password:', error);
-        return;
+      const sData = await env.SESSIONS.get(`session:${target.userId}:shinagawa`);
+      if (sData) {
+        const parsed = JSON.parse(sData);
+        shinagawaSession = parsed.shinagawaContext;
+        if (shinagawaSession) shinagawaSession.cookie = sessionId;
+      }
+      // Context missing?
+      if (!shinagawaSession && sessionId) {
+        console.log('[Reserve] ⚠️ Shinagawa context missing, forcing refresh...');
+        sessionId = await sessionManager.getSession(true);
+        const sDataRefresh = await env.SESSIONS.get(`session:${target.userId}:shinagawa`);
+        if (sDataRefresh) {
+          const parsed = JSON.parse(sDataRefresh);
+          shinagawaSession = parsed.shinagawaContext;
+          if (shinagawaSession) shinagawaSession.cookie = sessionId;
+        }
       }
     }
-
-    // ログインしてセッションIDを取得
-    if (target.site === 'shinagawa') {
-      const newSession = await loginToShinagawa(siteSettings.username, decryptedPassword);
-      shinagawaSession = newSession;
-      sessionId = newSession?.cookie || null;
-    } else {
-      sessionId = await loginToMinato(siteSettings.username, decryptedPassword);
-    }
-
-    // 3. 取得したセッションIDをKVに保存（24時間有効）
-    if (sessionId) {
-      const newSessionData = {
-        sessionId,
-        site: target.site,
-        loginTime: Date.now(),
-        lastUsed: Date.now(),
-        isValid: true,
-        userId: target.userId,
-        shinagawaContext: shinagawaSession || undefined
-      };
-      kvMetrics.writes++;
-      await env.SESSIONS.put(sessionKey, JSON.stringify(newSessionData), {
-        expirationTtl: 86400, // 24時間
-      });
-      console.log(`[Reserve] セッションID保存: ${sessionId.substring(0, 20)}... (saved to KV)`);
-    } else {
-      console.error(`[Reserve] ログイン失敗 (${target.site})`);
+  } catch (e: any) {
+    console.error(`[Reserve] Session error:`, e.message);
+    if (e.message === 'MINATO_LOGIN_REQUIRED') {
       await sendPushNotification(target.userId, {
-        title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
-        body: 'ID・パスワードを確認してください',
+        title: '❌ 予約失敗（セッション期限切れ）',
+        body: '港区のセッションが切れているため予約できませんでした。手動でログインしてください。',
+        data: { type: 'reservation_failed', reason: 'session_expired', site: 'minato' }
       }, env);
-      throw new Error('Login failed'); // Consumerでリトライさせるために投げる
+      return;
     }
+    if (e.message === 'ACCOUNT_LOCKED') {
+      // checkAndNotifyですでにハンドリングされているはずだが念のため
+      return;
+    }
+    // ログイン失敗
+    await sendPushNotification(target.userId, {
+      title: `${target.site === 'shinagawa' ? '品川区' : '港区'}のログインに失敗しました`,
+      body: 'ID・パスワードを確認してください',
+    }, env);
+    throw e; // Retry queue
   }
 
   if (!sessionId) {

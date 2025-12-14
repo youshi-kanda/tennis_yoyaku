@@ -96,10 +96,29 @@ export default function DashboardHome() {
   }>({ show: false, current: 0, total: 0, action: '' });
   const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceStatus | null>(null);
 
+  const [minatoSessionStatus, setMinatoSessionStatus] = useState<'valid' | 'expired' | 'unknown'>('unknown');
+
   useEffect(() => {
     loadData();
     loadMaintenanceStatus();
+    loadSettingsStatus();
   }, []);
+
+  const loadSettingsStatus = async () => {
+    try {
+      const response = await apiClient.getSettings();
+      if (response.success && response.data) {
+        if (response.data.minatoSessionStatus) {
+          setMinatoSessionStatus(response.data.minatoSessionStatus === 'valid' ? 'valid' : 'expired');
+        } else {
+          // 古いデータ等の場合
+          setMinatoSessionStatus('expired');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load settings status', e);
+    }
+  };
 
   const loadMaintenanceStatus = async () => {
     try {
@@ -309,6 +328,29 @@ export default function DashboardHome() {
           ようこそ、{user?.email}さん
         </p>
       </div>
+
+      {/* ⚠️ 港区セッション切れアラート */}
+      {minatoSessionStatus === 'expired' && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-sm animate-in fade-in slide-in-from-top-2">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🚨</span>
+              <div>
+                <h3 className="text-red-800 font-bold">港区のセッションが切れています</h3>
+                <p className="text-red-700 text-sm mt-1">
+                  現在、港区の自動監視・予約が停止している可能性があります。
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={() => router.push('/dashboard/settings')}
+              className="bg-red-600 hover:bg-red-700 text-white shadow-sm whitespace-nowrap"
+            >
+              再取得する
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 統計カード */}
       <QuickSetupCard onSuccess={loadData} />

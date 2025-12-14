@@ -234,6 +234,8 @@ export async function loginToShinagawa(userId: string, password: string): Promis
             };
         }
 
+        const titleMatch = loginHtml.match(/<title>([^<]*)<\/title>/i);
+        const pageTitle = titleMatch ? titleMatch[1] : 'Unknown';
         console.error(`[Login] ❌ Failed. Title: ${pageTitle}`);
         return null;
 
@@ -354,7 +356,7 @@ export async function checkShinagawaAvailability(
         const cellContent = cellMatch[1];
         if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) {
             currentStatus = '○';
-        } else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) {
+        } else if (/alt=["']取消処理中["']/.test(cellContent) || cellContent.includes('calendar_delete') || cellContent.includes('title="取消処理中"')) {
             currentStatus = '取';
         } else if (cellContent.includes('alt="一部空き"') || cellContent.includes('calendar_few-available')) {
             currentStatus = '△';
@@ -370,6 +372,13 @@ export async function checkShinagawaAvailability(
         console.log(`[Shinagawa] ⚡ ${currentStatus} 検知: ${facilityId}, ${date}, ${timeSlot}`);
     }
 
+    // 次の予約アクションに必要なコンテキストを抽出
+    const reservationContext = extractSearchFormParams(htmlText);
+    // displayNoはセッションから引き継ぐか、HTMLから抽出（HTML優先）
+    if (!reservationContext.displayNo && currentSession.displayNo) {
+        reservationContext.displayNo = currentSession.displayNo;
+    }
+
     return {
         available: isAvailable,
         facilityId,
@@ -378,6 +387,7 @@ export async function checkShinagawaAvailability(
         timeSlot,
         currentStatus,
         changedToAvailable: isAvailable,
+        reservationContext: Object.keys(reservationContext).length > 0 ? reservationContext : undefined
     };
 }
 
@@ -532,6 +542,11 @@ export async function makeShinagawaReservation(
         console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
         const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
         const formParams = { ...session.searchFormParams }; // Start with basic params
+
+        // Use provided context to override params (ensure we use the latest state)
+        if (weeklyContext) {
+            Object.assign(formParams, weeklyContext);
+        }
 
         const startTimeStr = timeSlot.split('-')[0];
         const tzoneNo = SHINAGAWA_TIMESLOT_MAP[startTimeStr];
@@ -857,4 +872,43 @@ function getShinagawaFacilitiesFallback(): Facility[] {
         { facilityId: '10300040', facilityName: '八潮北公園 庭球場Ｄ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
         { facilityId: '10300050', facilityName: '八潮北公園 庭球場Ｅ', category: 'tennis', isTennisCourt: true, buildingId: '1030', buildingName: '八潮北公園', areaCode: '1500', areaName: '八潮地区', site: 'shinagawa', availableTimeSlots: shinagawaTimeSlots },
     ];
+}
+
+/**
+ * HTMLから検索フォームのパラメータを抽出するヘルパー関数
+ */
+function extractSearchFormParams(html: string): Record<string, string> {
+    const params: Record<string, string> = {};
+    const formActionRegex = /<form[^>]*action="[^"]*rsvWOpeInstSrchVacantAction\.do"[^>]*>([\s\S]*?)<\/form>/i;
+    const formMatch = html.match(formActionRegex);
+
+    if (formMatch) {
+        const formContent = formMatch[1];
+
+        // Inputs
+        const inputRegex = /<input[^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi;
+        const inputs = [...formContent.matchAll(inputRegex)];
+        for (const m of inputs) {
+            params[m[1]] = m[2];
+        }
+
+        // Selects
+        const selectRegex = /<select[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/select>/gi;
+        const selects = [...formContent.matchAll(selectRegex)];
+        for (const s of selects) {
+            const name = s[1];
+            const content = s[2];
+            const selectedMatch = content.match(/<option[^>]*value=["']([^"']+)["'][^>]*selected[^>]*>/i);
+            if (selectedMatch) {
+                params[name] = selectedMatch[1];
+            } else {
+                // If no selected attribute, typically the first option is default, 
+                // but checking source might imply we should assume empty or first.
+                // For safety, let's grab the first one if value exists.
+                const firstOption = content.match(/<option[^>]*value=["']([^"']+)["'][^>]*>/i);
+                if (firstOption) params[name] = firstOption[1];
+            }
+        }
+    }
+    return params;
 }

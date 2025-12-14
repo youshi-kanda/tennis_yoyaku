@@ -14,6 +14,7 @@ export interface AvailabilityResult {
     previousStatus?: string;
     currentStatus: string;
     changedToAvailable: boolean;
+    reservationContext?: ReservationContext;
 }
 
 /**

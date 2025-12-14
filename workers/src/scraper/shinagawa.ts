@@ -160,11 +160,14 @@ export async function loginToShinagawa(userId: string, password: string): Promis
         const loginBuffer = await loginResponse.arrayBuffer();
         const loginHtml = new TextDecoder('shift-jis').decode(loginBuffer);
 
-        // ログイン成功チェック
-        const titleMatch = loginHtml.match(/<title>(.*?)<\/title>/i);
-        const pageTitle = titleMatch ? titleMatch[1] : '';
+        if (loginHtml.includes('アカウントがロックされています') ||
+            loginHtml.includes('Account Locked')) {
+            console.error('[Login] ❌ Account Locked detected');
+            throw new Error('ACCOUNT_LOCKED');
+        }
 
-        if (pageTitle.includes('ホーム') || pageTitle.includes('メニュー') || pageTitle.includes('Home')) {
+        if (loginHtml.includes('ログインできませんでした') ||
+            loginHtml.includes('利用者番号またはパスワードが正しくありません')) {
             // Step 3: 検索画面への遷移してパラメータ取得
             const homeLoginJKeyMatch = loginHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
             const step3LoginJKey = homeLoginJKeyMatch ? homeLoginJKeyMatch[1] : loginJKey;

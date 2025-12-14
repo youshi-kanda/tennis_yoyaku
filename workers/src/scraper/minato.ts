@@ -133,8 +133,8 @@ export async function checkMinatoAvailability(
 
         let activeSessionId = sessionId;
         if (!activeSessionId) {
-            activeSessionId = await loginToMinato(credentials.username, credentials.password);
-            if (!activeSessionId) throw new Error('Login failed');
+            // Minato reCAPTCHA limitation: No auto-login fallback
+            throw new Error('Login failed or session expired (Manual update required)');
         }
 
         const baseUrl = 'https://web101.rsv.ws-scs.jp/web';

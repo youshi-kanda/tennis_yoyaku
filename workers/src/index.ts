@@ -2461,10 +2461,11 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
               shinagawaSession = s;
             }
           } else {
-            const s = await loginToMinato(credentials.username, credentials.password);
-            if (s) {
-              sessionId = s;
-            }
+            // MinatoはreCAPTCHAのため自動ログイン不可
+            console.log('[Check] ⚠️ Minato requires manual session update (Auto-login disabled due to reCAPTCHA)');
+            sessionId = null;
+            // 通知を送るなどの処理はcatchブロックまたは呼び出し元で行われることを期待
+            throw new Error('Minato session expired. Please update Session ID manually.');
           }
 
           if (sessionId) {
@@ -2548,15 +2549,28 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
 
           } catch (loginError: any) {
             console.error(`[Check] Login failed:`, loginError);
+
+            // アカウントロック検知時は一発アウト
+            if (loginError.message === 'ACCOUNT_LOCKED') {
+              console.error(`[Check] ⛔️ Application-level Account Lock detected!`);
+              await env.SESSIONS.put(haltKey, 'Auto-halted: Account Locked on Site');
+              await sendPushNotification(target.userId, {
+                title: '🛑 アカウントがロックされています',
+                body: `${target.site === 'shinagawa' ? '品川区' : '港区'}サイトでアカウントロックが検知されました。公式サイトでパスワードの再設定などを行ってください。`,
+                data: { type: 'account_locked', site: target.site }
+              }, env);
+              throw loginError;
+            }
+
             const state = await backoff.recordFailure(backoffKey);
 
-            // Circuit Breaker
-            if (state.failCount >= 5) {
+            // Circuit Breaker (2回失敗で停止に緩和 - ロック防止のため厳しめに設定)
+            if (state.failCount >= 2) {
               console.error(`[Check] ⛔️ Circuit Breaker Open! Too many failures (${state.failCount})`);
               await env.SESSIONS.put(haltKey, `Auto-halted: ${state.failCount} consecutive login failures`);
               await sendPushNotification(target.userId, {
                 title: '⚠️ 監視を自動停止しました',
-                body: `${target.site === 'shinagawa' ? '品川区' : '港区'}へのログインが連続して失敗しました。設定を確認してください。`
+                body: `${target.site === 'shinagawa' ? '品川区' : '港区'}へのログインが連続して失敗しました（${state.failCount}回）。設定を確認してください。`
               }, env);
             }
             throw loginError; // Rethrow to exit runWithLock

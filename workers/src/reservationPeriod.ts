@@ -15,19 +15,19 @@ async function extractFromHTML(
   sessionId: string
 ): Promise<ReservationPeriodInfo | null> {
   try {
-    const baseUrl = site === 'shinagawa' 
+    const baseUrl = site === 'shinagawa'
       ? 'https://www.cm9.eprs.jp/shinagawa/web'
       : 'https://web101.rsv.ws-scs.jp/web';
-    
+
     console.log(`[Period] Attempting HTML extraction for ${site}`);
-    
+
     // 複数のページを試す
     const pages = [
       'rsvWOpeHelpAction.do',
       'rsvWOpeHomeAction.do',
       'rsvWTransUserGuideAction.do',
     ];
-    
+
     for (const page of pages) {
       try {
         const response = await fetch(`${baseUrl}/${page}`, {
@@ -36,11 +36,11 @@ async function extractFromHTML(
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           },
         });
-        
+
         if (response.status !== 200) continue;
-        
+
         const html = await response.text();
-        
+
         // 様々なパターンで検索
         const patterns = [
           /(\d+)ヶ月先まで/,
@@ -53,16 +53,16 @@ async function extractFromHTML(
           /予約可能期間[：:]\s*(\d+)ヶ月/,
           /(\d+)ヶ月以内/,
         ];
-        
+
         for (const pattern of patterns) {
           const match = html.match(pattern);
           if (match) {
             const value = parseInt(match[1]);
             const isMonths = match[0].includes('ヶ月') || match[0].includes('か月');
             const days = isMonths ? value * 30 : value;
-            
+
             console.log(`[Period] Found in ${page}: "${match[0]}" → ${days} days`);
-            
+
             return {
               maxDaysAhead: days,
               source: 'html_extraction',
@@ -75,7 +75,7 @@ async function extractFromHTML(
         console.error(`[Period] Error checking ${page}:`, error);
       }
     }
-    
+
     return null;
   } catch (error) {
     console.error('[Period] HTML extraction failed:', error);
@@ -91,33 +91,33 @@ async function detectFromCalendar(
   sessionId: string
 ): Promise<ReservationPeriodInfo | null> {
   try {
-    const baseUrl = site === 'shinagawa' 
+    const baseUrl = site === 'shinagawa'
       ? 'https://www.cm9.eprs.jp/shinagawa/web'
       : 'https://web101.rsv.ws-scs.jp/web';
-    
+
     console.log(`[Period] Attempting calendar detection for ${site}`);
-    
+
     const response = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
       headers: {
         'Cookie': `JSESSIONID=${sessionId}`,
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
       },
     });
-    
+
     if (response.status !== 200) {
       console.log(`[Period] Calendar page returned status ${response.status}`);
       return null;
     }
-    
+
     const html = await response.text();
-    
+
     // 日付フィールドのmax属性を探す
     const patterns = [
       /max=["'](\d{4}-\d{2}-\d{2})["']/,
       /maxDate:\s*["'](\d{4}-\d{2}-\d{2})["']/,
       /data-max-date=["'](\d{4}-\d{2}-\d{2})["']/,
     ];
-    
+
     for (const pattern of patterns) {
       const match = html.match(pattern);
       if (match) {
@@ -127,10 +127,10 @@ async function detectFromCalendar(
         const maxDateObj = new Date(maxDate);
         const diffTime = maxDateObj.getTime() - today.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
+
         if (diffDays > 0 && diffDays < 400) { // 妥当な範囲
           console.log(`[Period] Detected from calendar: ${maxDate} (${diffDays} days ahead)`);
-          
+
           return {
             maxDaysAhead: diffDays,
             source: 'calendar_detection',
@@ -140,7 +140,7 @@ async function detectFromCalendar(
         }
       }
     }
-    
+
     return null;
   } catch (error) {
     console.error('[Period] Calendar detection failed:', error);
@@ -151,8 +151,7 @@ async function detectFromCalendar(
 /**
  * フォールバック: デフォルト値を使用
  * 
- * 予約可能期間のデフォルト値(実測値に基づく):
- * - 品川区: 30日 (約1ヶ月) - 2025年11月実測
+ * 予約可能期間のデフォルト値(実測値に基づく):\n * - 品川区: 30日 (約1ヶ月) - 2025年12月実測
  * - 港区: 60日 (約2ヶ月) - 2025年11月実測
  * 
  * 将来的に期間が変更された場合:
@@ -161,11 +160,11 @@ async function detectFromCalendar(
  * 3. 必要に応じてこの値を手動調整可能
  */
 function getFallbackPeriod(site: 'shinagawa' | 'minato'): ReservationPeriodInfo {
-  // 両区とも60日先まで予約可能（2025年1月時点の実際の仕様）
-  const defaultDays = 60;
-  
+  // 品川区: 30日先まで、港区: 60日先まで予約可能（2025年12月時点の実際の仕様）
+  const defaultDays = site === 'shinagawa' ? 30 : 60;
+
   console.log(`[Period] Using fallback default for ${site}: ${defaultDays} days`);
-  
+
   return {
     maxDaysAhead: defaultDays,
     source: 'fallback',
@@ -183,7 +182,7 @@ export async function getOrDetectReservationPeriod(
   kv: KVNamespace
 ): Promise<ReservationPeriodInfo> {
   const cacheKey = `reservation_period:${site}`;
-  
+
   // 1. KVキャッシュから取得（24時間TTL）
   try {
     const cached = await kv.get(cacheKey);
@@ -191,21 +190,21 @@ export async function getOrDetectReservationPeriod(
       const info: ReservationPeriodInfo = JSON.parse(cached);
       const age = Date.now() - info.detectedAt;
       const ageHours = age / (1000 * 60 * 60);
-      
+
       console.log(`[Period] Using cached period for ${site}: ${info.maxDaysAhead} days (${info.source}, ${ageHours.toFixed(1)}h old)`);
       return info;
     }
   } catch (error) {
     console.error('[Period] Cache read error:', error);
   }
-  
+
   console.log(`[Period] No cache found for ${site}, detecting...`);
-  
+
   // 2. HTMLから動的取得を試みる
   const htmlResult = await extractFromHTML(site, sessionId);
   if (htmlResult) {
     console.log(`[Period] ✅ Successfully extracted from HTML: ${htmlResult.maxDaysAhead} days`);
-    
+
     // キャッシュに保存
     try {
       await kv.put(cacheKey, JSON.stringify(htmlResult), {
@@ -214,15 +213,15 @@ export async function getOrDetectReservationPeriod(
     } catch (error) {
       console.error('[Period] Cache write error:', error);
     }
-    
+
     return htmlResult;
   }
-  
+
   // 3. カレンダーUIから判定
   const calendarResult = await detectFromCalendar(site, sessionId);
   if (calendarResult) {
     console.log(`[Period] ✅ Successfully detected from calendar: ${calendarResult.maxDaysAhead} days`);
-    
+
     // キャッシュに保存
     try {
       await kv.put(cacheKey, JSON.stringify(calendarResult), {
@@ -231,14 +230,14 @@ export async function getOrDetectReservationPeriod(
     } catch (error) {
       console.error('[Period] Cache write error:', error);
     }
-    
+
     return calendarResult;
   }
-  
+
   // 4. フォールバック: デフォルト値を使用
   const fallbackResult = getFallbackPeriod(site);
   console.log(`[Period] ⚠️ Using fallback: ${fallbackResult.maxDaysAhead} days`);
-  
+
   // フォールバックも一応キャッシュ（短時間）
   try {
     await kv.put(cacheKey, JSON.stringify(fallbackResult), {
@@ -247,6 +246,6 @@ export async function getOrDetectReservationPeriod(
   } catch (error) {
     console.error('[Period] Cache write error:', error);
   }
-  
+
   return fallbackResult;
 }

@@ -20,6 +20,7 @@ import {
   MINATO_TIMESLOT_MAP,
   getMinatoFacilities,
   makeMinatoReservation,
+  MINATO_SESSION_EXPIRED_MESSAGE,
 } from './scraper/minato';
 import {
   ShinagawaSession,
@@ -1865,7 +1866,32 @@ async function handleGetSettings(request: Request, env: Env): Promise<Response> 
       console.log(`[Migration] Settings updated for user ${userId}`);
     }
 
-    return jsonResponse({ success: true, data: settings });
+    // Minatoのセッション状態を確認
+    const minatoSessionJson = await env.SESSIONS.get(`session:${userId}:minato`);
+    let minatoSessionStatus = 'expired';
+    let minatoSessionLastChecked = 0;
+
+    if (minatoSessionJson) {
+      try {
+        const s = JSON.parse(minatoSessionJson);
+        // lastUsedが1時間以内なら有効とみなす（安全マージン）
+        if (s.isValid && (Date.now() - (s.lastUsed || 0) < 60 * 60 * 1000)) {
+          minatoSessionStatus = 'valid';
+          minatoSessionLastChecked = s.lastUsed;
+        }
+      } catch (e) {
+        console.error('Failed to parse minato session', e);
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      data: {
+        ...settings,
+        minatoSessionStatus,
+        minatoSessionLastChecked
+      }
+    });
   } catch (error: any) {
     return jsonResponse({ error: 'Unauthorized: ' + error.message }, 401);
   }
@@ -2934,9 +2960,14 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
         console.error(`[Check] ❌ 週間取得失敗: ${weekStart}〜 - ${error.message}`);
 
         // セッション無効エラーの場合、キャッシュをクリアして次回再ログインさせる
-        if (error.message && (error.message.includes('Session state invalid') || error.message.includes('ログインしてください'))) {
-          console.warn(`[Check] ⚠️ セッション無効検知。KVから削除します: session:${target.userId}`);
-          await env.SESSIONS.delete(`session:${target.userId}`);
+        if (error.message === MINATO_SESSION_EXPIRED_MESSAGE || (error.message && (error.message.includes('Session state invalid') || error.message.includes('ログインしてください')))) {
+          console.warn(`[Check] ⚠️ セッション無効検知 (${error.message})。KVから削除します: session:${target.userId}:${target.site}`);
+          await env.SESSIONS.delete(`session:${target.userId}:${target.site}`);
+
+          if (error.message === MINATO_SESSION_EXPIRED_MESSAGE) {
+            throw error; // 港区の場合はフォールバックせずに外側のcatchに投げて通知を送る
+          }
+
           sessionId = null; // ローカル変数もクリア
         }
 
@@ -3149,11 +3180,11 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
     }
 
   } catch (error: any) {
-    if (error.message === 'MINATO_LOGIN_REQUIRED') {
+    if (error.message === 'MINATO_LOGIN_REQUIRED' || error.message === MINATO_SESSION_EXPIRED_MESSAGE) {
       console.warn(`[Check] ⚠️ Minato session expired/missing for ${target.userId}. Notification sent.`);
       await sendPushNotification(target.userId, {
         title: '⚠️ 港区：セッション更新が必要です',
-        body: 'reCAPTCHAのため自動ログインできません。設定画面から手動でログインしてください。',
+        body: 'セッションが切れました。設定画面から手動でログインしてください。',
         data: { type: 'session_expired', site: 'minato', targetId: target.id }
       }, env);
       return;

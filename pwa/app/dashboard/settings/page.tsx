@@ -209,6 +209,8 @@ export default function SettingsPage() {
   const [minatoSessionId, setMinatoSessionId] = useState('');
   const [minatoManualSessionId, setMinatoManualSessionId] = useState(''); // 手動入力用
   const [minatoSessionUpdated, setMinatoSessionUpdated] = useState<number | null>(null);
+  const [minatoSessionStatus, setMinatoSessionStatus] = useState<string>('expired');
+  const [minatoSessionLastChecked, setMinatoSessionLastChecked] = useState<number>(0);
 
   const [reservationLimits, setReservationLimits] = useState({
     perWeek: 0,  // 0 = 制限なし
@@ -239,6 +241,10 @@ export default function SettingsPage() {
           if (response.data.minato?.sessionId) {
             setMinatoSessionId(response.data.minato.sessionId);
             setMinatoSessionUpdated(response.data.minato.lastUpdated || null);
+          }
+          if (response.data.minatoSessionStatus) {
+            setMinatoSessionStatus(response.data.minatoSessionStatus);
+            setMinatoSessionLastChecked(response.data.minatoSessionLastChecked || 0);
           }
           if (response.data.reservationLimits) {
             setReservationLimits({
@@ -765,16 +771,33 @@ export default function SettingsPage() {
             </div>
 
             {minatoSessionId && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800 font-medium">
-                  ✓ セッションID設定済み
+              <div className={`border rounded-lg p-4 ${minatoSessionStatus === 'valid' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className={`text-sm font-medium ${minatoSessionStatus === 'valid' ? 'text-green-800' : 'text-red-800'}`}>
+                    {minatoSessionStatus === 'valid' ? '✓ セッション有効' : '⚠ セッション切れ・未設定'}
+                  </p>
+                  {minatoSessionStatus === 'valid' && (
+                    <span className="px-2 py-0.5 bg-green-200 text-green-800 text-xs rounded-full font-bold">
+                      監視可能
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs text-gray-600 mt-1 font-mono">
+                  ID: {minatoSessionId.substring(0, 20)}...
                 </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  セッションID: {minatoSessionId.substring(0, 20)}...
-                </p>
-                {minatoSessionUpdated && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    最終更新: {new Date(minatoSessionUpdated).toLocaleString('ja-JP')}
+
+                {minatoSessionLastChecked > 0 && (
+                  <div className="mt-2 text-xs flex gap-4">
+                    <p className="text-gray-500">
+                      最終利用: {new Date(minatoSessionLastChecked).toLocaleString('ja-JP')}
+                    </p>
+                  </div>
+                )}
+
+                {minatoSessionStatus !== 'valid' && (
+                  <p className="text-xs text-red-600 mt-2 font-bold">
+                    ※ 監視・予約を行うには、上部のボタンからセッションを再取得してください。
                   </p>
                 )}
               </div>

@@ -17,6 +17,8 @@ export const MINATO_TIMESLOT_MAP: { [code: number]: string } = {
     70: '19:00',
 };
 
+export const MINATO_SESSION_EXPIRED_MESSAGE = 'MINATO_SESSION_EXPIRED';
+
 // =============================================================================
 // Login Logic
 // =============================================================================
@@ -156,7 +158,7 @@ export async function checkMinatoAvailability(
         const htmlText = await searchResponse.text();
 
         if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
-            throw new Error('Login failed or session expired');
+            throw new Error(MINATO_SESSION_EXPIRED_MESSAGE);
         }
 
         const statusMatch = htmlText.match(new RegExp(`${timeSlot}[^<]*([○×])`));
@@ -214,7 +216,7 @@ export async function checkMinatoWeeklyAvailability(
         const htmlText = await searchResponse.text();
 
         if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました') || htmlText.includes('再ログイン')) {
-            throw new Error('Login failed or session expired');
+            throw new Error(MINATO_SESSION_EXPIRED_MESSAGE);
         }
 
         const cellPattern = /<td[^>]*id="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
@@ -285,7 +287,7 @@ export async function makeMinatoReservation(
 
         const searchHtml = await searchResponse.text();
         if (searchHtml.includes('ログイン') || searchHtml.includes('セッションが切れました')) {
-            return { success: false, error: 'Login failed or session expired' };
+            return { success: false, error: MINATO_SESSION_EXPIRED_MESSAGE };
         }
 
         // 2. Extract Fields

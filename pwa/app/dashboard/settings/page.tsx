@@ -781,66 +781,7 @@ export default function SettingsPage() {
             )}
           </div>
 
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">
-              ID/パスワード方式（非対応）
-            </h3>
-            <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 mb-4">
-              <p className="text-xs text-gray-600">
-                ⚠️ 港区サイトはreCAPTCHAのため、ID/パスワードによる自動ログインは利用できません。
-                上記のセッション方式をご利用ください。
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                利用者ID
-              </label>
-              <input
-                type="text"
-                value={minatoId}
-                onChange={(e) => setMinatoId(e.target.value)}
-                placeholder="利用者IDを入力"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                パスワード
-              </label>
-              <input
-                type="password"
-                value={minatoPassword}
-                onChange={(e) => setMinatoPassword(e.target.value)}
-                placeholder="パスワードを入力"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                パスワードは暗号化して安全に保存されます
-              </p>
-            </div>
-
-            <button
-              onClick={handleSaveMinato}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
-            >
-              保存
-            </button>
-
-            {minatoId && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800 font-medium">
-                  ✓ 認証情報設定済み
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  ログインに失敗する場合はプッシュ通知でお知らせします
-                </p>
-              </div>
-            )}
-          </div>
+          {/* ID/Password inputs removed as they are not supported for Minato due to reCAPTCHA */}
         </CollapsibleCard>
 
         {/* 予約上限設定 */}

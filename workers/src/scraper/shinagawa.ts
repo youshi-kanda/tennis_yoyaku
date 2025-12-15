@@ -532,14 +532,15 @@ export async function makeShinagawaReservation(
     timeSlot: string,
     session: ShinagawaSession,
     target: { applicantCount?: number },
-    weeklyContext?: ReservationContext
+    weeklyContext?: ReservationContext,
+    dryRun: boolean = false
 ): Promise<{ success: boolean; message: string }> {
     const SHINAGAWA_TIMESLOT_MAP: Record<string, string> = {
         '09:00': '10', '11:00': '20', '13:00': '30', '15:00': '40', '17:00': '50', '19:00': '60'
     };
 
     try {
-        console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
+        console.log(`[Shinagawa] Making reservation: ${facilityId}, ${date}, ${timeSlot} (DryRun: ${dryRun})`);
         const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
         const formParams = { ...session.searchFormParams }; // Start with basic params
 
@@ -641,6 +642,25 @@ export async function makeShinagawaReservation(
             body: confirmParams.toString()
         });
         const confirmHtml = await confirmRes.text();
+
+        // Check validation errors in confirmation screen
+        if (confirmHtml.includes('class="error"') || confirmHtml.includes('color="red"')) {
+            console.warn('[Shinagawa] Warning in Confirm screen (might be error or just notice):', confirmHtml.substring(0, 500));
+            // If critical error, return failure
+            if (confirmHtml.includes('入力をご確認ください') || confirmHtml.includes('既に予約されています')) {
+                return { success: false, message: 'Failed at confirmation screen (validation error)' };
+            }
+        }
+
+        // --- DRY RUN CHECK ---
+        if (dryRun) {
+            console.log('[Shinagawa] 🛑 DryRun: Skipping final Commit step.');
+            if (confirmHtml.includes('受付内容確認')) {
+                return { success: true, message: 'DryRun: Reached Confirm Screen successfully' };
+            } else {
+                return { success: false, message: 'DryRun: Failed to reach Confirm Screen' };
+            }
+        }
 
         // 5. Complete
         const compRes = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {

@@ -219,6 +219,11 @@ export async function checkMinatoWeeklyAvailability(
             throw new Error(MINATO_SESSION_EXPIRED_MESSAGE);
         }
 
+        // DEBUG: Log Page Title and snippet
+        const titleMatch = htmlText.match(/<title>(.*?)<\/title>/i);
+        console.log(`[Minato] Check Page Title: ${titleMatch ? titleMatch[1] : 'No Title'}`);
+        console.log(`[Minato] HTML Snippet: ${htmlText.substring(0, 300)}...`);
+
         const cellPattern = /<td[^>]*id="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
         let match;
 
@@ -264,10 +269,11 @@ export async function makeMinatoReservation(
     date: string,
     timeSlot: string,
     sessionId: string,
-    target: { applicantCount?: number }
+    target: { applicantCount?: number },
+    dryRun: boolean = false
 ): Promise<{ success: boolean; reservationId?: string; error?: string; message?: string }> {
     try {
-        console.log(`[Minato] Making reservation: ${facilityId}, ${date}, ${timeSlot}`);
+        console.log(`[Minato] Making reservation: ${facilityId}, ${date}, ${timeSlot} (DryRun: ${dryRun})`);
         const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
 
         // 1. Check/Init Search Page
@@ -394,6 +400,21 @@ export async function makeMinatoReservation(
             },
             body: ''
         });
+        const confirmHtml = await confirmResponse.text();
+
+        if (confirmHtml.includes('class="error"') || confirmHtml.includes('color="red"')) {
+            console.warn('[Minato] Warning in Confirm screen:', confirmHtml.substring(0, 500));
+        }
+
+        // --- DRY RUN CHECK ---
+        if (dryRun) {
+            console.log('[Minato] 🛑 DryRun: Skipping final Commit step.');
+            if (confirmHtml.includes('予約内容確認')) {
+                return { success: true, message: 'DryRun: Reached Confirm Screen successfully' };
+            } else {
+                return { success: false, message: 'DryRun: Failed to reach Confirm Screen', error: 'DryRun Failed' };
+            }
+        }
 
         // 7. Complete
         const completeResponse = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {

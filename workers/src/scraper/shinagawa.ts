@@ -392,6 +392,9 @@ export async function checkShinagawaAvailability(
 }
 
 
+export const SHINAGAWA_SESSION_EXPIRED = 'SHINAGAWA_SESSION_EXPIRED';
+export const SHINAGAWA_LOGIN_NEEDED = 'SHINAGAWA_LOGIN_NEEDED';
+
 export async function checkShinagawaWeeklyAvailability(
     facilityId: string,
     weekStartDate: string,
@@ -400,126 +403,117 @@ export async function checkShinagawaWeeklyAvailability(
     credentials?: SiteCredentials
 ): Promise<WeeklyAvailabilityResult> {
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
-    let currentSession = session;
-    const maxRetries = credentials ? 1 : 0;
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            if ((!currentSession || !currentSession.cookie) && credentials) {
-                const newSession = await loginToShinagawa(credentials.username, credentials.password);
-                if (newSession) currentSession = newSession;
-                else if (attempt < maxRetries) continue;
-                else throw new Error('Login failed');
-            } else if (!currentSession) {
-                throw new Error('No session provided');
-            }
-
-            const today = new Date().toISOString().split('T')[0];
-            const useDay = weekStartDate.replace(/-/g, '');
-
-            const params: Record<string, string> = {
-                date: '4', daystart: today, days: '31', dayofweekClearFlg: '1', timezoneClearFlg: '1',
-                selectAreaBcd: '1500_0', selectIcd: '', selectPpsClPpscd: '31000000_31011700',
-                displayNo: currentSession.displayNo || 'prwrc2000',
-                displayNoFrm: currentSession.displayNo || 'prwrc2000',
-                selectInstCd: facilityId, useDay: useDay, selectPpsClsCd: '31000000', selectPpsCd: '31011700',
-                applyFlg: '0',
-            };
-
-            if (currentSession.searchFormParams) Object.assign(params, currentSession.searchFormParams);
-            params.useDay = useDay;
-            params.selectInstCd = facilityId;
-
-            const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Cookie': currentSession.cookie,
-                    'Referer': `${baseUrl}/rsvWTransInstListAction.do`,
-                },
-                body: new URLSearchParams(params).toString(),
-            });
-
-            const buffer = await searchResponse.arrayBuffer();
-            const htmlText = new TextDecoder('shift-jis').decode(buffer);
-
-            if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました')) {
-                if (attempt < maxRetries && credentials) {
-                    // @ts-ignore
-                    currentSession = null;
-                    continue;
-                }
-                throw new Error('Login failed or session expired');
-            }
-
-            const cellPattern = /<td[^>]*\sid="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
-            let match;
-            const availability = new Map<string, string>();
-            const timeCodeToSlot: Record<string, string> = {
-                '10': '09:00-11:00', '20': '11:00-13:00', '30': '13:00-15:00',
-                '40': '15:00-17:00', '50': '17:00-19:00', '60': '19:00-21:00',
-            };
-
-            while ((match = cellPattern.exec(htmlText)) !== null) {
-                const dateStr = match[1];
-                const timeCode = match[2];
-                const cellContent = match[3];
-                const timeSlot = timeCodeToSlot[timeCode];
-                if (!timeSlot) continue;
-
-                if (facilityInfo?.availableTimeSlots) {
-                    const start = timeSlot.split('-')[0];
-                    if (!facilityInfo.availableTimeSlots.includes(start)) continue;
-                }
-
-                const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-                let status = '×';
-                if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) status = '○';
-                else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) status = '取';
-                else if (cellContent.includes('○')) status = '○';
-                else if (cellContent.includes('取')) status = '取';
-
-                availability.set(`${formattedDate}_${timeSlot}`, status);
-            }
-
-            // Extract valid context
-            const extractField = (name: string) => {
-                const m = htmlText.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`, 'i'));
-                return m ? m[1] : undefined;
-            };
-
-            const reservationContext: ReservationContext = {};
-            reservationContext.selectBldCd = extractField('selectBldCd');
-            reservationContext.selectBldName = extractField('selectBldName');
-            reservationContext.selectInstCd = extractField('selectInstCd') || facilityId;
-            reservationContext.selectInstName = extractField('selectInstName');
-            reservationContext.selectPpsClsCd = extractField('selectPpsClsCd');
-            reservationContext.selectPpsCd = extractField('selectPpsCd');
-            reservationContext.displayNo = 'prwrc2000';
-
-            const additionalFields = [
-                'date', 'daystart', 'days', 'dayofweekClearFlg', 'timezoneClearFlg',
-                'selectAreaBcd', 'selectIcd', 'selectPpsClPpscd', 'displayNoFrm', 'useDay', 'applyFlg'
-            ];
-            additionalFields.forEach(f => {
-                const v = extractField(f);
-                if (v) reservationContext[f] = v;
-            });
-
-            return {
-                facilityId,
-                facilityName: '品川区施設',
-                weekStartDate,
-                availability,
-                fetchedAt: Date.now(),
-                reservationContext
-            };
-
-        } catch (e: any) {
-            if (attempt >= maxRetries) throw e;
-        }
+    // 💡 ステートレス化: 内部での自動ログイン/リトライを廃止
+    // 呼び出し元が責任を持って有効なセッションを渡す前提とする
+    if (!session || !session.cookie) {
+        throw new Error(SHINAGAWA_LOGIN_NEEDED);
     }
-    throw new Error('Check failed');
+
+    // クレデンシャルが渡されていても、スクレーパー内では再ログインしない
+    // (アカウントロック回避のため、SafeSessionWrapper経由で制御する)
+
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const useDay = weekStartDate.replace(/-/g, '');
+
+        const params: Record<string, string> = {
+            date: '4', daystart: today, days: '31', dayofweekClearFlg: '1', timezoneClearFlg: '1',
+            selectAreaBcd: '1500_0', selectIcd: '', selectPpsClPpscd: '31000000_31011700',
+            displayNo: session.displayNo || 'prwrc2000',
+            displayNoFrm: session.displayNo || 'prwrc2000',
+            selectInstCd: facilityId, useDay: useDay, selectPpsClsCd: '31000000', selectPpsCd: '31011700',
+            applyFlg: '0',
+        };
+
+        if (session.searchFormParams) Object.assign(params, session.searchFormParams);
+        params.useDay = useDay;
+        params.selectInstCd = facilityId;
+
+        const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cookie': session.cookie,
+                'Referer': `${baseUrl}/rsvWTransInstListAction.do`,
+            },
+            body: new URLSearchParams(params).toString(),
+        });
+
+        const buffer = await searchResponse.arrayBuffer();
+        const htmlText = new TextDecoder('shift-jis').decode(buffer);
+
+        if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました')) {
+            // 🔥 即座に特定エラーを投げる
+            throw new Error(SHINAGAWA_SESSION_EXPIRED);
+        }
+
+        const cellPattern = /<td[^>]*\sid="(\d{8})_(\d{2})"[^>]*>([\s\S]*?)<\/td>/gi;
+        let match;
+        const availability = new Map<string, string>();
+        const timeCodeToSlot: Record<string, string> = {
+            '10': '09:00-11:00', '20': '11:00-13:00', '30': '13:00-15:00',
+            '40': '15:00-17:00', '50': '17:00-19:00', '60': '19:00-21:00',
+        };
+
+        while ((match = cellPattern.exec(htmlText)) !== null) {
+            const dateStr = match[1];
+            const timeCode = match[2];
+            const cellContent = match[3];
+            const timeSlot = timeCodeToSlot[timeCode];
+            if (!timeSlot) continue;
+
+            if (facilityInfo?.availableTimeSlots) {
+                const start = timeSlot.split('-')[0];
+                if (!facilityInfo.availableTimeSlots.includes(start)) continue;
+            }
+
+            const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+            let status = '×';
+            if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) status = '○';
+            else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) status = '取';
+            else if (cellContent.includes('○')) status = '○';
+            else if (cellContent.includes('取')) status = '取';
+
+            availability.set(`${formattedDate}_${timeSlot}`, status);
+        }
+
+        // Extract valid context
+        const extractField = (name: string) => {
+            const m = htmlText.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`, 'i'));
+            return m ? m[1] : undefined;
+        };
+
+        const reservationContext: ReservationContext = {};
+        reservationContext.selectBldCd = extractField('selectBldCd');
+        reservationContext.selectBldName = extractField('selectBldName');
+        reservationContext.selectInstCd = extractField('selectInstCd') || facilityId;
+        reservationContext.selectInstName = extractField('selectInstName');
+        reservationContext.selectPpsClsCd = extractField('selectPpsClsCd');
+        reservationContext.selectPpsCd = extractField('selectPpsCd');
+        reservationContext.displayNo = 'prwrc2000';
+
+        const additionalFields = [
+            'date', 'daystart', 'days', 'dayofweekClearFlg', 'timezoneClearFlg',
+            'selectAreaBcd', 'selectIcd', 'selectPpsClPpscd', 'displayNoFrm', 'useDay', 'applyFlg'
+        ];
+        additionalFields.forEach(f => {
+            const v = extractField(f);
+            if (v) reservationContext[f] = v;
+        });
+
+        return {
+            facilityId,
+            facilityName: '品川区施設',
+            weekStartDate,
+            availability,
+            fetchedAt: Date.now(),
+            reservationContext
+        };
+
+    } catch (e: any) {
+        throw e;
+    }
 }
 
 // =============================================================================

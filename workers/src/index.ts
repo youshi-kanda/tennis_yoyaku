@@ -12,6 +12,7 @@ import {
   getShinagawaFacilities,
   getShinagawaTennisCourts,
   makeShinagawaReservation,
+  SHINAGAWA_SESSION_EXPIRED,
 } from './scraper/shinagawa';
 import {
   checkMinatoAvailability,
@@ -78,11 +79,24 @@ class SafeSessionWrapper {
 
     // 2. セッションがない、または古い場合はロックを取得して再確認/ログイン
     return await runWithLock(this.env, `login:${this.userId}:${this.site}`, async () => {
-      // ダブルチェック
+      // ダブルチェック: ロック取得後に再度KVを確認
+      // 他のワーカーが更新している可能性がある
       const doubleCheck = await this.env.SESSIONS.get(sessionKey);
-      if (!forceRefresh && doubleCheck) {
+      if (doubleCheck) {
         const data = JSON.parse(doubleCheck);
-        if (data.sessionId && (Date.now() - (data.lastUsed || 0) < 30 * 60 * 1000)) {
+        const now = Date.now();
+        const age = now - (data.lastUsed || 0);
+
+        // 1. 通常時: 30分以内のセッションなら再利用
+        if (!forceRefresh && data.sessionId && age < 30 * 60 * 1000) {
+          return data.sessionId;
+        }
+
+        // 2. 強制リフレッシュ時でも、ごく最近（例: 1分以内）に更新されたばかりならそれを使う
+        // これにより、複数ワーカーが「セッション切れ」で一斉にforceRefreshしても、
+        // 最初の1つだけが実行され、残りはこれにヒットして終了する。
+        if (forceRefresh && data.sessionId && age < 60 * 1000) {
+          console.log(`[SafeSession] ⚡️ Fresh session found (${Math.floor(age / 1000)}s ago), skipping login.`);
           return data.sessionId;
         }
       }
@@ -2959,17 +2973,78 @@ async function checkAndNotify(target: MonitoringTarget, env: Env, isIntensiveMod
       } catch (error: any) {
         console.error(`[Check] ❌ 週間取得失敗: ${weekStart}〜 - ${error.message}`);
 
-        // セッション無効エラーの場合、キャッシュをクリアして次回再ログインさせる
-        if (error.message === MINATO_SESSION_EXPIRED_MESSAGE || (error.message && (error.message.includes('Session state invalid') || error.message.includes('ログインしてください')))) {
-          console.warn(`[Check] ⚠️ セッション無効検知 (${error.message})。KVから削除します: session:${target.userId}:${target.site}`);
-          await env.SESSIONS.delete(`session:${target.userId}:${target.site}`);
+        // 🔥 SHINAGAWA_SESSION_EXPIRED ハンドリング (堅牢化対応)
+        if (target.site === 'shinagawa' && error.message === SHINAGAWA_SESSION_EXPIRED) {
+          console.log(`[Check] 🔄 Shinagawa session expired. Initiating safe refresh sequence...`);
 
-          if (error.message === MINATO_SESSION_EXPIRED_MESSAGE) {
-            throw error; // 港区の場合はフォールバックせずに外側のcatchに投げて通知を送る
+          // 1. バックオフ確認 (連打防止)
+          const backoff = new SmartBackoff(env.SESSIONS);
+          const { canRetry } = await backoff.checkCanRetry(`${target.userId}:shinagawa`);
+          if (!canRetry) {
+            console.warn(`[Check] 🛑 Backoff active for ${target.userId}, aborting retry.`);
+            continue; // 次の週へ（または終了）
           }
 
-          sessionId = null; // ローカル変数もクリア
+          try {
+            // 2. Safe Refresh (TTLロック & 二重チェック付き)
+            // SafeSessionWrapperが他スレッドの更新を検知すれば、ログインせずにそのセッションを返す
+            sessionId = await sessionManager.getSession(true);
+
+            // 3. ローカル変数の更新
+            if (shinagawaSession) {
+              shinagawaSession.cookie = sessionId;
+            } else {
+              // コンテキストがない場合は作り直し（最低限）
+              shinagawaSession = { cookie: sessionId } as ShinagawaSession;
+            }
+
+            // 4. リトライ実行 (1回のみ)
+            console.log(`[Check] 🔄 Retrying weekly fetch with FRESH session...`);
+            const retryResult = await checkShinagawaWeeklyAvailability(
+              target.facilityId, weekStart, shinagawaSession!, facilityInfo, undefined
+            );
+
+            // --- 成功時の抽出ロジック (Re-used) ---
+            if (retryResult.reservationContext) {
+              weeklyContextMap.set(weekStart, retryResult.reservationContext);
+            }
+            for (const date of dates) {
+              for (const timeSlot of timeSlotsToCheck) {
+                const key = `${date}_${timeSlot}`;
+                const status = retryResult.availability.get(key) || '×';
+                const r: AvailabilityResult = {
+                  available: status === '○',
+                  facilityId: target.facilityId,
+                  facilityName: target.facilityName,
+                  date: date,
+                  timeSlot: timeSlot,
+                  currentStatus: status,
+                  changedToAvailable: false,
+                };
+                checkResults.push({ date, timeSlot, result: r });
+              }
+            }
+            console.log(`[Check] ✅ Retry Success: ${weekStart}〜`);
+            continue; // 次の週へ
+
+          } catch (retryError: any) {
+            console.error(`[Check] ❌ Retry Failed: ${retryError.message}`);
+            // 失敗記録 -> バックオフ発動
+            await backoff.recordFailure(`${target.userId}:shinagawa`);
+            // リトライ失敗時はスキップ（フォールバックしない）
+            continue;
+          }
         }
+
+        // 港区のセッション切れ
+        if (error.message === MINATO_SESSION_EXPIRED_MESSAGE) {
+          console.warn(`[Check] ⚠️ Minato session expired. Deleting session.`);
+          await env.SESSIONS.delete(`session:${target.userId}:${target.site}`);
+          throw error; // 通知へ
+        }
+
+        // その他のエラー (フォールバックせずログ出力のみで次へ)
+        // sessionId = null; // 不要
 
         // フォールバック: 個別チェックに切り替え
         console.log(`[Check] 🔄 個別チェックにフォールバック`);

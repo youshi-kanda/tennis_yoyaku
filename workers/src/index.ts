@@ -461,7 +461,10 @@ export interface Env {
   MAINTENANCE_MODE?: string; // メンテナンスモードフラグ: 'true' or 'false'
   MAINTENANCE_MESSAGE?: string; // メンテナンスモード時のメッセージ
   RESERVATION_QUEUE: Queue<ReservationMessage>; // Queue binding
+  USER_AGENT: DurableObjectNamespace; // DO binding
 }
+
+export { UserAgent } from './do/UserAgent';
 
 export interface ReservationMessage {
   target: MonitoringTarget;
@@ -845,6 +848,11 @@ export default {
         return handleTestNotification(request, env);
       }
 
+      // DO Debug API
+      if (path === '/api/debug/do-status') {
+        return handleDebugDOStatus(request, env);
+      }
+
       if (path === '/api/admin/reset-sessions' && request.method === 'POST') {
         return handleAdminResetSessions(request, env);
       }
@@ -1122,6 +1130,38 @@ export default {
     }
   }
 };
+
+
+
+/**
+ * Sync User Monitoring State to Durable Object
+ */
+async function syncToDO(env: Env, userId: string, site: 'shinagawa' | 'minato') {
+  try {
+    const id = env.USER_AGENT.idFromName(`${userId}:${site}`);
+    const stub = env.USER_AGENT.get(id);
+
+    const newState = await getUserMonitoringState(userId, env.MONITORING);
+    const siteTargets = newState.targets.filter(t => t.site === site);
+
+    const settingsData = await env.USERS.get(`settings:${userId}`);
+    const settings = settingsData ? JSON.parse(settingsData) : {};
+    const credentials = settings[site];
+
+    await stub.fetch(new Request('http://do/init', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        site,
+        targets: siteTargets,
+        credentials
+      })
+    }));
+    console.log(`[SyncDO] Synced ${userId}:${site}`);
+  } catch (e: any) {
+    console.error(`[SyncDO] Failed (${userId}:${site}):`, e);
+  }
+}
 
 async function handleRegister(request: Request, env: Env): Promise<Response> {
   try {
@@ -1451,6 +1491,39 @@ async function handleMonitoringCreate(request: Request, env: Env): Promise<Respo
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
 
+    // 🚀 Sync to Durable Object
+    try {
+      const id = env.USER_AGENT.idFromName(`${userId}:${body.site}`);
+      const stub = env.USER_AGENT.get(id);
+
+      // Get latest state (including the new target)
+      // Note: In a real consistent system, we might want to let DO handle the state of truth,
+      // but for now we sync KV -> DO.
+      const newState = await getUserMonitoringState(userId, env.MONITORING);
+
+      // Filter targets for this site
+      const siteTargets = newState.targets.filter(t => t.site === body.site);
+
+      // Get credentials
+      const settingsData = await env.USERS.get(`settings:${userId}`);
+      const settings = settingsData ? JSON.parse(settingsData) : {};
+      const credentials = settings[body.site];
+
+      await stub.fetch(new Request('http://do/init', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId,
+          site: body.site,
+          targets: siteTargets,
+          credentials
+        })
+      }));
+      console.log(`[MonitoringCreate] Synced to DO (${body.site})`);
+    } catch (e: any) {
+      console.error(`[MonitoringCreate] Failed to sync DO: ${e.message}`);
+      // Don't fail the request, but log critical error
+    }
+
     return jsonResponse({
       success: true,
       data: target,
@@ -1657,10 +1730,14 @@ async function handleMonitoringCreateBatch(request: Request, env: Env): Promise<
       throw err;
     }
 
-    // 監視リストキャッシュを無効化
-    await incrementMonitoringVersion(env);
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
+
+    // Sync all affected sites
+    const uniqueSites = new Set(newTargets.map(t => t.site));
+    for (const site of uniqueSites) {
+      await syncToDO(env, userId, site);
+    }
 
     return jsonResponse({
       success: true,
@@ -1719,10 +1796,11 @@ async function handleMonitoringDelete(request: Request, env: Env, path: string):
       throw error;
     }
 
-    // 監視リストキャッシュを無効化（バージョン更新）
-    await incrementMonitoringVersion(env);
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
+
+    // Sync to DO
+    await syncToDO(env, userId, deletedTarget.site);
 
     console.log(`[MonitoringDelete] Deleted monitoring: ${deletedTarget.facilityName} for user ${userId}`);
 
@@ -1807,10 +1885,11 @@ async function handleMonitoringUpdate(request: Request, env: Env, path: string):
       throw error;
     }
 
-    // 監視リストキャッシュを無効化（バージョン更新）
-    await incrementMonitoringVersion(env);
     monitoringListCache.data = null;
     monitoringListCache.expires = 0;
+
+    // Sync to DO
+    await syncToDO(env, userId, target.site);
 
     console.log(`[MonitoringUpdate] Updated monitoring: ${target.facilityName} for user ${userId}`, body);
 
@@ -2022,6 +2101,10 @@ async function handleSaveSettings(request: Request, env: Env): Promise<Response>
 
     kvMetrics.writes++;
     await env.USERS.put(`settings:${userId}`, JSON.stringify(updatedSettings));
+
+    // Sync to DOs (credentials changed)
+    await syncToDO(env, userId, 'shinagawa');
+    await syncToDO(env, userId, 'minato');
 
     return jsonResponse({ success: true, message: 'Settings saved successfully' });
   } catch (error: any) {
@@ -4399,6 +4482,7 @@ async function handleNotificationsHistory(request: Request, env: Env): Promise<R
   }
 }
 
+
 // Helper to check if user is admin
 async function isAdminUser(userId: string, env: Env): Promise<boolean> {
   try {
@@ -4409,5 +4493,27 @@ async function isAdminUser(userId: string, env: Env): Promise<boolean> {
   } catch (e) {
     console.error(`Error checking admin status for ${userId}:`, e);
     return false;
+  }
+}
+
+async function handleDebugDOStatus(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = await authenticate(request, env.JWT_SECRET);
+    const userId = payload.userId;
+    const url = new URL(request.url);
+    const site = url.searchParams.get('site') as 'shinagawa' | 'minato';
+
+    if (!site) return jsonResponse({ error: 'site param required' }, 400);
+
+    const id = env.USER_AGENT.idFromName(`${userId}:${site}`);
+    const stub = env.USER_AGENT.get(id);
+
+    // Call DO /status
+    const res = await stub.fetch(new Request('http://do/status'));
+    const data = await res.json();
+
+    return jsonResponse({ success: true, doStatus: data });
+  } catch (error: any) {
+    return jsonResponse({ error: error.message }, 500);
   }
 }

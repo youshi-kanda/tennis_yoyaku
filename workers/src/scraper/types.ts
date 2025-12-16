@@ -67,6 +67,8 @@ export interface Facility {
     areaName?: string;     // 地区名 (例: "品川地区")
     site?: 'shinagawa' | 'minato';  // 自治体
     availableTimeSlots?: string[];  // 利用可能時間帯 (例: ["09:00", "11:00", "13:00"])
+    selectPpsClsCd?: string;
+    selectPpsCd?: string;
 }
 
 export interface ReservationHistory {

@@ -907,7 +907,8 @@ export async function getShinagawaFacilities(
 
         let session = existingSession;
         if (!session) {
-            session = await loginToShinagawa(credentials.username, credentials.password);
+            const loginResult = await loginToShinagawa(credentials.username, credentials.password);
+            session = loginResult || undefined;
         }
 
         if (!session) return getShinagawaFacilitiesFallback();

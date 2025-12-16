@@ -392,8 +392,81 @@ export async function checkShinagawaAvailability(
 }
 
 
+// =============================================================================
+// Helper: Robust Form Extraction
+// =============================================================================
+
+/**
+ * Extracts value from input/select/textarea by name, insensitive to attribute order.
+ * - input: matches <input ... name="key" ... value="val">
+ * - select: matches <select ... name="key"> ... <option value="val" selected>
+ * - textarea: matches <textarea ... name="key">val</textarea>
+ */
+function extractInputValue(html: string, name: string): string | undefined {
+    // 1. INPUT tag (Attribute order agnostic)
+    // Create a regex that searches for the tag and then parses attributes
+    // However, JS regex lookbehind/lookahead for variable attributes is hard.
+    // Instead, we find the tag snippet first.
+
+    const inputRegex = new RegExp(`<input[^>]*name=["']${name}["'][^>]*>`, 'gi');
+    const inputMatch = inputRegex.exec(html);
+    if (inputMatch) {
+        const tag = inputMatch[0];
+        const valueMatch = tag.match(/value=["']([^"']*)["']/i);
+        return valueMatch ? valueMatch[1] : ''; // Empty string if value is present but empty
+    }
+
+    // 2. SELECT tag
+    // Find the select block
+    const selectRegex = new RegExp(`<select[^>]*name=["']${name}["'][^>]*>([\\s\\S]*?)<\\/select>`, 'gi');
+    const selectMatch = selectRegex.exec(html);
+    if (selectMatch) {
+        const innerHtml = selectMatch[1];
+
+        // Robust way: Find all options and check for selected
+        const optionRegex = /<option([^>]*)>/gi;
+        let match;
+        let firstValue = undefined;
+
+        while ((match = optionRegex.exec(innerHtml)) !== null) {
+            const attributes = match[1];
+            const valueMatch = attributes.match(/value=["']([^"']*)["']/i);
+            const value = valueMatch ? valueMatch[1] : '';
+
+            if (firstValue === undefined) firstValue = value;
+
+            // Check for selected attribute
+            if (/\bselected\b/i.test(attributes)) {
+                return value;
+            }
+        }
+
+        return firstValue;
+    }
+
+    // 3. TEXTAREA tag
+    const textareaRegex = new RegExp(`<textarea[^>]*name=["']${name}["'][^>]*>([\\s\\S]*?)<\\/textarea>`, 'gi');
+    const textareaMatch = textareaRegex.exec(html);
+    if (textareaMatch) {
+        return textareaMatch[1].trim();
+    }
+
+    return undefined;
+}
+
+
+// 修正: エラーコードの定義 (診断力向上)
 export const SHINAGAWA_SESSION_EXPIRED = 'SHINAGAWA_SESSION_EXPIRED';
 export const SHINAGAWA_LOGIN_NEEDED = 'SHINAGAWA_LOGIN_NEEDED';
+export const SHINAGAWA_PARAM_MISSING = 'SHINAGAWA_PARAM_MISSING';
+export const SHINAGAWA_FLOW_ERROR = 'SHINAGAWA_FLOW_ERROR';
+
+function logDiagnostic(label: string, html: string, maxLength: number = 2000) {
+    // 構造だけ残して個人情報っぽいものをマスクするのが理想だが、
+    // ここでは簡易的に切り出しを行う。
+    const cleanHtml = html.replace(/\n/g, ' ').substring(0, maxLength);
+    console.warn(`[Shinagawa] 🩺 DIAGNOSTIC DUMP [${label}]: ${cleanHtml}...`);
+}
 
 export async function checkShinagawaWeeklyAvailability(
     facilityId: string,
@@ -478,11 +551,8 @@ export async function checkShinagawaWeeklyAvailability(
             availability.set(`${formattedDate}_${timeSlot}`, status);
         }
 
-        // Extract valid context
-        const extractField = (name: string) => {
-            const m = htmlText.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`, 'i'));
-            return m ? m[1] : undefined;
-        };
+        // Extract valid context using robust helper
+        const extractField = (name: string) => extractInputValue(htmlText, name);
 
         const reservationContext: ReservationContext = {};
         reservationContext.selectBldCd = extractField('selectBldCd');
@@ -616,8 +686,48 @@ export async function makeShinagawaReservation(
 
         // 4. Confirm
         let instNo = '', dateNo = '', timeNo = '';
-        const linkMatch = applyHtml.match(/instNo=([^&"]*)&dateNo=([^&"]*)&timeNo=([^"]*)/);
-        if (linkMatch) [, instNo, dateNo, timeNo] = linkMatch;
+
+        // Robust Link Extraction from HTML
+        // Find the absolute or relative link to Confirm Action
+        // Link format typically: <a href="...ConfirmAction.do?instNo=X&dateNo=Y&timeNo=Z...">
+        // OR form action. But mostly it's a link or a javascript submit.
+
+        // Strategy: Look for the specific parameters in any 'href' or 'action' in the HTML
+        // This is looser but much improved over a fixed string regex.
+
+        const linkMatch = applyHtml.match(/(?:href|action)=["']([^"']*(?:instNo|dateNo|timeNo)[^"']*)["']/i);
+
+        if (linkMatch) {
+            let rawUrl = linkMatch[1];
+            // Decode HTML entities (&amp; -> &)
+            rawUrl = rawUrl.replace(/&amp;/g, '&');
+
+            // Resolve relative URL
+            // baseUrl is https://www.cm9.eprs.jp/shinagawa/web
+            const absUrl = new URL(rawUrl, baseUrl);
+            const sp = absUrl.searchParams;
+
+            instNo = sp.get('instNo') || '';
+            dateNo = sp.get('dateNo') || '';
+            timeNo = sp.get('timeNo') || '';
+
+            console.log(`[Shinagawa] Extracted IDs: inst=${instNo}, date=${dateNo}, time=${timeNo}`);
+        } else {
+            console.warn('[Shinagawa] Could not find Confirm Link/Form in HTML.');
+            // Log snippet for debugging
+            const confirmSnippet = applyHtml.substring(0, 1000).replace(/\n/g, ' ');
+            console.log(`[Shinagawa] HTML Snippet: ${confirmSnippet}...`);
+        }
+
+        // CRITICAL CHECK
+        if (!instNo || !dateNo || !timeNo) {
+            console.error('[Shinagawa] CRITICAL: Missing required reservation parameters (instNo/dateNo/timeNo).');
+            logDiagnostic('MissingParams', applyHtml);
+            return {
+                success: false,
+                message: `${SHINAGAWA_PARAM_MISSING}: Failed to extract reservation IDs from page.`
+            };
+        }
 
         const confirmParams = new URLSearchParams();
         confirmParams.append('rsvWOpeReservedConfirmForm.instNo', instNo);
@@ -642,19 +752,35 @@ export async function makeShinagawaReservation(
             console.warn('[Shinagawa] Warning in Confirm screen (might be error or just notice):', confirmHtml.substring(0, 500));
             // If critical error, return failure
             if (confirmHtml.includes('入力をご確認ください') || confirmHtml.includes('既に予約されています')) {
-                return { success: false, message: 'Failed at confirmation screen (validation error)' };
+                logDiagnostic('ConfirmError', confirmHtml);
+                return { success: false, message: `${SHINAGAWA_FLOW_ERROR}: Failed at confirmation screen (validation error)` };
             }
         }
 
-        // --- DRY RUN CHECK ---
-        if (dryRun) {
-            console.log('[Shinagawa] 🛑 DryRun: Skipping final Commit step.');
+        // --- SAFE-BY-DEFAULT GUARD ---
+        // 最終的な予約実行（POST）を行う前に、厳格な条件チェックを行う。
+        // 条件:
+        // 1. dryRun が false であること
+        // 2. 環境変数 EXECUTE_RESERVATION が "true" であること
+        // (注: Cloudflare Workersでは process.env は使えないため、envオブジェクト経由が必要だが、
+        //  汎用スクレーパー関数には env が渡されていない。
+        //  今回は target.applicantCount などと共に `target` オブジェクトに `executeReservation: boolean` プロパティが含まれていると仮定するか、
+        //  あるいは呼び出し元で制御すべきだが、ここで防波堤を作るなら `target` anyキャスト等で対応) 
+
+        const shouldExecute = (!dryRun && (target as any).executeReservation === true);
+
+        if (!shouldExecute) {
+            console.log('[Shinagawa] 🛡️ SAFETY GUARD: Skipping final reservation commit.');
+            console.log(`[Shinagawa] Reason: dryRun=${dryRun}, executeReservation=${(target as any).executeReservation}`);
+
             if (confirmHtml.includes('受付内容確認')) {
-                return { success: true, message: 'DryRun: Reached Confirm Screen successfully' };
+                return { success: true, message: 'DryRun/Guard: Reached Confirm Screen successfully (Commit Skipped)' };
             } else {
-                return { success: false, message: 'DryRun: Failed to reach Confirm Screen' };
+                return { success: false, message: 'DryRun/Guard: Failed to reach Confirm Screen' };
             }
         }
+
+        console.log('[Shinagawa] 🚀 EXECUTING FINAL COMMIT (Real Reservation)...');
 
         // 5. Complete
         const compRes = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {

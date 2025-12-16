@@ -64,7 +64,7 @@ async function main() {
 
         // 2. Get Facilities (Tennis Courts)
         console.log('\n📋 Step 2: Fetching Facilities...');
-        const facilities = await getShinagawaFacilities({ username, password }, mockKV);
+        const facilities = await getShinagawaFacilities({ username, password }, mockKV, undefined, session);
         const tennisCourts = facilities.filter(f => f.isTennisCourt);
         console.log(`✅ Found ${tennisCourts.length} tennis courts.`);
 

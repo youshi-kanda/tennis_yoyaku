@@ -60,6 +60,24 @@ function updateCookies(response: Response, currentCookies: Map<string, string>):
     });
 }
 
+// Helper to update session.cookie string from Response
+function updateSessionCookies(session: ShinagawaSession, response: Response) {
+    const currentCookies = new Map<string, string>();
+    // Parse existing
+    session.cookie.split(';').forEach(pair => {
+        const parts = pair.split('=');
+        if (parts.length >= 2) {
+            currentCookies.set(parts[0].trim(), parts[1].trim());
+        }
+    });
+
+    // Update from response
+    updateCookies(response, currentCookies);
+
+    // Rebuild string
+    session.cookie = getCookieHeader(currentCookies);
+}
+
 // =============================================================================
 // Login Logic
 // =============================================================================
@@ -168,6 +186,14 @@ export async function loginToShinagawa(userId: string, password: string): Promis
 
         if (loginHtml.includes('ログインできませんでした') ||
             loginHtml.includes('利用者番号またはパスワードが正しくありません')) {
+            console.error('[Login] ❌ Invalid Credentials');
+            throw new Error('INVALID_CREDENTIALS');
+        }
+
+        // 302 Found = Success
+        if (loginResponse.status === 302 || loginResponse.status === 303 || loginHtml.includes('rsvWTransInstListAction')) {
+            console.log('[Login] ✅ Login Success (Redirect detected)');
+
             // Step 3: 検索画面への遷移してパラメータ取得
             const homeLoginJKeyMatch = loginHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
             const step3LoginJKey = homeLoginJKeyMatch ? homeLoginJKeyMatch[1] : loginJKey;
@@ -490,33 +516,64 @@ export async function checkShinagawaWeeklyAvailability(
         const today = new Date().toISOString().split('T')[0];
         const useDay = weekStartDate.replace(/-/g, '');
 
+        const areaCode = facilityInfo?.areaCode || '1500'; // Default to Yashio if unknown
+        const selectPpsClsCd = facilityInfo?.selectPpsClsCd || '31000000'; // Default Tennis
+        const selectPpsCd = facilityInfo?.selectPpsCd || '31011700'; // Default Tennis
+
         const params: Record<string, string> = {
             date: '4', daystart: today, days: '31', dayofweekClearFlg: '1', timezoneClearFlg: '1',
-            selectAreaBcd: '1500_0', selectIcd: '', selectPpsClPpscd: '31000000_31011700',
+            selectAreaBcd: `${areaCode}_0`,
+            selectIcd: '',
+            selectPpsClPpscd: `${selectPpsClsCd}_${selectPpsCd}`,
             displayNo: session.displayNo || 'prwrc2000',
             displayNoFrm: session.displayNo || 'prwrc2000',
-            selectInstCd: facilityId, useDay: useDay, selectPpsClsCd: '31000000', selectPpsCd: '31011700',
+            selectInstCd: facilityId,
+            useDay: useDay,
+            selectPpsClsCd: selectPpsClsCd,
+            selectPpsCd: selectPpsCd,
             applyFlg: '0',
         };
 
-        if (session.searchFormParams) Object.assign(params, session.searchFormParams);
+        // Don't use stale form params from login if we have facility info
+        // if (session.searchFormParams) Object.assign(params, session.searchFormParams);
+
         params.useDay = useDay;
         params.selectInstCd = facilityId;
 
+        console.log(`[Shinagawa] Checking availability for ${facilityId} (Area: ${areaCode})`);
+
+        // 1. Home (Reset flow)
+        const homeRes = await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
+            headers: { 'Cookie': session.cookie }
+        });
+        updateSessionCookies(session, homeRes);
+
+        // 2. Search Init
+        const initRes = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+            headers: { 'Cookie': session.cookie, 'Referer': `${baseUrl}/rsvWOpeHomeAction.do` }
+        });
+        updateSessionCookies(session, initRes);
+
+        console.log(`[Shinagawa] Cookies before Search POST: ${session.cookie}`);
+
+        // 3. Vacancy Search POST
         const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Cookie': session.cookie,
-                'Referer': `${baseUrl}/rsvWTransInstListAction.do`,
+                'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`, // Changed from list action
             },
             body: new URLSearchParams(params).toString(),
         });
+        updateSessionCookies(session, searchResponse);
 
         const buffer = await searchResponse.arrayBuffer();
         const htmlText = new TextDecoder('shift-jis').decode(buffer);
 
         if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました')) {
+            console.error('[Shinagawa] Session Expiry detected.');
+            console.error('[Shinagawa] HTML Snippet:', htmlText.substring(0, 500).replace(/\n/g, ' '));
             // 🔥 即座に特定エラーを投げる
             throw new Error(SHINAGAWA_SESSION_EXPIRED);
         }
@@ -838,7 +895,8 @@ export async function makeShinagawaReservation(
 export async function getShinagawaFacilities(
     credentials: SiteCredentials,
     kv: KVNamespace,
-    userId?: string
+    userId?: string,
+    existingSession?: ShinagawaSession
 ): Promise<Facility[]> {
     try {
         const cacheKey = userId ? `shinagawa:facilities:${userId}` : 'shinagawa:facilities:cache';
@@ -846,7 +904,12 @@ export async function getShinagawaFacilities(
         if (cached) return cached as Facility[];
 
         console.log('[Facilities] Fetching Shinagawa facilities dynamically');
-        const session = await loginToShinagawa(credentials.username, credentials.password);
+
+        let session = existingSession;
+        if (!session) {
+            session = await loginToShinagawa(credentials.username, credentials.password);
+        }
+
         if (!session) return getShinagawaFacilitiesFallback();
 
         const facilities: Facility[] = [];
@@ -875,9 +938,10 @@ export async function getShinagawaFacilities(
 export async function getShinagawaTennisCourts(
     credentials: SiteCredentials,
     kv: KVNamespace,
-    userId?: string
+    userId?: string,
+    session?: ShinagawaSession
 ): Promise<Facility[]> {
-    const allFacilities = await getShinagawaFacilities(credentials, kv, userId);
+    const allFacilities = await getShinagawaFacilities(credentials, kv, userId, session);
     return allFacilities.filter(f => f.isTennisCourt);
 }
 
@@ -890,14 +954,16 @@ async function fetchShinagawaAreaFacilities(
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
 
     // 1. Home
-    await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
+    const homeRes = await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
         headers: { 'Cookie': session.cookie }
     });
+    updateSessionCookies(session, homeRes);
 
     // 2. Search Init
-    await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+    const initRes = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
         headers: { 'Cookie': session.cookie, 'Referer': `${baseUrl}/rsvWOpeHomeAction.do` }
     });
+    updateSessionCookies(session, initRes);
 
     // 3. Search POST
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
@@ -922,6 +988,7 @@ async function fetchShinagawaAreaFacilities(
         },
         body: formData.toString()
     });
+    updateSessionCookies(session, response);
 
     const buffer = await response.arrayBuffer();
     const html = new TextDecoder('shift-jis').decode(buffer);

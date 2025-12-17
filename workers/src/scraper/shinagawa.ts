@@ -315,6 +315,35 @@ export async function checkShinagawaAvailability(
     const useDay = date.replace(/-/g, '');
     const today = new Date().toISOString().split('T')[0];
 
+    // CRITICAL FIX: 施設一覧ページを経由してRefererチェーンを正しく確立
+    // これがないと「不正な画面遷移」エラーになる
+    const facilityListParams = new URLSearchParams();
+    facilityListParams.append('loginJKey', currentSession.loginJKey || '');
+    facilityListParams.append('displayNo', currentSession.displayNo || 'prwrc2000');
+    facilityListParams.append('screenName', 'Home');
+    facilityListParams.append('gRsvWTransInstListAction', '1');
+
+    const facilityListResponse = await fetch(`${baseUrl}/rsvWTransInstListAction.do`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
+            'Cookie': currentSession.cookie,
+            'Referer': `${baseUrl}/rsvWOpeHomeAction.do`,
+        },
+        body: facilityListParams.toString(),
+    });
+
+    const facilityListBuffer = await facilityListResponse.arrayBuffer();
+    const facilityListHtml = new TextDecoder('shift-jis').decode(facilityListBuffer);
+
+    if (facilityListHtml.includes('ログイン') || facilityListHtml.includes('セッションが切れました')) {
+        throw new Error('Session expired during facility list access');
+    }
+
+    // 検索フォームのパラメータを再取得（最新の状態を使用）
+    const freshSearchParams = extractSearchFormParams(facilityListHtml);
+
     const params: Record<string, string> = {
         date: '4',
         daystart: today,
@@ -333,7 +362,10 @@ export async function checkShinagawaAvailability(
         applyFlg: '0',
     };
 
-    if (currentSession.searchFormParams) {
+    // 施設一覧から取得した最新パラメータを使用
+    if (freshSearchParams && Object.keys(freshSearchParams).length > 0) {
+        Object.assign(params, freshSearchParams);
+    } else if (currentSession.searchFormParams) {
         Object.assign(params, currentSession.searchFormParams);
     }
     params.useDay = useDay;
@@ -345,7 +377,7 @@ export async function checkShinagawaAvailability(
             'Content-Type': 'application/x-www-form-urlencoded',
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
             'Cookie': currentSession.cookie,
-            'Referer': `${baseUrl}/rsvWTransInstListAction.do`,
+            'Referer': `${baseUrl}/rsvWTransInstListAction.do`,  // ← 今度は本当に経由済み
         },
         body: new URLSearchParams(params).toString(),
     });

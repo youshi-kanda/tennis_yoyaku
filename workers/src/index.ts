@@ -4530,12 +4530,20 @@ async function handleDebugDOStatus(request: Request, env: Env): Promise<Response
       }));
       const data = await res.json();
       console.log(`[DebugAPI] Safety Config Updated for ${userId}:${site}`, body);
-      return jsonResponse({ success: true, safety: data });
+      return jsonResponse({
+        success: true,
+        safety: data,
+        maintenanceMode: env.MAINTENANCE_MODE === 'true'
+      });
     } else {
       // Get Status
       const res = await stub.fetch(new Request('http://do/status'));
       const data = await res.json();
-      return jsonResponse({ success: true, doStatus: data });
+      return jsonResponse({
+        success: true,
+        doStatus: data,
+        maintenanceMode: env.MAINTENANCE_MODE === 'true'
+      });
     }
   } catch (error: any) {
     return jsonResponse({ error: error.message }, 500);

@@ -67,6 +67,13 @@ export class UserAgent extends DurableObject<Env> {
     // Lock for strict serialization
     private isProcessing: boolean = false;
 
+    // Reservation Metrics (Task 3: Phase 2)
+    private reservationMetrics = {
+        confirmPostCount: 0,
+        completePostCount: 0,
+        lastResetTime: Date.now()
+    };
+
     constructor(state: DurableObjectState, env: Env) {
         super(state, env);
         this.state = state;
@@ -149,6 +156,13 @@ export class UserAgent extends DurableObject<Env> {
                 await this.checkWide();
                 // Schedule next Wide check (1 min)
                 await this.state.storage.setAlarm(Date.now() + 60 * 1000);
+            }
+
+            // Task 3: Output hourly metrics
+            const metricsNow = Date.now();
+            if (metricsNow - this.reservationMetrics.lastResetTime > 3600000) { // 1 hour
+                console.log(`${this.getLogPrefix()} [Metrics] confirmPOST=${this.reservationMetrics.confirmPostCount} completePOST=${this.reservationMetrics.completePostCount}`);
+                this.reservationMetrics = { confirmPostCount: 0, completePostCount: 0, lastResetTime: metricsNow };
             }
         } catch (e) {
             console.error('[UserAgent] Alarm Error:', e);
@@ -258,6 +272,10 @@ export class UserAgent extends DurableObject<Env> {
         // Check strict reservation endpoints
         const isReservationAction = urlStr.includes('ReservedCompleteAction.do') || urlStr.includes('ReservedConfirmAction.do');
 
+        // Task 3: Track reservation POST metrics
+        if (urlStr.includes('ReservedConfirmAction')) this.reservationMetrics.confirmPostCount++;
+        if (urlStr.includes('ReservedCompleteAction')) this.reservationMetrics.completePostCount++;
+
         if (isReservationAction) {
             // a. ENV Lock
             // Note: In Cloudflare Workers, environmental variables are accessed via `this.env`.
@@ -324,6 +342,11 @@ export class UserAgent extends DurableObject<Env> {
     }
 
     private originalFetcher?: typeof fetch;
+
+    // Helper: Log Prefix (Task 2: Phase 2)
+    private getLogPrefix(): string {
+        return `[UserAgent:${this.memState.userId}:${this.memState.site}]`;
+    }
 
 
     // --- Logic ---

@@ -4498,8 +4498,18 @@ async function isAdminUser(userId: string, env: Env): Promise<boolean> {
 
 async function handleDebugDOStatus(request: Request, env: Env): Promise<Response> {
   try {
+    // 1. JWT Authentication
     const payload = await authenticate(request, env.JWT_SECRET);
     const userId = payload.userId;
+
+    // 2. Extra Security: Admin Token Check
+    // This strictly limits access to holders of the specific Admin Key
+    const adminToken = request.headers.get('X-Admin-Token');
+    if (adminToken !== env.ADMIN_KEY) {
+      console.warn(`[DebugAPI] Blocked unauthorized access attempt for ${userId} (Invalid Token)`);
+      return jsonResponse({ error: 'Requires X-Admin-Token' }, 403);
+    }
+
     const url = new URL(request.url);
     const site = url.searchParams.get('site') as 'shinagawa' | 'minato';
 
@@ -4508,11 +4518,25 @@ async function handleDebugDOStatus(request: Request, env: Env): Promise<Response
     const id = env.USER_AGENT.idFromName(`${userId}:${site}`);
     const stub = env.USER_AGENT.get(id);
 
-    // Call DO /status
-    const res = await stub.fetch(new Request('http://do/status'));
-    const data = await res.json();
+    // 3. Audit Log
+    console.log(`[DebugAPI] Accessed by ${userId} for ${site}. Method: ${request.method}`);
 
-    return jsonResponse({ success: true, doStatus: data });
+    if (request.method === 'POST') {
+      // Update Safety Config
+      const body = await request.json();
+      const res = await stub.fetch(new Request('http://do/safety-config', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      }));
+      const data = await res.json();
+      console.log(`[DebugAPI] Safety Config Updated for ${userId}:${site}`, body);
+      return jsonResponse({ success: true, safety: data });
+    } else {
+      // Get Status
+      const res = await stub.fetch(new Request('http://do/status'));
+      const data = await res.json();
+      return jsonResponse({ success: true, doStatus: data });
+    }
   } catch (error: any) {
     return jsonResponse({ error: error.message }, 500);
   }

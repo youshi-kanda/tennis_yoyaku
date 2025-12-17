@@ -24,6 +24,24 @@ interface UserAgentState {
     isHotMonitoring: boolean;
     hotUntil: number;
     hotTargetId?: string;
+
+    // Safety Guards State
+    safety: SafetyConfig;
+    rateLimitBuckets: Record<string, number>; // epochSec -> count
+    breakerOpenUntil: number; // 0 = closed, >0 = open until timestamp
+}
+
+export interface SafetyConfig {
+    executeReservation: boolean; // Operational switch
+    mockRequests: boolean;       // Mock mode
+    allowedTargets: AllowedTarget[]; // Whitelist
+}
+
+export interface AllowedTarget {
+    facilityId: string;
+    date: string;
+    timeSlot: string;
+    expiresAt: number;
 }
 
 export class UserAgent extends DurableObject<Env> {
@@ -36,7 +54,14 @@ export class UserAgent extends DurableObject<Env> {
         site: 'shinagawa', // default
         targets: [],
         isHotMonitoring: false,
-        hotUntil: 0
+        hotUntil: 0,
+        safety: {
+            executeReservation: false,
+            mockRequests: false,
+            allowedTargets: []
+        },
+        rateLimitBuckets: {},
+        breakerOpenUntil: 0
     };
 
     // Lock for strict serialization
@@ -71,6 +96,19 @@ export class UserAgent extends DurableObject<Env> {
                 // Manually trigger a check (Wide)
                 await this.checkWide();
                 return Response.json({ status: 'ok' });
+            }
+            if (path === '/safety-config' && request.method === 'POST') {
+                const body = await request.json() as Partial<SafetyConfig>;
+                if (body.executeReservation !== undefined) this.memState.safety.executeReservation = body.executeReservation;
+                if (body.mockRequests !== undefined) this.memState.safety.mockRequests = body.mockRequests;
+                // AllowedTargets update? usually we add/remove. For now, full replace or simple add?
+                // Let's assume full replacement for debug simplicity or add specific endpoint.
+                // For safety, let's just support simple boolean flags switch here for now.
+                // Or if body has allowedTargets, replace it.
+                if (body.allowedTargets !== undefined) this.memState.safety.allowedTargets = body.allowedTargets;
+
+                await this.saveState();
+                return Response.json({ status: 'ok', safety: this.memState.safety });
             }
 
             return new Response('Not Found', { status: 404 });
@@ -158,8 +196,135 @@ export class UserAgent extends DurableObject<Env> {
     }
 
     private async saveState() {
+        // Clean up expired buckets and allowedTargets before saving
+        const now = Date.now();
+        const currentSec = Math.floor(now / 1000).toString();
+
+        // Rolling Window Cleanup (keep only last 60s)
+        const keptBuckets: Record<string, number> = {};
+        for (let i = 0; i < 60; i++) {
+            const sec = (Math.floor(now / 1000) - i).toString();
+            if (this.memState.rateLimitBuckets[sec]) {
+                keptBuckets[sec] = this.memState.rateLimitBuckets[sec];
+            }
+        }
+        this.memState.rateLimitBuckets = keptBuckets;
+
+        // Cleanup expired allow list
+        this.memState.safety.allowedTargets = this.memState.safety.allowedTargets.filter(t => t.expiresAt > now);
+
         await this.state.storage.put('state', this.memState);
     }
+
+    // --- Safety Guards ---
+
+    /**
+     * SafeFetch Wrapper
+     * Implements: Rate Limit, Circuit Breaker, Mocking, Block List
+     */
+    private async safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+        const now = Date.now();
+
+        // 1. Circuit Breaker Check
+        if (this.memState.breakerOpenUntil > now) {
+            console.warn(`[SafeFetch] 🛡️ Circuit Breaker OPEN (Until ${new Date(this.memState.breakerOpenUntil).toISOString()})`);
+            throw new Error('Circuit Breaker OPEN: Network blocked due to rate limit');
+        } else if (this.memState.breakerOpenUntil > 0) {
+            // Auto Close
+            console.log('[SafeFetch] 🛡️ Circuit Breaker CLOSED (Recovery)');
+            this.memState.breakerOpenUntil = 0;
+            await this.saveState();
+        }
+
+        // 2. Rate Limiting (Rolling Window)
+        const currentSec = Math.floor(now / 1000).toString();
+        this.memState.rateLimitBuckets[currentSec] = (this.memState.rateLimitBuckets[currentSec] || 0) + 1;
+
+        let totalReqs = 0;
+        for (let i = 0; i < 60; i++) {
+            const sec = (Math.floor(now / 1000) - i).toString();
+            totalReqs += (this.memState.rateLimitBuckets[sec] || 0);
+        }
+
+        if (totalReqs > 60) {
+            console.error(`[SafeFetch] 🚨 Rate Limit Exceeded (${totalReqs}/60s). Opening Circuit Breaker.`);
+            this.memState.breakerOpenUntil = now + 5 * 60 * 1000; // 5 min cooldown
+            await this.saveState();
+            throw new Error('Rate Limit Exceeded: Circuit Breaker Opened');
+        }
+
+        // 3. Absolute Guard for Reservation POSTs
+        const urlStr = input.toString();
+        // Check strict reservation endpoints
+        const isReservationAction = urlStr.includes('ReservedCompleteAction.do') || urlStr.includes('ReservedConfirmAction.do');
+
+        if (isReservationAction) {
+            // a. ENV Lock
+            // Note: In Cloudflare Workers, environmental variables are accessed via `this.env`.
+            // User confirmed "EXECUTE_RESERVATION" env var.
+            const envAllowed = (this.env as any).EXECUTE_RESERVATION === 'true';
+
+            // b. State Lock
+            const stateAllowed = this.memState.safety.executeReservation;
+
+            if (!envAllowed || !stateAllowed) {
+                console.warn(`[SafeFetch] 🛡️ BLOCKED Reservation POST (Env=${envAllowed}, State=${stateAllowed})`);
+                throw new Error('SAFETY_BLOCK: Reservation not allowed by configuration');
+            }
+        }
+
+        // 4. Mock Control
+        if (this.memState.safety.mockRequests) {
+            console.log(`[SafeFetch] 🎭 MOCK Request: ${urlStr}`);
+
+            // Context-Aware Mock Responses
+            let mockBody = '<html><body>Mock Response</body></html>';
+            if (urlStr.includes('login') || urlStr.includes('Login')) {
+                // Return login-like form to prevent scraper crash
+                mockBody = '<html><body><form name="loginForm"></form>Success</body></html>';
+            } else if (urlStr.includes('InstSrchVacant')) {
+                // Return "No Availability" to be safe
+                mockBody = '<html><body><!-- No available cells --></body></html>';
+            }
+
+            return new Response(mockBody, {
+                status: 200,
+                headers: { 'Content-Type': 'text/html; charset=Shift_JIS' }
+            });
+        }
+
+        // 5. Real Request (Using ORIGINAL global fetch if needed, but here we call super fetch? No, global fetch)
+        // Since we replaced globalThis.fetch with this function, we must ensure we don't recurse infinitely.
+        // The pattern used in execute/check methods is:
+        // const original = globalThis.fetch; globalThis.fetch = safeFetch; ... globalThis.fetch = original;
+        // So here, we cannot call globalThis.fetch because it points to US!
+        // We need 'originalFetch' to be accessible or passed.
+        // OR, we rely on the fact that `UserAgent` extends `DurableObject`? No.
+
+        // Correction: The plan says "const originalFetch = globalThis.fetch; ... finally ...".
+        // BUT inside `safeFetch`, we need to call the REAL fetch.
+        // Since `safeFetch` is a method, it doesn't know `originalFetch` unless we store it or pass it.
+        // BETTER APPROACH: Store originalFetch in a static or instance variable when swapping?
+        // OR: Just use `super.fetch`? No, DO fetch handler is different.
+
+        // Solution: We will assume `this.originalFetch` is set before swapping, or we pass it?
+        // Actually, the cleanest way in single-threaded JS is to have `private originalFetch?: typeof fetch`.
+
+        if (this.originalFetcher) {
+            return this.originalFetcher(input, init);
+        }
+
+        // Fallback if not set (should not happen if used correctly)
+        // Check if globalThis.fetch is NOT this function to avoid recursion
+        if (globalThis.fetch !== this.safeFetch.bind(this)) {
+            return globalThis.fetch(input, init);
+        }
+
+        throw new Error('SafeFetch: Original fetcher not available');
+    }
+
+    private originalFetcher?: typeof fetch;
+
 
     // --- Logic ---
 
@@ -211,75 +376,87 @@ export class UserAgent extends DurableObject<Env> {
         const activeTargets = this.memState.targets.filter(t => t.status === 'active');
         if (activeTargets.length === 0) return;
 
-        let session = await this.getSession();
 
-        for (const target of activeTargets) {
-            // Strict Serialization: 1 target at a time
-            try {
-                if (this.memState.site === 'shinagawa') {
-                    // Check Logic
-                    const result = await checkShinagawaAvailability(
-                        target.facilityId, target.date, target.timeSlot,
-                        this.memState.credentials!, undefined,
-                        { cookie: session } as any // ShinagawaSession mock
-                    );
+        // Inject SafeFetch
+        this.originalFetcher = globalThis.fetch;
+        globalThis.fetch = this.safeFetch.bind(this);
 
-                    if (result.available) {
-                        if (result.currentStatus === '取') {
-                            // 🔥 Signal Detected!
-                            console.log(`[UserAgent] 🔥 Signal '取' detected! Switching to HOT.`);
-                            this.memState.isHotMonitoring = true;
-                            this.memState.hotTargetId = target.id;
-                            this.memState.hotUntil = Date.now() + 15000; // 15s burst
-                            await this.saveState();
+        let session: string;
 
-                            // Trigger Hot immediately
-                            await this.checkHot();
-                            return; // Exit Wide loop to prioritize Hot
-                        } else if (result.currentStatus === '○') {
-                            // Available -> Reserve
+        try {
+            session = await this.getSession();
+
+            for (const target of activeTargets) {
+                // Strict Serialization: 1 target at a time
+                try {
+                    if (this.memState.site === 'shinagawa') {
+                        // Check Logic
+                        const result = await checkShinagawaAvailability(
+                            target.facilityId, target.date, target.timeSlot,
+                            this.memState.credentials!, undefined,
+                            { cookie: session } as any // ShinagawaSession mock
+                        );
+
+                        if (result.available) {
+                            if (result.currentStatus === '取') {
+                                // 🔥 Signal Detected!
+                                console.log(`[UserAgent] 🔥 Signal '取' detected! Switching to HOT.`);
+                                this.memState.isHotMonitoring = true;
+                                this.memState.hotTargetId = target.id;
+                                this.memState.hotUntil = Date.now() + 15000; // 15s burst
+                                await this.saveState();
+
+                                // Trigger Hot immediately
+                                await this.checkHot();
+                                return; // Exit Wide loop to prioritize Hot
+                            } else if (result.currentStatus === '○') {
+                                // Available -> Reserve
+                                if (target.autoReserve) {
+                                    await this.executeReservation(target, session);
+                                } else {
+                                    // Notify user
+                                    console.log('[UserAgent] Notify: Available but autoReserve=false');
+                                }
+                            }
+                        }
+
+                    } else {
+                        // Minato
+                        const result = await checkMinatoAvailability(
+                            target.facilityId, target.date, target.timeSlot,
+                            this.memState.credentials!, undefined, session
+                        );
+
+                        if (result.available) {
                             if (target.autoReserve) {
                                 await this.executeReservation(target, session);
-                            } else {
-                                // Notify user
-                                console.log('[UserAgent] Notify: Available but autoReserve=false');
                             }
                         }
                     }
-
-                } else {
-                    // Minato
-                    const result = await checkMinatoAvailability(
-                        target.facilityId, target.date, target.timeSlot,
-                        this.memState.credentials!, undefined, session
-                    );
-
-                    if (result.available) {
-                        if (target.autoReserve) {
-                            // Minato Policy: "Notify only" if strictly followed?
-                            // Proposal says "Minato ... Auto Reserve: Guarantee not".
-                            // But if we can, we try? Or just notify? 
-                            // User request 5.3: "Minato may be not auto-reservable, notify only".
-                            // Let's TRY, but if it fails, it fails.
-                            await this.executeReservation(target, session);
+                } catch (e: any) {
+                    console.warn(`[UserAgent] Check failed for ${target.facilityName}: ${e.message}`);
+                    if (e.message?.includes('SESSION_EXPIRED') || e.message?.includes('Login failed')) {
+                        // Re-login attempt (Recursion warning? doLogin uses fetch too! Need to ensure doLogin uses safeFetch or original?)
+                        // Since globalThis is swapped, doLogin WILL use safeFetch. Secure.
+                        try {
+                            // Temporarily restore original for login if we consider login "safe" or part of flow?
+                            // No, all network should go through SafeFetch for Rate Limit.
+                            session = await this.doLogin();
+                        } catch (loginErr) {
+                            console.error('[UserAgent] Re-login failed, aborting Wide check.');
+                            break;
                         }
-                    }
-                }
-            } catch (e: any) {
-                console.warn(`[UserAgent] Check failed for ${target.facilityName}: ${e.message}`);
-                if (e.message?.includes('SESSION_EXPIRED') || e.message?.includes('Login failed')) {
-                    // Re-login attempt
-                    try {
-                        session = await this.doLogin();
-                    } catch (loginErr) {
-                        console.error('[UserAgent] Re-login failed, aborting Wide check.');
-                        break;
+                    } else if (e.message?.includes('Circuit Breaker')) {
+                        throw e; // Stop everything
                     }
                 }
             }
-
-            // Short delay between targets to be nice?
-            // await new Promise(r => setTimeout(r, 1000));
+        } finally {
+            // Restore Fetch
+            if (this.originalFetcher) {
+                globalThis.fetch = this.originalFetcher;
+                this.originalFetcher = undefined;
+            }
         }
     }
 
@@ -294,6 +471,10 @@ export class UserAgent extends DurableObject<Env> {
         console.log(`[UserAgent] 🔥 Hot Check for ${target.facilityName} ${target.timeSlot}`);
 
         try {
+            // Inject SafeFetch
+            this.originalFetcher = globalThis.fetch;
+            globalThis.fetch = this.safeFetch.bind(this);
+
             let session = await this.getSession();
             // Shinagawa Only logic usually
             if (this.memState.site === 'shinagawa') {
@@ -316,12 +497,30 @@ export class UserAgent extends DurableObject<Env> {
             console.error(`[UserAgent] Hot check error: ${e.message}`);
             // If session expired, we might lose the chance, but try re-login fast
             if (e.message?.includes('SESSION_EXPIRED')) {
-                await this.doLogin();
+                try { await this.doLogin(); } catch { }
+            }
+        } finally {
+            // Restore
+            if (this.originalFetcher) {
+                globalThis.fetch = this.originalFetcher;
+                this.originalFetcher = undefined;
             }
         }
     }
 
     private async executeReservation(target: MonitoringTarget, session: string) {
+        // 3. AllowedTargets Whitelist Check
+        const isAllowed = this.memState.safety.allowedTargets.some(t =>
+            t.facilityId === target.facilityId &&
+            t.date === target.date &&
+            t.timeSlot === target.timeSlot
+        );
+
+        if (!isAllowed) {
+            console.warn(`[UserAgent] 🛡️ BLOCKED: Target not in allowedTargets whitelist (${target.facilityName} ${target.date})`);
+            return;
+        }
+
         console.log(`[UserAgent] 🚀 Executing Reservation for ${target.facilityName}`);
 
         try {

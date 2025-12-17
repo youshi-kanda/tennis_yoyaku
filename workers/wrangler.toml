@@ -93,3 +93,14 @@ ADMIN_KEY = "tennis_admin_2025"
 VAPID_PUBLIC_KEY = "BJl4G42CTnBBIz0YBhm2yZSPEgyNjXjBnjEXZwT1g0hCiHIGYesl8ePExqj9zcl7kBqRqug9rvg9qLTEtC1KjyQ"
 VAPID_PRIVATE_KEY = "M3GGZhN2hN2Df1GlKD8cLBQGqU3JBdVW4whF7hb_aTI"
 VAPID_SUBJECT = "mailto:youshi.kanda+dev@gmail.com"
+MAINTENANCE_MODE = "false"
+MAINTENANCE_MESSAGE = "システムメンテナンス中です。しばらくお待ちください。"
+
+# Durable Objects (Development)
+[[env.development.durable_objects.bindings]]
+name = "USER_AGENT"
+class_name = "UserAgent"
+
+[[env.development.migrations]]
+tag = "v1"
+new_classes = ["UserAgent"]

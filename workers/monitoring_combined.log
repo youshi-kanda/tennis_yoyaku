@@ -1,0 +1,916 @@
+=== Starting Wrangler Tail Monitoring ===
+Log file: monitoring_combined.log
+Press Ctrl+C to stop
+
+[2025-12-19 04:35:49] Starting wrangler tail...
+{
+    "wallTime": 253,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:36:43.353Z",
+                "(JST: 2025/12/19 13:36:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766086603353
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086603605
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086603605
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086603605
+        }
+    ],
+    "eventTimestamp": 1766086603352,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086603000
+    }
+}
+{
+    "wallTime": 315,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:37:43.350Z",
+                "(JST: 2025/12/19 13:37:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766086663350
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086663665
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086663665
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086663665
+        }
+    ],
+    "eventTimestamp": 1766086663350,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086663000
+    }
+}
+{
+    "wallTime": 262,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:38:43.352Z",
+                "(JST: 2025/12/19 13:38:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766086723352
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086723612
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086723612
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086723612
+        }
+    ],
+    "eventTimestamp": 1766086723351,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086723000
+    }
+}
+{
+    "wallTime": 705,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:39:43.351Z",
+                "(JST: 2025/12/19 13:39:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766086783351
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086784055
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086784055
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086784055
+        }
+    ],
+    "eventTimestamp": 1766086783351,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086783000
+    }
+}
+{
+    "wallTime": 256,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:40:49.852Z",
+                "(JST: 2025/12/19 13:40:49)"
+            ],
+            "level": "log",
+            "timestamp": 1766086849852
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086850107
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086850107
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086850107
+        }
+    ],
+    "eventTimestamp": 1766086849852,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086843000
+    }
+}
+{
+    "wallTime": 261,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:41:43.352Z",
+                "(JST: 2025/12/19 13:41:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766086903352
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086903612
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086903612
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086903612
+        }
+    ],
+    "eventTimestamp": 1766086903352,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086903000
+    }
+}
+{
+    "wallTime": 257,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:42:43.356Z",
+                "(JST: 2025/12/19 13:42:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766086963356
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766086963612
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766086963612
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766086963612
+        }
+    ],
+    "eventTimestamp": 1766086963356,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766086963000
+    }
+}
+{
+    "wallTime": 256,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:43:43.355Z",
+                "(JST: 2025/12/19 13:43:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087023355
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087023610
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087023610
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087023610
+        }
+    ],
+    "eventTimestamp": 1766087023355,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087023000
+    }
+}
+{
+    "wallTime": 263,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:44:43.351Z",
+                "(JST: 2025/12/19 13:44:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087083351
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087083614
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087083614
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087083614
+        }
+    ],
+    "eventTimestamp": 1766087083351,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087083000
+    }
+}
+{
+    "wallTime": 259,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:45:45.452Z",
+                "(JST: 2025/12/19 13:45:45)"
+            ],
+            "level": "log",
+            "timestamp": 1766087145452
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087145710
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087145710
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087145710
+        }
+    ],
+    "eventTimestamp": 1766087145452,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087143000
+    }
+}
+[2025-12-19 04:46:35] Disconnected (exit code: 0). Restarting in 3s...
+[2025-12-19 04:46:38] Starting wrangler tail...
+{
+    "wallTime": 250,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:46:43.353Z",
+                "(JST: 2025/12/19 13:46:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087203353
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087203602
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087203602
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087203602
+        }
+    ],
+    "eventTimestamp": 1766087203352,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087203000
+    }
+}
+{
+    "wallTime": 711,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:47:43.298Z",
+                "(JST: 2025/12/19 13:47:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087263298
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087264008
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087264008
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087264008
+        }
+    ],
+    "eventTimestamp": 1766087263298,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087263000
+    }
+}
+{
+    "wallTime": 255,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:48:43.354Z",
+                "(JST: 2025/12/19 13:48:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087323354
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087323608
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087323608
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087323608
+        }
+    ],
+    "eventTimestamp": 1766087323354,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087323000
+    }
+}
+{
+    "wallTime": 709,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:49:43.353Z",
+                "(JST: 2025/12/19 13:49:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087383353
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087384062
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087384062
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087384062
+        }
+    ],
+    "eventTimestamp": 1766087383353,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087383000
+    }
+}
+{
+    "wallTime": 250,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "5129bf57-3fb5-4327-9353-9303723c093a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:50:47.249Z",
+                "(JST: 2025/12/19 13:50:47)"
+            ],
+            "level": "log",
+            "timestamp": 1766087447249
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087447497
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087447497
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087447497
+        }
+    ],
+    "eventTimestamp": 1766087447249,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087443000
+    }
+}
+{
+    "wallTime": 263,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "a01bfd9c-8c30-421d-860d-3b5b2e2759d4"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[KV Metrics] Initialized at:",
+                "2025-12-18T19:51:43.373Z"
+            ],
+            "level": "log",
+            "timestamp": 1766087503373
+        },
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:51:43.373Z",
+                "(JST: 2025/12/19 13:51:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087503373
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087503635
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087503635
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087503635
+        }
+    ],
+    "eventTimestamp": 1766087503352,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087503000
+    }
+}
+{
+    "wallTime": 254,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "a01bfd9c-8c30-421d-860d-3b5b2e2759d4"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T04:52:43.353Z",
+                "(JST: 2025/12/19 13:52:43)"
+            ],
+            "level": "log",
+            "timestamp": 1766087563353
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766087563607
+        },
+        {
+            "message": [
+                "[Cron] ⏰ 早朝時間帯（3:15-5:00）: ログイン・予約不可"
+            ],
+            "level": "log",
+            "timestamp": 1766087563607
+        },
+        {
+            "message": [
+                "[Cron] ⏸️  予約不可時間帯のため監視スキップ"
+            ],
+            "level": "log",
+            "timestamp": 1766087563607
+        }
+    ],
+    "eventTimestamp": 1766087563353,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766087563000
+    }
+}

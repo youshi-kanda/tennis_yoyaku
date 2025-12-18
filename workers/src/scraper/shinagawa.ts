@@ -8,6 +8,7 @@ import {
     Facility,
     ReservationHistory
 } from './types';
+import { getJSTDate } from '../utils/date';
 
 // 品川区: 時間帯コード → 時間帯文字列のマッピング
 export const SHINAGAWA_TIMESLOT_MAP: { [code: number]: string } = {
@@ -110,7 +111,7 @@ export async function loginToShinagawa(userId: string, password: string): Promis
         }
 
         // Step 1: ログイン画面アクセス（POSTで遷移）
-        const today = new Date().toISOString().split('T')[0];
+        const today = getJSTDate();
         const loginFormParams = new URLSearchParams();
         loginFormParams.append('date', '4');
         loginFormParams.append('daystart', today);
@@ -313,7 +314,7 @@ export async function checkShinagawaAvailability(
 
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
     const useDay = date.replace(/-/g, '');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getJSTDate();
 
     // CRITICAL FIX: 施設一覧ページを経由してRefererチェーンを正しく確立
     // これがないと「不正な画面遷移」エラーになる

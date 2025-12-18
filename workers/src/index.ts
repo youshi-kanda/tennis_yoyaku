@@ -969,6 +969,23 @@ export default {
         return new Response(logs.join('\n'));
       }
 
+
+      // DEBUG: Kill Zombie DO
+      if (url.pathname === '/debug/kill-zombie' && url.searchParams.get('key') === 'temp-secret') {
+        const targetId = url.searchParams.get('id');
+        if (!targetId) return new Response('Missing id', { status: 400 });
+
+        try {
+          const id = env.USER_AGENT.idFromString(targetId);
+          const stub = env.USER_AGENT.get(id);
+          const res = await stub.fetch(new Request('http://do/reset', { method: 'POST' }));
+          const data = await res.json();
+          return new Response(`Killed ${targetId}: ${JSON.stringify(data)}`);
+        } catch (e: any) {
+          return new Response(`Error killing ${targetId}: ${e.message}`, { status: 500 });
+        }
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);

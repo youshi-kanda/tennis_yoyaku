@@ -99,6 +99,14 @@ export class UserAgent extends DurableObject<Env> {
             if (path === '/status') {
                 return Response.json(this.memState);
             }
+            if (path === '/reset' && request.method === 'POST') {
+                await this.state.storage.deleteAlarm();
+                await this.state.storage.deleteAll();
+                this.memState.credentials = undefined;
+                this.memState.targets = [];
+                console.log('[UserAgent] 💀 Reset & Killed (Zombie cleanup)');
+                return Response.json({ status: 'killed' });
+            }
             if (path === '/force-check') {
                 // Manually trigger a check (Wide)
                 await this.checkWide();

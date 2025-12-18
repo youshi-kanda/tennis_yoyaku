@@ -888,6 +888,36 @@ export default {
         return handleChangePassword(request, env);
       }
 
+      // DEBUG: Inspect Users
+      if (url.pathname === '/debug/inspect-users' && url.searchParams.get('key') === 'temp-secret') {
+        const list = await env.USERS.list({ prefix: 'user:' });
+        const logs: string[] = [];
+        logs.push('--- User Inspection ---');
+        for (const key of list.keys) {
+          if (key.name.includes(':id:')) continue;
+          const email = key.name.replace('user:', '');
+          const userData = await env.USERS.get(key.name, 'json') as any;
+          if (!userData) continue;
+          const userId = userData.id;
+          logs.push(`User: ${email} (ID: ${userId})`);
+          const settings = await env.USERS.get(`settings:${userId}`, 'json') as any;
+          if (settings) {
+            logs.push(`  Settings found.`);
+            if (settings.shinagawa) {
+              logs.push(`  Shinagawa: Username=${settings.shinagawa.username}, Password=${settings.shinagawa.password ? '(Present)' : '(Missing)'}`);
+            } else if (settings.shinagawaUserId) {
+              logs.push(`  Shinagawa (Legacy): Username=${settings.shinagawaUserId}`);
+            } else {
+              logs.push(`  Shinagawa: NOT CONFIG`);
+            }
+          } else {
+            logs.push(`  Settings: NOT FOUND`);
+          }
+          logs.push('');
+        }
+        return new Response(logs.join('\n'));
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);

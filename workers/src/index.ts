@@ -903,12 +903,27 @@ export default {
           const settings = await env.USERS.get(`settings:${userId}`, 'json') as any;
           if (settings) {
             logs.push(`  Settings found.`);
+            // Check DO Status directly
+            const doId = env.USER_AGENT.idFromName(`${userId}:shinagawa`);
+            const stub = env.USER_AGENT.get(doId);
+            try {
+              const doRes = await stub.fetch(new Request('http://do/status'));
+              const doState = await doRes.json() as any;
+              logs.push(`  DO State (Shinagawa): Credentials=${doState.credentials ? 'Present' : 'MISSING'}`);
+              if (doState.credentials) {
+                logs.push(`    DO Username: ${doState.credentials.username}`);
+              }
+              logs.push(`    DO Active Targets: ${doState.targets ? doState.targets.filter((t: any) => t.status === 'active').length : 0}`);
+            } catch (e: any) {
+              logs.push(`  DO State (Shinagawa): Error fetching status - ${e.message}`);
+            }
+
             if (settings.shinagawa) {
-              logs.push(`  Shinagawa: Username=${settings.shinagawa.username}, Password=${settings.shinagawa.password ? '(Present)' : '(Missing)'}`);
+              logs.push(`  Shinagawa KV: Username=${settings.shinagawa.username}, Password=${settings.shinagawa.password ? '(Present)' : '(Missing)'}`);
             } else if (settings.shinagawaUserId) {
-              logs.push(`  Shinagawa (Legacy): Username=${settings.shinagawaUserId}`);
+              logs.push(`  Shinagawa (Legacy) KV: Username=${settings.shinagawaUserId}`);
             } else {
-              logs.push(`  Shinagawa: NOT CONFIG`);
+              logs.push(`  Shinagawa KV: NOT CONFIG`);
             }
           } else {
             logs.push(`  Settings: NOT FOUND`);

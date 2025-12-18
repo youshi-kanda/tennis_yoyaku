@@ -933,6 +933,41 @@ export default {
         return new Response(logs.join('\n'));
       }
 
+      // DEBUG: Force Sync
+      if (url.pathname === '/debug/force-sync' && url.searchParams.get('key') === 'temp-secret') {
+        const list = await env.USERS.list({ prefix: 'user:' });
+        const logs: string[] = [];
+        logs.push('--- Force Sync ---');
+
+        for (const key of list.keys) {
+          if (key.name.includes(':id:')) continue;
+          const email = key.name.replace('user:', '');
+          const userData = await env.USERS.get(key.name, 'json') as any;
+          if (!userData) continue;
+
+          const userId = userData.id;
+          logs.push(`Syncing User: ${email} (${userId})`);
+
+          try {
+            // Shinagawa
+            await syncToDO(env, userId, 'shinagawa');
+            logs.push(`  -> Shimagawa: Synced`);
+          } catch (e: any) {
+            logs.push(`  -> Shimagawa: ERROR ${e.message}`);
+          }
+
+          try {
+            // Minato
+            await syncToDO(env, userId, 'minato');
+            logs.push(`  -> Minato: Synced`);
+          } catch (e: any) {
+            logs.push(`  -> Minato: ERROR ${e.message}`);
+          }
+          logs.push('');
+        }
+        return new Response(logs.join('\n'));
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);

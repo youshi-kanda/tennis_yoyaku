@@ -905,6 +905,7 @@ export default {
             logs.push(`  Settings found.`);
             // Check DO Status directly
             const doId = env.USER_AGENT.idFromName(`${userId}:shinagawa`);
+            logs.push(`  DO ID: ${doId.toString()}`);
             const stub = env.USER_AGENT.get(doId);
             try {
               const doRes = await stub.fetch(new Request('http://do/status'));

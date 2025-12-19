@@ -914,7 +914,13 @@ export default {
               if (doState.credentials) {
                 logs.push(`    DO Username: ${doState.credentials.username}`);
               }
-              logs.push(`    DO Active Targets: ${doState.targets ? doState.targets.filter((t: any) => t.status === 'active').length : 0}`);
+              const allTargets = doState.targets || [];
+              const activeTargets = allTargets.filter((t: any) => t.status === 'active');
+              logs.push(`    DO All Targets: ${allTargets.length}, Active: ${activeTargets.length}`);
+              // Show all targets
+              for (const t of allTargets) {
+                logs.push(`      - [${t.status}] ${t.facilityName || t.facilityId} | ${t.date} | ${t.timeSlot}`);
+              }
             } catch (e: any) {
               logs.push(`  DO State (Shinagawa): Error fetching status - ${e.message}`);
             }

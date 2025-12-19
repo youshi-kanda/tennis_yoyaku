@@ -992,6 +992,23 @@ export default {
         }
       }
 
+      // DEBUG: Clear User Targets
+      if (url.pathname === '/debug/clear-user-targets' && url.searchParams.get('key') === 'temp-secret') {
+        const userId = url.searchParams.get('userId');
+        const site = (url.searchParams.get('site') as 'shinagawa' | 'minato') || 'shinagawa';
+        if (!userId) return new Response('Missing userId', { status: 400 });
+
+        try {
+          const id = env.USER_AGENT.idFromName(`${userId}:${site}`);
+          const stub = env.USER_AGENT.get(id);
+          const res = await stub.fetch(new Request('http://do/clear-targets', { method: 'POST' }));
+          const data = await res.json();
+          return new Response(`Cleared targets for ${userId}:${site}: ${JSON.stringify(data)}`);
+        } catch (e: any) {
+          return new Response(`Error: ${e.message}`, { status: 500 });
+        }
+      }
+
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error: any) {
       console.error('Error:', error);

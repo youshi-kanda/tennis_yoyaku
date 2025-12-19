@@ -112,6 +112,13 @@ export class UserAgent extends DurableObject<Env> {
                 await this.checkWide();
                 return Response.json({ status: 'ok' });
             }
+            if (path === '/clear-targets' && request.method === 'POST') {
+                const clearedCount = this.memState.targets.length;
+                this.memState.targets = [];
+                await this.saveState();
+                console.log(`[UserAgent] 🧹 Cleared ${clearedCount} targets (manual cleanup)`);
+                return Response.json({ status: 'cleared', count: clearedCount });
+            }
             if (path === '/safety-config' && request.method === 'POST') {
                 const body = await request.json() as Partial<SafetyConfig>;
                 if (body.executeReservation !== undefined) this.memState.safety.executeReservation = body.executeReservation;
@@ -160,6 +167,16 @@ export class UserAgent extends DurableObject<Env> {
                     await this.state.storage.setAlarm(Date.now() + 1000);
                 }
             } else {
+                // Cleanup expired targets (date is past)
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+                const beforeCount = this.memState.targets.length;
+                this.memState.targets = this.memState.targets.filter(t => t.date >= today);
+                const afterCount = this.memState.targets.length;
+                if (beforeCount !== afterCount) {
+                    console.log(`${this.getLogPrefix()} 🧹 Cleaned up ${beforeCount - afterCount} expired targets`);
+                    await this.saveState();
+                }
+
                 // Wide Monitoring
                 await this.checkWide();
                 // Schedule next Wide check (1 min)

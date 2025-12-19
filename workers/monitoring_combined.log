@@ -37327,3 +37327,1265 @@ Press Ctrl+C to stop
         "scheduledTime": 1766102739000
     }
 }
+{
+    "wallTime": 158,
+    "cpuTime": 4,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "6f9a7217-d7d4-4ff4-8790-2ae5e604f843"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766102782093
+        }
+    ],
+    "eventTimestamp": 1766102782091,
+    "event": {
+        "scheduledTime": "2025-12-19T00:06:22.059Z"
+    }
+}
+{
+    "wallTime": 623,
+    "cpuTime": 3,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[KV Metrics] Initialized at:",
+                "2025-12-19T00:06:39.695Z"
+            ],
+            "level": "log",
+            "timestamp": 1766102799695
+        },
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:06:39.695Z",
+                "(JST: 2025/12/19 18:06:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766102799695
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766102799810
+        },
+        {
+            "message": [
+                "[Cron] 📋 通常監視モード: 分=6"
+            ],
+            "level": "log",
+            "timestamp": 1766102799810
+        },
+        {
+            "message": [
+                "[getAllActiveTargets] Cache version mismatch (Cache: null, KV: 104) - refetching"
+            ],
+            "level": "log",
+            "timestamp": 1766102799893
+        },
+        {
+            "message": [
+                "[getAllActiveTargets] Aggregated 2 active targets from 3 users"
+            ],
+            "level": "log",
+            "timestamp": 1766102800080
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766102800080
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766102800080
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766102800302
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766102800302
+        }
+    ],
+    "eventTimestamp": 1766102799660,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766102799000
+    }
+}
+{
+    "wallTime": 119,
+    "cpuTime": 3,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766102842266
+        }
+    ],
+    "eventTimestamp": 1766102842264,
+    "event": {
+        "scheduledTime": "2025-12-19T00:07:22.232Z"
+    }
+}
+{
+    "wallTime": 453,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:07:39.660Z",
+                "(JST: 2025/12/19 18:07:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766102859660
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766102859775
+        },
+        {
+            "message": [
+                "[Cron] 📋 通常監視モード: 分=7"
+            ],
+            "level": "log",
+            "timestamp": 1766102859775
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766102859857
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766102859857
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766102860104
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766102860104
+        }
+    ],
+    "eventTimestamp": 1766102859660,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766102859000
+    }
+}
+{
+    "wallTime": 8,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "c30f03236f51777df96947c24b11d01d3f5e2f426e7afa1ed062ce26f44b131a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1766102867655,
+    "event": {
+        "request": {
+            "url": "http://do/status",
+            "method": "GET",
+            "headers": {}
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 2,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1766102868181,
+    "event": {
+        "request": {
+            "url": "http://do/status",
+            "method": "GET",
+            "headers": {}
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 1356,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[KV Metrics] Initialized at:",
+                "2025-12-19T00:07:46.834Z"
+            ],
+            "level": "log",
+            "timestamp": 1766102866834
+        }
+    ],
+    "eventTimestamp": 1766102866816,
+    "event": {
+        "request": {
+            "url": "https://tennis-yoyaku-api.kanda02-1203.workers.dev/debug/inspect-users?key=temp-secret",
+            "method": "GET",
+            "headers": {
+                "accept": "*/*",
+                "accept-encoding": "gzip, br",
+                "cf-connecting-ip": "2001:f74:e0:2800:fd5f:3f66:f406:77de",
+                "cf-ipcountry": "JP",
+                "cf-ray": "9b02a9659d60d3ee",
+                "cf-visitor": "{\"scheme\":\"https\"}",
+                "connection": "Keep-Alive",
+                "host": "tennis-yoyaku-api.kanda02-1203.workers.dev",
+                "user-agent": "curl/7.71.1",
+                "x-forwarded-proto": "https",
+                "x-real-ip": "2001:f74:e0:2800:fd5f:3f66:f406:77de"
+            },
+            "cf": {
+                "httpProtocol": "HTTP/1.1",
+                "requestPriority": "",
+                "edgeRequestKeepAliveStatus": 1,
+                "requestHeaderNames": {},
+                "clientTcpRtt": 6,
+                "colo": "KIX",
+                "asn": 2519,
+                "asOrganization": "ARTERIA Networks Corporation",
+                "country": "JP",
+                "isEUCountry": false,
+                "city": "Osaka",
+                "continent": "AS",
+                "region": "Osaka",
+                "regionCode": "27",
+                "timezone": "Asia/Tokyo",
+                "longitude": "135.50107",
+                "latitude": "34.69379",
+                "postalCode": "543-0062",
+                "tlsVersion": "TLSv1.3",
+                "tlsCipher": "AEAD-AES256-GCM-SHA384",
+                "tlsClientRandom": "x+8dJbrynIqnGYEqbG0Y/nLs8+xsb906ZqcSPFmMp0Y=",
+                "tlsClientCiphersSha1": "GXSPDLP4G3X+prK73a4wBuOaHRc=",
+                "tlsClientExtensionsSha1": "bJfDPn82Ud8taZ6+PSOSubkqDGs=",
+                "tlsClientExtensionsSha1Le": "7zIpdDU5pvFPPBI2/PCzqbaXnRA=",
+                "tlsExportedAuthenticator": {
+                    "clientHandshake": "e9bdf9060b8261dc5d2f159d14769e52f9efaee5db67f6045c68f64dc87ad7e89d87a2645a0032deb3f4ef6afbce8801",
+                    "serverHandshake": "afedf973bf36c5d0812e002aef421e1ec75951237f546c16e8b5fbd0d443747fa33dfee272944be1442bfbecbd751ee6",
+                    "clientFinished": "e4ad27798a9061579024e6aa97afd55503c1821e9423acf42bcb5cd33b113023c5bcc4df413b3605dff3057f5c2bfc0b",
+                    "serverFinished": "19e3429128a9e4351be047c5c608d5d6bd896e07efe7998cff1baf52a7f359a3edaf355328be0d36f180991281eea661"
+                },
+                "tlsClientHelloLength": "508",
+                "tlsClientAuth": {
+                    "certPresented": "0",
+                    "certVerified": "NONE",
+                    "certRevoked": "0",
+                    "certIssuerDN": "",
+                    "certSubjectDN": "",
+                    "certIssuerDNRFC2253": "",
+                    "certSubjectDNRFC2253": "",
+                    "certIssuerDNLegacy": "",
+                    "certSubjectDNLegacy": "",
+                    "certSerial": "",
+                    "certIssuerSerial": "",
+                    "certSKI": "",
+                    "certIssuerSKI": "",
+                    "certFingerprintSHA1": "",
+                    "certFingerprintSHA256": "",
+                    "certNotBefore": "",
+                    "certNotAfter": ""
+                },
+                "verifiedBotCategory": ""
+            }
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 140,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766102902370
+        }
+    ],
+    "eventTimestamp": 1766102902368,
+    "event": {
+        "scheduledTime": "2025-12-19T00:08:22.368Z"
+    }
+}
+{
+    "wallTime": 459,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:08:39.662Z",
+                "(JST: 2025/12/19 18:08:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766102919662
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766102919785
+        },
+        {
+            "message": [
+                "[Cron] 🔥 集中監視モード: 分=8 (10分刻み前後2分間)"
+            ],
+            "level": "log",
+            "timestamp": 1766102919785
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766102919871
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766102919871
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766102920112
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766102920112
+        }
+    ],
+    "eventTimestamp": 1766102919662,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766102919000
+    }
+}
+{
+    "wallTime": 107,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766102962499
+        }
+    ],
+    "eventTimestamp": 1766102962496,
+    "event": {
+        "scheduledTime": "2025-12-19T00:09:22.495Z"
+    }
+}
+{
+    "wallTime": 468,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:09:39.658Z",
+                "(JST: 2025/12/19 18:09:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766102979658
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766102979808
+        },
+        {
+            "message": [
+                "[Cron] 🔥 集中監視モード: 分=9 (10分刻み前後2分間)"
+            ],
+            "level": "log",
+            "timestamp": 1766102979808
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766102979887
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766102979887
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766102980113
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766102980113
+        }
+    ],
+    "eventTimestamp": 1766102979658,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766102979000
+    }
+}
+{
+    "wallTime": 122,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766103022591
+        }
+    ],
+    "eventTimestamp": 1766103022589,
+    "event": {
+        "scheduledTime": "2025-12-19T00:10:22.589Z"
+    }
+}
+{
+    "wallTime": 621,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:10:41.666Z",
+                "(JST: 2025/12/19 18:10:41)"
+            ],
+            "level": "log",
+            "timestamp": 1766103041666
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766103041772
+        },
+        {
+            "message": [
+                "[Cron] 🔥 集中監視モード: 分=10 (10分刻み前後2分間)"
+            ],
+            "level": "log",
+            "timestamp": 1766103041772
+        },
+        {
+            "message": [
+                "[getAllActiveTargets] Cache expired or empty - refetching"
+            ],
+            "level": "log",
+            "timestamp": 1766103041852
+        },
+        {
+            "message": [
+                "[getAllActiveTargets] Aggregated 2 active targets from 3 users"
+            ],
+            "level": "log",
+            "timestamp": 1766103042056
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766103042056
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766103042056
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766103042272
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766103042272
+        }
+    ],
+    "eventTimestamp": 1766103041666,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766103039000
+    }
+}
+{
+    "wallTime": 107,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766103082698
+        }
+    ],
+    "eventTimestamp": 1766103082696,
+    "event": {
+        "scheduledTime": "2025-12-19T00:11:22.696Z"
+    }
+}
+{
+    "wallTime": 449,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:11:39.659Z",
+                "(JST: 2025/12/19 18:11:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766103099659
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766103099779
+        },
+        {
+            "message": [
+                "[Cron] 🔥 集中監視モード: 分=11 (10分刻み前後2分間)"
+            ],
+            "level": "log",
+            "timestamp": 1766103099779
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766103099853
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766103099853
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766103100098
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766103100098
+        }
+    ],
+    "eventTimestamp": 1766103099659,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766103099000
+    }
+}
+{
+    "wallTime": 121,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766103142792
+        }
+    ],
+    "eventTimestamp": 1766103142790,
+    "event": {
+        "scheduledTime": "2025-12-19T00:12:22.789Z"
+    }
+}
+{
+    "wallTime": 483,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:12:39.659Z",
+                "(JST: 2025/12/19 18:12:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766103159659
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766103159796
+        },
+        {
+            "message": [
+                "[Cron] 🔥 集中監視モード: 分=12 (10分刻み前後2分間)"
+            ],
+            "level": "log",
+            "timestamp": 1766103159796
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766103159869
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766103159869
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766103160133
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766103160133
+        }
+    ],
+    "eventTimestamp": 1766103159659,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766103159000
+    }
+}
+{
+    "wallTime": 103,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766103202898
+        }
+    ],
+    "eventTimestamp": 1766103202896,
+    "event": {
+        "scheduledTime": "2025-12-19T00:13:22.896Z"
+    }
+}
+{
+    "wallTime": 445,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:13:39.659Z",
+                "(JST: 2025/12/19 18:13:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766103219659
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766103219771
+        },
+        {
+            "message": [
+                "[Cron] 📋 通常監視モード: 分=13"
+            ],
+            "level": "log",
+            "timestamp": 1766103219771
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766103219864
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766103219864
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766103220094
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766103220094
+        }
+    ],
+    "eventTimestamp": 1766103219659,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766103219000
+    }
+}
+{
+    "wallTime": 112,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766103262988
+        }
+    ],
+    "eventTimestamp": 1766103262986,
+    "event": {
+        "scheduledTime": "2025-12-19T00:14:22.986Z"
+    }
+}
+{
+    "wallTime": 703,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:14:39.660Z",
+                "(JST: 2025/12/19 18:14:39)"
+            ],
+            "level": "log",
+            "timestamp": 1766103279660
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766103279770
+        },
+        {
+            "message": [
+                "[Cron] 📋 通常監視モード: 分=14"
+            ],
+            "level": "log",
+            "timestamp": 1766103279770
+        },
+        {
+            "message": [
+                "[getAllActiveTargets] Cache expired or empty - refetching"
+            ],
+            "level": "log",
+            "timestamp": 1766103279854
+        },
+        {
+            "message": [
+                "[getAllActiveTargets] Aggregated 2 active targets from 3 users"
+            ],
+            "level": "log",
+            "timestamp": 1766103280106
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766103280106
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766103280106
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766103280349
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766103280349
+        }
+    ],
+    "eventTimestamp": 1766103279660,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766103279000
+    }
+}
+{
+    "wallTime": 118,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "354116d1f8d35957550ba182bbd5222b03a46287fdeb99457b87fc23137a050a",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "entrypoint": "UserAgent",
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[UserAgent:shinagawa] 🌍 Check Wide (11 targets)"
+            ],
+            "level": "log",
+            "timestamp": 1766103323087
+        }
+    ],
+    "eventTimestamp": 1766103323085,
+    "event": {
+        "scheduledTime": "2025-12-19T00:15:23.085Z"
+    }
+}
+{
+    "wallTime": 496,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptTags": [
+        "cf:service=tennis-yoyaku-api"
+    ],
+    "scriptVersion": {
+        "id": "15136f75-b765-4793-9df8-0c3d5fb6494a"
+    },
+    "scriptName": "tennis-yoyaku-api",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[Cron] Started:",
+                "2025-12-19T09:15:40.668Z",
+                "(JST: 2025/12/19 18:15:40)"
+            ],
+            "level": "log",
+            "timestamp": 1766103340668
+        },
+        {
+            "message": [
+                "[Cron] 🛠️ メンテナンスモード有効 - 管理者以外の監視はスキップされます: システムメンテナンス中です。しばらくお待ちください。"
+            ],
+            "level": "log",
+            "timestamp": 1766103340794
+        },
+        {
+            "message": [
+                "[Cron] 📋 通常監視モード: 分=15"
+            ],
+            "level": "log",
+            "timestamp": 1766103340794
+        },
+        {
+            "message": [
+                "[Cron] Found 2 active monitoring targets"
+            ],
+            "level": "log",
+            "timestamp": 1766103340880
+        },
+        {
+            "message": [
+                "[Cron] 🔒 メンテナンスモード: 管理者ターゲットのみを抽出中..."
+            ],
+            "level": "log",
+            "timestamp": 1766103340880
+        },
+        {
+            "message": [
+                "[Cron] 🔒 フィルタリング完了: 0件の管理者ターゲットを実行します"
+            ],
+            "level": "log",
+            "timestamp": 1766103341154
+        },
+        {
+            "message": [
+                "[Cron] ⏸️ 実行対象なし（管理者の監視設定がありません）"
+            ],
+            "level": "log",
+            "timestamp": 1766103341154
+        }
+    ],
+    "eventTimestamp": 1766103340668,
+    "event": {
+        "cron": "*/1 * * * *",
+        "scheduledTime": 1766103339000
+    }
+}

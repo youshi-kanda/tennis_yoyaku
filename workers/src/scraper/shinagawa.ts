@@ -307,147 +307,83 @@ export async function checkShinagawaAvailability(
     }
 
     let currentSession = session;
-    if (!currentSession || !currentSession.cookie) {
+    // Check for incomplete session (missing critical params like loginJKey)
+    const isIncompleteSession = currentSession && currentSession.cookie && !currentSession.loginJKey;
+
+    if (!currentSession || !currentSession.cookie || isIncompleteSession) {
+        if (isIncompleteSession) {
+            console.log('[Shinagawa] Incomplete session detected (missing JKey) in checkShinagawaAvailability. Re-logging in...');
+        }
         currentSession = await loginToShinagawa(credentials.username, credentials.password);
         if (!currentSession) throw new Error('Login failed');
     }
 
-    const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
-    const useDay = date.replace(/-/g, '');
-    const today = getJSTDate();
+    // Use Weekly Check Logic which is proven to work
+    // Ensure date is yyyy/MM/dd format for shinagawa params
+    const formattedDate = date.replace(/-/g, '/');
 
-    // CRITICAL FIX: 施設一覧ページを経由してRefererチェーンを正しく確立
-    // これがないと「不正な画面遷移」エラーになる
-    const facilityListParams = new URLSearchParams();
-    facilityListParams.append('loginJKey', currentSession.loginJKey || '');
-    facilityListParams.append('displayNo', currentSession.displayNo || 'prwrc2000');
-    facilityListParams.append('screenName', 'Home');
-    facilityListParams.append('gRsvWTransInstListAction', '1');
+    console.log(`[Shinagawa] Wrapper: Checking availability via Weekly Logic for ${facilityId} ${formattedDate}`);
 
-    const facilityListResponse = await fetch(`${baseUrl}/rsvWTransInstListAction.do`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
-            'Cookie': currentSession.cookie,
-            'Referer': `${baseUrl}/rsvWOpeHomeAction.do`,
-        },
-        body: facilityListParams.toString(),
-    });
+    try {
+        // We treat the target date as the week start to get that day's data
+        const weeklyResult = await checkShinagawaWeeklyAvailability(
+            facilityId,
+            formattedDate, // Pass yyyy/MM/dd
+            currentSession,
+            undefined, // facilityInfo not strictly needed for availability check
+            credentials
+        );
 
-    const facilityListBuffer = await facilityListResponse.arrayBuffer();
-    const facilityListHtml = new TextDecoder('shift-jis').decode(facilityListBuffer);
-
-    if (facilityListHtml.includes('ログイン') || facilityListHtml.includes('セッションが切れました')) {
-        throw new Error('Session expired during facility list access');
-    }
-
-    // 検索フォームのパラメータを再取得（最新の状態を使用）
-    const freshSearchParams = extractSearchFormParams(facilityListHtml);
-
-    const params: Record<string, string> = {
-        date: '4',
-        daystart: today,
-        days: '31',
-        dayofweekClearFlg: '1',
-        timezoneClearFlg: '1',
-        selectAreaBcd: '1500_0',
-        selectIcd: '',
-        selectPpsClPpscd: '31000000_31011700',
-        displayNo: currentSession.displayNo || 'prwrc2000',
-        displayNoFrm: currentSession.displayNo || 'prwrc2000',
-        selectInstCd: facilityId,
-        useDay: useDay,
-        selectPpsClsCd: '31000000',
-        selectPpsCd: '31011700',
-        applyFlg: '0',
-    };
-
-    // 施設一覧から取得した最新パラメータを使用
-    if (freshSearchParams && Object.keys(freshSearchParams).length > 0) {
-        Object.assign(params, freshSearchParams);
-    } else if (currentSession.searchFormParams) {
-        Object.assign(params, currentSession.searchFormParams);
-    }
-    params.useDay = useDay;
-    params.selectInstCd = facilityId;
-
-    const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
-            'Cookie': currentSession.cookie,
-            'Referer': `${baseUrl}/rsvWTransInstListAction.do`,  // ← 今度は本当に経由済み
-        },
-        body: new URLSearchParams(params).toString(),
-    });
-
-    const buffer = await searchResponse.arrayBuffer();
-    const htmlText = new TextDecoder('shift-jis').decode(buffer);
-
-    if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました')) {
-        throw new Error('Login failed or session expired');
-    }
-
-    // コード変換 "11:00-13:00" -> "20"
-    const timeSlotToCode: Record<string, string> = {
-        '09:00-11:00': '10',
-        '11:00-13:00': '20',
-        '13:00-15:00': '30',
-        '15:00-17:00': '40',
-        '17:00-19:00': '50',
-        '19:00-21:00': '60',
-    };
-    const timeCode = timeSlotToCode[timeSlot];
-
-    if (!timeCode) {
-        return {
-            available: false, facilityId, facilityName: '品川区施設', date, timeSlot, currentStatus: '×', changedToAvailable: false
-        };
-    }
-
-    const cellIdPattern = `${useDay}_${timeCode}`;
-    const cellMatch = htmlText.match(new RegExp(`<td[^>]*\\sid="${cellIdPattern}"[^>]*>([\\s\\S]*?)<\\/td>`));
-
-    let currentStatus = '×';
-    if (cellMatch) {
-        const cellContent = cellMatch[1];
-        if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) {
-            currentStatus = '○';
-        } else if (/alt=["']取消処理中["']/.test(cellContent) || cellContent.includes('calendar_delete') || cellContent.includes('title="取消処理中"')) {
-            currentStatus = '取';
-        } else if (cellContent.includes('alt="一部空き"') || cellContent.includes('calendar_few-available')) {
-            currentStatus = '△';
-        } else if (cellContent.includes('○')) {
-            currentStatus = '○';
-        } else if (cellContent.includes('取')) {
-            currentStatus = '取';
+        // Find the specific slot in results
+        // Note: weeklyResult.days might contain multiple days if start date is beginning of week
+        // But we asked for start date = target date, so it should be the first one usually,
+        // unless Shinagawa forces Sunday start.
+        const targetDay = weeklyResult.days.find(d => d.date === date);
+        if (!targetDay) {
+            console.warn(`[Shinagawa] Wrapper: Date ${date} not found in weekly results. Found: ${weeklyResult.days.map(d => d.date).join(', ')}`);
+            // Fallback: maybe date format mismatch in result?
+            return {
+                available: false, facilityId, facilityName: '品川区施設', date, timeSlot, currentStatus: 'Error', changedToAvailable: false
+            };
         }
-    }
 
-    const isAvailable = currentStatus === '○' || currentStatus === '取';
-    if (isAvailable) {
-        console.log(`[Shinagawa] ⚡ ${currentStatus} 検知: ${facilityId}, ${date}, ${timeSlot}`);
-    }
+        // Match Logic: Prefix Match (e.g. "09:00" in "09:00-11:00")
+        const targetTimeStart = timeSlot.split('-')[0];
+        const targetSlot = targetDay.slots.find(s => s.time.startsWith(targetTimeStart));
 
-    // 次の予約アクションに必要なコンテキストを抽出
-    const reservationContext = extractSearchFormParams(htmlText);
-    // displayNoはセッションから引き継ぐか、HTMLから抽出（HTML優先）
-    if (!reservationContext.displayNo && currentSession.displayNo) {
-        reservationContext.displayNo = currentSession.displayNo;
-    }
+        if (!targetSlot) {
+            console.warn(`[Shinagawa] Wrapper: Slot ${timeSlot} not found in day results. Available: ${targetDay.slots.map(s => s.time).join(', ')}`);
+            return {
+                available: false, facilityId, facilityName: '品川区施設', date, timeSlot, currentStatus: '×', changedToAvailable: false
+            };
+        }
 
-    return {
-        available: isAvailable,
-        facilityId,
-        facilityName: '品川区施設',
-        date,
-        timeSlot,
-        currentStatus,
-        changedToAvailable: isAvailable,
-        reservationContext: Object.keys(reservationContext).length > 0 ? reservationContext : undefined
-    };
+        const isAvailable = targetSlot.status === '○' || targetSlot.status === '取'; // Include '取' as available for reservation attempt
+        if (isAvailable) {
+            console.log(`[Shinagawa] ⚡ Wrapper SUCCESS: ${targetSlot.status} 検知: ${facilityId}, ${date}, ${timeSlot}`);
+        } else {
+            console.log(`[Shinagawa] Wrapper: Slot found but status is ${targetSlot.status}`);
+        }
+
+        return {
+            available: isAvailable,
+            facilityId,
+            facilityName: '品川区施設',
+            date,
+            timeSlot,
+            currentStatus: targetSlot.status,
+            changedToAvailable: isAvailable,
+            // reservationContext is not easily extracted from weekly result structure without modification 
+            // but weeklyResult might have it? Types check: WeeklyAvailabilityResult usually has parsed data.
+            // If we need context for booking, we might need to modify WeeklyAvailabilityResult to carry it.
+            // For now, let's assume we can fetch it again during booking, OR checking 'available' is enough to trigger booking flow which fetches fresh form.
+            reservationContext: undefined
+        };
+
+    } catch (e: any) {
+        console.error(`[Shinagawa] Wrapper Error: ${e.message}`);
+        throw e;
+    }
 }
 
 

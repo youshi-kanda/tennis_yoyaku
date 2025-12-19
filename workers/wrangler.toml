@@ -30,12 +30,7 @@ class_name = "UserAgent"
 tag = "v1"
 new_classes = ["UserAgent"]
 
-# Cron Triggers
-# 通常監視: 1分間隔（キャンセル枠の取りこぼし削減）
-# 5:00一斉処理: 毎日5:00に実行（深夜待機枠を一斉予約）
-# 集中監視: 未実装（品川区「取→○」機能）
-[triggers]
-crons = ["*/1 * * * *", "0 20 * * *", "*/30 * * * *"]  # 1分間隔 + 5:00一斉処理(UTC 20:00) + 30分毎セッション更新
+
 
 # Queues (Producer)
 [[queues.producers]]
@@ -81,9 +76,7 @@ id = "29eca291199b4570a451fe20775f11ee"
 binding = "RESERVATIONS"
 id = "272a3a9914bd407e9389ca2d8ef907db"
 
-# Cron Triggers (Development) - 本番と同じ設定
-[env.development.triggers]
-crons = ["*/1 * * * *", "0 20 * * *"]
+
 
 # Environment variables (Development)
 [env.development.vars]

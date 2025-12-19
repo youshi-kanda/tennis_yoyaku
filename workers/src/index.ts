@@ -177,39 +177,8 @@ async function runWithLock<T>(env: Env, key: string, task: () => Promise<T>): Pr
 // -----------------------------------------------------------------------------
 
 async function scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-  const startTime = Date.now();
-  console.log(`[Cron] Started at ${new Date(startTime).toISOString()} (Cron: ${event.cron})`);
-
-  // 30分毎のセッション更新ジョブ
-  if (event.cron === '*/30 * * * *') {
-    await refreshAllSessions(env);
-    return;
-  }
-
-  try {
-    // 1. メンテナンスモードチェック
-    // ...
-
-    // 2. ユーザー一覧の取得
-    const listResult = await env.USERS.list();
-    const keys = listResult.keys;
-
-    // 3. 全ユーザーの監視ターゲットを並列処理
-    // 注: ここでPromise.allを使っても、runWithLockによりログイン処理は直列化される
-    await Promise.all(keys.map(async (key) => {
-      const userId = key.name.replace('user:', '');
-
-      // 🔐 並列処理制御: ユーザーごとに直列化
-      // 同一ユーザーが複数のターゲットを持っていても、ログインセッションは共有リソース
-      await runWithLock(env, `user-process:${userId}`, async () => {
-        // ...
-      }); // Corrected: closing runWithLock call
-    })); // Corrected: closing map callback and map call
-
-    // ...
-  } catch (e) {
-    console.error('[Cron] Error:', e);
-  }
+  // Legacy Cron Logic Disabled (Migrated to Durable Objects)
+  // console.log('[Cron] Triggered but ignored');
 }
 
 async function refreshAllSessions(env: Env) {
@@ -1004,6 +973,73 @@ export default {
           const res = await stub.fetch(new Request('http://do/clear-targets', { method: 'POST' }));
           const data = await res.json();
           return new Response(`Cleared targets for ${userId}:${site}: ${JSON.stringify(data)}`);
+        } catch (e: any) {
+          return new Response(`Error: ${e.message}`, { status: 500 });
+        }
+      }
+
+      // DEBUG: Create Test Target (for monitoring verification)
+      if (url.pathname === '/debug/create-target' && url.searchParams.get('key') === 'temp-secret') {
+        const userId = url.searchParams.get('userId') || 'b007d9e5-356c-4743-b274-92de3350bb15';
+        const site = 'shinagawa';
+        const facilityId = url.searchParams.get('facilityId') || '1';
+        const facilityName = url.searchParams.get('facilityName') || 'しながわ区民公園';
+        const date = url.searchParams.get('date') || '2025-01-29';
+        const timeSlot = url.searchParams.get('timeSlot') || '19:00-21:00';
+
+        const targetId = `target_${Date.now()}`;
+        const target: MonitoringTarget = {
+          id: targetId,
+          userId,
+          site,
+          facilityId,
+          facilityName,
+          date,
+          timeSlot,
+          status: 'active',
+          autoReserve: false, // Safety OFF
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+
+        // Save to MONITORING KV (correct key format: MONITORING:${userId})
+        const stateKey = `MONITORING:${userId}`;
+        const existingData = await env.MONITORING.get(stateKey, 'json') as { targets: MonitoringTarget[] } | null;
+        const targets = existingData ? existingData.targets : [];
+        targets.push(target);
+        await env.MONITORING.put(stateKey, JSON.stringify({ targets, updatedAt: Date.now(), version: 1 }));
+
+        // Direct inject to DO (bypass syncToDO to ensure it works)
+        const settingsData = await env.USERS.get(`settings:${userId}`);
+        const settings = settingsData ? JSON.parse(settingsData) : {};
+        const credentials = settings[site];
+
+        const doId = env.USER_AGENT.idFromName(`${userId}:${site}`);
+        const stub = env.USER_AGENT.get(doId);
+        await stub.fetch(new Request('http://do/init', {
+          method: 'POST',
+          body: JSON.stringify({
+            userId,
+            site,
+            targets: targets,  // All targets including new one
+            credentials
+          })
+        }));
+
+        return new Response(`Created target: ${JSON.stringify(target)}\nDirectly injected to DO with ${targets.length} targets.`);
+      }
+
+      // DEBUG: Force Check (Get availability result)
+      if (url.pathname === '/debug/force-check' && url.searchParams.get('key') === 'temp-secret') {
+        const userId = url.searchParams.get('userId') || 'b007d9e5-356c-4743-b274-92de3350bb15';
+        const site = (url.searchParams.get('site') as 'shinagawa' | 'minato') || 'shinagawa';
+
+        try {
+          const id = env.USER_AGENT.idFromName(`${userId}:${site}`);
+          const stub = env.USER_AGENT.get(id);
+          const res = await stub.fetch(new Request('http://do/force-check'));
+          const data = await res.json();
+          return new Response(JSON.stringify(data, null, 2), { headers: { 'Content-Type': 'application/json' } });
         } catch (e: any) {
           return new Response(`Error: ${e.message}`, { status: 500 });
         }

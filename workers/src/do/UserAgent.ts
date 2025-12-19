@@ -13,6 +13,7 @@ import {
     MINATO_SESSION_EXPIRED_MESSAGE
 } from '../scraper/minato';
 import { SiteCredentials, Facility } from '../scraper/types';
+import { sendPushNotification } from '../pushNotification';
 import { decryptPassword, isEncrypted } from '../crypto';
 
 interface UserAgentState {
@@ -21,6 +22,7 @@ interface UserAgentState {
     targets: MonitoringTarget[];
     credentials?: SiteCredentials;
     sessionCookie?: string;
+    fullSession?: any; // ShinagawaSession (keep in memory only)
     isHotMonitoring: boolean;
     hotUntil: number;
     hotTargetId?: string;
@@ -61,7 +63,8 @@ export class UserAgent extends DurableObject<Env> {
             allowedTargets: []
         },
         rateLimitBuckets: {},
-        breakerOpenUntil: 0
+        breakerOpenUntil: 0,
+        // fullSession undefined by default
     };
 
     // Lock for strict serialization
@@ -108,9 +111,43 @@ export class UserAgent extends DurableObject<Env> {
                 return Response.json({ status: 'killed' });
             }
             if (path === '/force-check') {
-                // Manually trigger a check (Wide)
-                await this.checkWide();
-                return Response.json({ status: 'ok' });
+                // Manually trigger a check (Wide) and return result for debugging
+                console.log('[UserAgent] Manual Force Check requested');
+
+                // Active targets
+                const activeTargets = this.memState.targets.filter(t => t.status === 'active');
+                if (activeTargets.length === 0) return Response.json({ status: 'no_active_targets' });
+
+                const target = activeTargets[0];
+                let result: any = { error: 'Unknown' };
+
+                try {
+                    // Inject SafeFetch just in case
+                    this.originalFetcher = globalThis.fetch;
+                    globalThis.fetch = this.safeFetch.bind(this);
+
+                    const session = await this.getSession();
+
+                    if (this.memState.site === 'shinagawa') {
+                        result = await checkShinagawaAvailability(
+                            target.facilityId, target.date, target.timeSlot,
+                            this.memState.credentials!, undefined,
+                            { cookie: session } as any
+                        );
+                    } else {
+                        // Minato
+                        result = await checkMinatoAvailability(
+                            target.facilityId, target.date, target.timeSlot,
+                            this.memState.credentials!, undefined, session
+                        );
+                    }
+                } catch (e: any) {
+                    result = { error: e.message, stack: e.stack };
+                } finally {
+                    if (this.originalFetcher) globalThis.fetch = this.originalFetcher;
+                }
+
+                return Response.json({ status: 'checked', target: `${target.date} ${target.timeSlot}`, result });
             }
             if (path === '/clear-targets' && request.method === 'POST') {
                 const clearedCount = this.memState.targets.length;
@@ -397,7 +434,12 @@ export class UserAgent extends DurableObject<Env> {
         let cookie: string | null = null;
         if (this.memState.site === 'shinagawa') {
             const session = await loginToShinagawa(this.memState.credentials.username, password);
-            cookie = session?.cookie || null;
+            if (session) {
+                this.memState.fullSession = session;
+                cookie = session.cookie;
+            } else {
+                cookie = null;
+            }
         } else {
             // Minato: Manual only policy?
             // If we really want to separate logic, for Minato we might just skip login
@@ -432,7 +474,14 @@ export class UserAgent extends DurableObject<Env> {
         let session: string;
 
         try {
+
             session = await this.getSession();
+
+            // Shinagawa: Ensure full session exists to avoid re-login loops per target in scraper
+            if (this.memState.site === 'shinagawa' && !this.memState.fullSession) {
+                console.log('[UserAgent] 🔄 Refreshing full session for Shinagawa to prevent scraper re-login loop...');
+                session = await this.doLogin();
+            }
 
             for (const target of activeTargets) {
                 // Strict Serialization: 1 target at a time
@@ -442,7 +491,7 @@ export class UserAgent extends DurableObject<Env> {
                         const result = await checkShinagawaAvailability(
                             target.facilityId, target.date, target.timeSlot,
                             this.memState.credentials!, undefined,
-                            { cookie: session } as any // ShinagawaSession mock
+                            this.memState.fullSession || { cookie: session } as any // Use full session if available
                         );
 
                         if (result.available) {
@@ -464,6 +513,11 @@ export class UserAgent extends DurableObject<Env> {
                                 } else {
                                     // Notify user
                                     console.log('[UserAgent] Notify: Available but autoReserve=false');
+                                    await sendPushNotification(this.memState.userId, {
+                                        title: '🎾 空き枠検知',
+                                        body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n現在ステータス: ${result.currentStatus || '○'}`,
+                                        data: { url: 'https://tennis-yoyaku.pages.dev/dashboard' } // Adjust URL as needed
+                                    }, this.env);
                                 }
                             }
                         }
@@ -529,11 +583,18 @@ export class UserAgent extends DurableObject<Env> {
                 const result = await checkShinagawaAvailability(
                     target.facilityId, target.date, target.timeSlot,
                     this.memState.credentials!, undefined,
-                    { cookie: session } as any
+                    this.memState.fullSession || { cookie: session } as any
                 );
 
                 if (result.available && (result.currentStatus === '○' || result.currentStatus === '△')) {
                     console.log('[UserAgent] 🔥 Hot Hit! Booking...');
+                    // Notify about Hot Hit even if booking proceeds
+                    await sendPushNotification(this.memState.userId, {
+                        title: '🔥 空き枠確保開始',
+                        body: `検出しました！自動予約を開始します。\n${target.facilityName}\n${target.timeSlot}`,
+                        badge: '/icons/hot.png'
+                    }, this.env);
+
                     await this.executeReservation(target, session);
                     // Stop Hot
                     this.memState.isHotMonitoring = false;

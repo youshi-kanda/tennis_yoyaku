@@ -556,13 +556,11 @@ export class UserAgent extends DurableObject<Env> {
             this.memState.loginFailures.count++;
             this.memState.loginFailures.lastFailureTime = Date.now();
 
-            console.error(`[UserAgent] ❌ Login failed (${this.memState.loginFailures.count}/5): ${e.message}`);
+            console.error(`[UserAgent] ❌ Login failed: ${e.message}`);
 
-            // Halt after 5 consecutive failures
-            if (this.memState.loginFailures.count >= 5) {
-                this.memState.loginFailures.haltedUntil = Date.now() + 10 * 60 * 1000; // 10 minutes
-                console.error(`[UserAgent] 🚨 Login halted for 10 minutes due to ${this.memState.loginFailures.count} consecutive failures.`);
-            }
+            // Halt immediately after first failure (30 minutes)
+            this.memState.loginFailures.haltedUntil = Date.now() + 30 * 60 * 1000; // 30 minutes
+            console.error(`[UserAgent] 🚨 Login halted for 30 minutes due to login failure. Please check credentials or site status.`);
 
             await this.saveState();
             throw e;

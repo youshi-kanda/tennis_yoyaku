@@ -6,40 +6,6 @@ import { useAuthStore } from '@/lib/stores/authStore';
 import { usePushNotification } from '@/lib/hooks/usePushNotification';
 import { apiClient } from '@/lib/api/client';
 
-interface CollapsibleCardProps {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}
-
-function CollapsibleCard({ title, defaultOpen = false, children }: CollapsibleCardProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  return (
-    <div className="bg-white rounded-lg shadow">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition rounded-lg"
-      >
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-        <svg
-          className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {isOpen && (
-        <div className="px-6 pb-6">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function PasswordChangeSection() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -179,29 +145,14 @@ function PasswordChangeSection() {
 export default function SettingsPage() {
   const { logout } = useLogout();
   const { user } = useAuthStore();
-  const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotification();
+  const { isSubscribed, subscribe, unsubscribe } = usePushNotification();
 
   const [testNotificationStatus, setTestNotificationStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [testNotificationMessage, setTestNotificationMessage] = useState('');
-  const [swStatus, setSwStatus] = useState<string>('checking...');
 
-  // SWの状態を確認
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        if (regs.length === 0) {
-          setSwStatus('未登録');
-        } else {
-          setSwStatus(`${regs.length}個のActive SW: ` + regs.map(r => r.scope).join(', '));
-        }
-      });
-    } else {
-      setSwStatus('非対応');
-    }
-  }, []);
+  const [shinagawaId, setShinagawaId] = useState('');
   const [shinagawaPassword, setShinagawaPassword] = useState('');
   const [shinagawaSessionId, setShinagawaSessionId] = useState('');
-  const [shinagawaManualSessionId, setShinagawaManualSessionId] = useState(''); // 手動入力用
   const [shinagawaSessionUpdated, setShinagawaSessionUpdated] = useState<number | null>(null);
 
   const [minatoId, setMinatoId] = useState('');
@@ -211,10 +162,6 @@ export default function SettingsPage() {
   const [minatoSessionUpdated, setMinatoSessionUpdated] = useState<number | null>(null);
   const [minatoSessionStatus, setMinatoSessionStatus] = useState<string>('expired');
   const [minatoSessionLastChecked, setMinatoSessionLastChecked] = useState<number>(0);
-
-
-
-  const [shinagawaId, setShinagawaId] = useState('');
 
   // 保存済みの設定を読み込む
   useEffect(() => {
@@ -243,7 +190,6 @@ export default function SettingsPage() {
             setMinatoSessionStatus(response.data.minatoSessionStatus);
             setMinatoSessionLastChecked(response.data.minatoSessionLastChecked || 0);
           }
-
         }
       } catch (err) {
         console.error('Failed to load settings:', err);
@@ -251,10 +197,6 @@ export default function SettingsPage() {
     };
     loadSettings();
   }, []);
-
-
-
-
 
   const handleSaveShinagawa = async () => {
     if (!shinagawaId || !shinagawaPassword) {
@@ -276,8 +218,6 @@ export default function SettingsPage() {
     }
   };
 
-
-
   const handleSaveMinatoManualSession = async () => {
     if (!minatoManualSessionId) {
       alert('セッションIDを入力してください');
@@ -297,28 +237,6 @@ export default function SettingsPage() {
       alert(`保存に失敗しました: ${err.message}`);
     }
   };
-
-  const handleSaveMinato = async () => {
-    if (!minatoId || !minatoPassword) {
-      alert('利用者IDとパスワードを入力してください');
-      return;
-    }
-
-    try {
-      await apiClient.saveSettings({
-        minato: {
-          username: minatoId,
-          password: minatoPassword,
-        },
-      });
-      alert('港区の認証情報を保存しました');
-    } catch (err: any) {
-      console.error('Save error:', err);
-      alert(`保存に失敗しました: ${err.message}`);
-    }
-  };
-
-
 
   const handleTogglePush = async () => {
     if (isSubscribed) {
@@ -349,47 +267,23 @@ export default function SettingsPage() {
     }
   };
 
-  // ローカル通知テスト（バックエンドを経由しない）
-
-
-  // 古いSWを削除してリロード
-
-
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">設定</h1>
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-12 pb-20">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-gray-900">設定</h1>
+      </div>
 
-
-
-      <div className="space-y-4">
-        {/* アカウント情報 */}
-        <CollapsibleCard title="アカウント情報" defaultOpen={true}>
-          <div className="space-y-3 mt-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                メールアドレス
-              </label>
-              <p className="text-gray-900">{user?.email || 'guest@example.com'}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                ロール
-              </label>
-              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${user?.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
-                }`}>
-                {user?.role === 'admin' ? '管理者' : '一般ユーザー'}
-              </span>
-            </div>
-          </div>
-        </CollapsibleCard>
-
-        {/* 通知設定 */}
-        <CollapsibleCard title="通知設定">
-          <div className="mt-4 space-y-4">
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+      {/* 通知設定 */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          🔔 通知設定
+        </h2>
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-900">プッシュ通知</p>
-                <p className="text-xs text-gray-500">空き枠検知時にお知らせします</p>
+                <p className="text-base font-medium text-gray-900">プッシュ通知</p>
+                <p className="text-sm text-gray-500">空き枠検知時にお知らせします</p>
               </div>
               <button
                 onClick={handleTogglePush}
@@ -399,118 +293,101 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            <div className="pt-4 border-t border-gray-100">
+            <div className="pt-6 border-t border-gray-100">
               <button
                 onClick={handleTestNotification}
                 disabled={!isSubscribed || testNotificationStatus === 'sending'}
-                className="w-full px-4 py-2 border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto px-6 py-2 border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {testNotificationStatus === 'sending' ? '送信中...' : '🔔 テスト通知を送信'}
               </button>
               {testNotificationMessage && (
-                <p className={`mt-2 text-xs text-center ${testNotificationStatus === 'error' ? 'text-red-600' : 'text-green-600'}`}>
+                <p className={`mt-2 text-sm ${testNotificationStatus === 'error' ? 'text-red-600' : 'text-green-600'}`}>
                   {testNotificationMessage}
                 </p>
               )}
             </div>
           </div>
-        </CollapsibleCard>
+        </div>
+      </section>
 
-        {/* パスワード変更 */}
-        <CollapsibleCard title="パスワード変更">
-          <div className="mt-4">
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                💡 初回ログイン後は、セキュリティのため必ずパスワードを変更してください
-              </p>
-            </div>
-            <PasswordChangeSection />
-          </div>
-        </CollapsibleCard>
+      {/* 予約サイト設定 */}
+      <section className="space-y-6">
+        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          🎾 予約サイト認証
+        </h2>
 
-        {/* 品川区認証情報設定 */}
-        <CollapsibleCard title="品川区設定（ID/パスワード）" defaultOpen={true}>
-          <div className="mt-4 space-y-4">
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+        {/* 品川区 */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <span className="w-2 h-6 bg-emerald-500 rounded-full"></span>
+            品川区 (ID/パスワード)
+          </h3>
+          <div className="space-y-4">
+            <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
               <p className="text-sm text-emerald-800">
-                💡 IDとパスワードを設定すると、システムが自動でログインして空き状況を確認します。
+                システムが自動でログインして空き状況を確認します。
               </p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                利用者ID
-              </label>
-              <input
-                type="text"
-                value={shinagawaId}
-                onChange={(e) => setShinagawaId(e.target.value)}
-                placeholder="84005349"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                パスワード
-              </label>
-              <input
-                type="password"
-                value={shinagawaPassword}
-                onChange={(e) => setShinagawaPassword(e.target.value)}
-                placeholder="パスワードを入力"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-              />
-            </div>
-
-            <button
-              onClick={handleSaveShinagawa}
-              className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
-            >
-              保存する
-            </button>
-
-            {shinagawaId && (
-              <div className="mt-2 text-xs text-green-600 font-medium">
-                ✓ 設定済み
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  利用者ID
+                </label>
+                <input
+                  type="text"
+                  value={shinagawaId}
+                  onChange={(e) => setShinagawaId(e.target.value)}
+                  placeholder="8400..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
               </div>
-            )}
-          </div>
-        </CollapsibleCard>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  パスワード
+                </label>
+                <input
+                  type="password"
+                  value={shinagawaPassword}
+                  onChange={(e) => setShinagawaPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+                />
+              </div>
+            </div>
 
-        {/* 港区認証情報設定 */}
-        {/* 港区認証情報設定 */}
-        <CollapsibleCard title="港区設定（手動ログイン必須）">
-
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-red-800 font-medium mb-2">
-              ⚠️ reCAPTCHA対応のためセッション方式必須
-            </p>
-            <p className="text-xs text-gray-700">
-              港区サイトはreCAPTCHA（「私はロボットではありません」チェック）を実装しているため、自動ログインができません。
-              セッション方式のみ対応しています。
-            </p>
+            <div className="flex items-center justify-between pt-2">
+              {shinagawaId ? (
+                <div className="text-sm text-green-600 font-medium flex items-center gap-1">
+                  ✓ 設定済み
+                </div>
+              ) : <div></div>}
+              <button
+                onClick={handleSaveShinagawa}
+                className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
+              >
+                保存する
+              </button>
+            </div>
           </div>
+        </div>
+
+        {/* 港区 */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <span className="w-2 h-6 bg-red-500 rounded-full"></span>
+            港区 (手動セッション)
+          </h3>
 
           <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-blue-900 mb-2">セットアップ手順</p>
-              <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
-                <li>
-                  <a
-                    href="https://web101.rsv.ws-scs.jp/web/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-emerald-600 underline hover:text-emerald-700"
-                  >
-                    港区予約サイト
-                  </a>
-                  をPC/スマホで開く
-                </li>
-                <li>利用者IDとパスワードでログインし、画像のパズル認証(reCAPTCHA)を通す</li>
-                <li>ログイン後の画面で、開発者ツール等を使って `JSESSIONID` クッキーの値をコピーする</li>
-                <li>下の入力欄に貼り付けて保存する</li>
-              </ol>
+            <div className="bg-red-50 border border-red-100 rounded-lg p-4">
+              <p className="text-sm text-red-800 font-medium mb-1">
+                ⚠️ reCAPTCHA対応のためセッション方式必須
+              </p>
+              <p className="text-xs text-gray-700 leading-relaxed">
+                ログイン後にブラウザの開発者ツール等で <code>JSESSIONID</code> を取得し、手動で更新してください。有効期限が切れると監視が止まります。
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -522,13 +399,13 @@ export default function SettingsPage() {
                   type="text"
                   value={minatoManualSessionId}
                   onChange={(e) => setMinatoManualSessionId(e.target.value)}
-                  placeholder="例: 0000abcde..."
+                  placeholder="0000abcde..."
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 />
                 <button
                   onClick={handleSaveMinatoManualSession}
                   disabled={!minatoManualSessionId}
-                  className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   保存
                 </button>
@@ -547,42 +424,59 @@ export default function SettingsPage() {
                     </span>
                   )}
                 </div>
-
                 <p className="text-xs text-gray-600 mt-1 font-mono">
                   ID: {minatoSessionId.substring(0, 20)}...
                 </p>
-
                 {minatoSessionLastChecked > 0 && (
-                  <div className="mt-2 text-xs flex gap-4">
-                    <p className="text-gray-500">
-                      最終利用: {new Date(minatoSessionLastChecked).toLocaleString('ja-JP')}
-                    </p>
-                  </div>
-                )}
-
-                {minatoSessionStatus !== 'valid' && (
-                  <p className="text-xs text-red-600 mt-2 font-bold">
-                    ※ 監視・予約を行うには、上部のボタンからセッションを再取得してください。
+                  <p className="text-xs text-gray-500 mt-2">
+                    最終確認: {new Date(minatoSessionLastChecked).toLocaleString('ja-JP')}
                   </p>
                 )}
               </div>
             )}
           </div>
+        </div>
+      </section>
 
-          {/* ID/Password inputs removed as they are not supported for Minato due to reCAPTCHA */}
-        </CollapsibleCard>
+      {/* アカウント・システム */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          👤 アカウント設定
+        </h2>
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-8">
 
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div>
+              <p className="text-sm font-medium text-gray-500 mb-1">ログイン中のメールアドレス</p>
+              <p className="text-base font-medium text-gray-900">{user?.email || 'guest@example.com'}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500 mb-1">権限ロール</p>
+              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${user?.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                {user?.role === 'admin' ? '管理者' : '一般ユーザー'}
+              </span>
+            </div>
+          </div>
 
+          <div className="border-t pt-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">パスワード変更</h3>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <PasswordChangeSection />
+            </div>
+          </div>
+        </div>
+      </section>
 
-        {/* ログアウト */}
-        <CollapsibleCard title="ログアウト">
-          <button
-            onClick={logout}
-            className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
-          >
-            ログアウト
-          </button>
-        </CollapsibleCard>
+      <div className="pt-8 border-t flex justify-center">
+        <button
+          onClick={logout}
+          className="text-red-600 hover:text-red-700 font-medium text-sm flex items-center gap-2 px-4 py-2 hover:bg-red-50 rounded-lg transition"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+          ログアウトする
+        </button>
       </div>
     </div>
   );

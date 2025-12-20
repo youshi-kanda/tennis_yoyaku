@@ -260,57 +260,9 @@ export default function SettingsPage() {
     loadSettings();
   }, []);
 
-  const handleGetShinagawaSession = async () => {
-    try {
-      // Cookie Store APIでJSESSIONIDを取得
-      if (!('cookieStore' in window)) {
-        alert('このブラウザはCookie Store APIに対応していません。Chrome/Edge の最新版をお使いください。');
-        return;
-      }
 
-      const cookies = await (window as any).cookieStore.getAll();
-      const jsessionCookie = cookies.find(
-        (c: any) => c.name === 'JSESSIONID' && c.domain?.includes('cm9.eprs.jp')
-      );
 
-      if (!jsessionCookie) {
-        alert('品川区サイトのセッションが見つかりません。先に品川区サイトでログインしてください。');
-        window.open('https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do', '_blank');
-        return;
-      }
 
-      await apiClient.saveSettings({
-        shinagawaSessionId: jsessionCookie.value,
-      });
-
-      setShinagawaSessionId(jsessionCookie.value);
-      setShinagawaSessionUpdated(Date.now());
-      alert('品川区のセッションIDを保存しました');
-    } catch (err: any) {
-      console.error('Session fetch error:', err);
-      alert(`セッション取得に失敗しました: ${err.message}`);
-    }
-  };
-
-  const handleSaveShinagawaManualSession = async () => {
-    if (!shinagawaManualSessionId) {
-      alert('セッションIDを入力してください');
-      return;
-    }
-
-    try {
-      await apiClient.saveSettings({
-        shinagawaSessionId: shinagawaManualSessionId,
-      });
-      setShinagawaSessionId(shinagawaManualSessionId);
-      setShinagawaSessionUpdated(Date.now());
-      setShinagawaManualSessionId('');
-      alert('品川区のセッションIDを保存しました');
-    } catch (err: any) {
-      console.error('Save error:', err);
-      alert(`保存に失敗しました: ${err.message}`);
-    }
-  };
 
   const handleSaveShinagawa = async () => {
     if (!shinagawaId || !shinagawaPassword) {
@@ -332,37 +284,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleGetMinatoSession = async () => {
-    try {
-      // Cookie Store APIでJSESSIONIDを取得
-      if (!('cookieStore' in window)) {
-        alert('このブラウザはCookie Store APIに対応していません。Chrome/Edge の最新版をお使いください。');
-        return;
-      }
 
-      const cookies = await (window as any).cookieStore.getAll();
-      const jsessionCookie = cookies.find(
-        (c: any) => c.name === 'JSESSIONID' && c.domain?.includes('rsv.ws-scs.jp')
-      );
-
-      if (!jsessionCookie) {
-        alert('港区サイトのセッションが見つかりません。先に港区サイトでログインしてください。');
-        window.open('https://web101.rsv.ws-scs.jp/web/', '_blank');
-        return;
-      }
-
-      await apiClient.saveSettings({
-        minatoSessionId: jsessionCookie.value,
-      });
-
-      setMinatoSessionId(jsessionCookie.value);
-      setMinatoSessionUpdated(Date.now());
-      alert('港区のセッションIDを保存しました');
-    } catch (err: any) {
-      console.error('Session fetch error:', err);
-      alert(`セッション取得に失敗しました: ${err.message}`);
-    }
-  };
 
   const handleSaveMinatoManualSession = async () => {
     if (!minatoManualSessionId) {
@@ -449,60 +371,16 @@ export default function SettingsPage() {
   };
 
   // ローカル通知テスト（バックエンドを経由しない）
-  const handleLocalNotificationCheck = async () => {
-    try {
-      if (!('serviceWorker' in navigator)) {
-        alert('Service Worker非対応です');
-        return;
-      }
 
-      const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification('ローカルテスト通知', {
-        body: 'これは端末内部から直接送信されたテスト通知です。\nこれが表示されない場合、端末の通知設定がオフになっています。',
-        icon: '/icon-192x192.png',
-        tag: 'local-test-' + Date.now(),
-      });
-      alert('ローカル通知を送信命令を出しました。通知が表示されたか確認してください。');
-    } catch (e: any) {
-      console.error(e);
-      alert(`ローカル通知エラー: ${e.message}`);
-    }
-  };
 
   // 古いSWを削除してリロード
-  const handleForceUnregister = async () => {
-    if (!confirm('通知システムをリセットします。よろしいですか？')) return;
 
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      for (const registration of registrations) {
-        await registration.unregister();
-        console.log('Unregistered SW:', registration.scope);
-      }
-      alert('リセット完了。ページをリロードします。');
-      window.location.reload();
-    }
-  };
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">設定</h1>
 
-      {/* デバッグ情報（管理者またはデバッグ時のみ表示推奨だが、トラブルシューティングのため表示） */}
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg text-xs font-mono text-gray-600 border border-gray-200">
-        <p className="font-bold mb-1">🔍 通知デバッグ情報</p>
-        <p>SW Status: {swStatus}</p>
-        <p>Supported: {isSupported ? 'YES' : 'NO'}</p>
-        <p>Subscribed: {isSubscribed ? 'YES' : 'NO'}</p>
-        <div className="mt-2 flex gap-2">
-          <button onClick={handleLocalNotificationCheck} className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
-            📱 ローカル通知テスト (SW直接)
-          </button>
-          <button onClick={handleForceUnregister} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded">
-            🗑️ 通知システムリセット (SW削除)
-          </button>
-        </div>
-      </div>
+
 
       <div className="space-y-4">
         {/* アカウント情報 */}
@@ -526,6 +404,39 @@ export default function SettingsPage() {
           </div>
         </CollapsibleCard>
 
+        {/* 通知設定 */}
+        <CollapsibleCard title="通知設定">
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-gray-900">プッシュ通知</p>
+                <p className="text-xs text-gray-500">空き枠検知時にお知らせします</p>
+              </div>
+              <button
+                onClick={handleTogglePush}
+                className={`relative inline-flex h-8 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${isSubscribed ? 'bg-emerald-600' : 'bg-gray-200'}`}
+              >
+                <span className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isSubscribed ? 'translate-x-6' : 'translate-x-0'}`} />
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-gray-100">
+              <button
+                onClick={handleTestNotification}
+                disabled={!isSubscribed || testNotificationStatus === 'sending'}
+                className="w-full px-4 py-2 border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testNotificationStatus === 'sending' ? '送信中...' : '🔔 テスト通知を送信'}
+              </button>
+              {testNotificationMessage && (
+                <p className={`mt-2 text-xs text-center ${testNotificationStatus === 'error' ? 'text-red-600' : 'text-green-600'}`}>
+                  {testNotificationMessage}
+                </p>
+              )}
+            </div>
+          </div>
+        </CollapsibleCard>
+
         {/* パスワード変更 */}
         <CollapsibleCard title="パスワード変更">
           <div className="mt-4">
@@ -539,161 +450,58 @@ export default function SettingsPage() {
         </CollapsibleCard>
 
         {/* 品川区認証情報設定 */}
-        <CollapsibleCard title="品川区予約サイト セッション設定（推奨）">
+        <CollapsibleCard title="品川区設定（ID/パスワード）" defaultOpen={true}>
+          <div className="mt-4 space-y-4">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+              <p className="text-sm text-emerald-800">
+                💡 IDとパスワードを設定すると、システムが自動でログインして空き状況を確認します。
+              </p>
+            </div>
 
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-emerald-800 font-medium mb-2">
-              ✨ セッション方式（推奨）
-            </p>
-            <p className="text-xs text-gray-700">
-              将来的なreCAPTCHA導入にも対応できる方式です。手動ログイン後にセッションを取得するだけで監視・予約が可能になります。
-            </p>
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                利用者ID
+              </label>
+              <input
+                type="text"
+                value={shinagawaId}
+                onChange={(e) => setShinagawaId(e.target.value)}
+                placeholder="84005349"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+              />
+            </div>
 
-          <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-blue-900 mb-2">セットアップ手順</p>
-              <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
-                <li>
-                  <a
-                    href="https://www.cm9.eprs.jp/shinagawa/web/rsvWTransUserLoginAction.do"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-emerald-600 underline hover:text-emerald-700"
-                  >
-                    品川区予約サイト
-                  </a>
-                  を新しいタブで開く
-                </li>
-                <li>利用者IDとパスワードを入力してログイン</li>
-                <li>ログイン成功後、下の「セッション取得」ボタンをクリック</li>
-              </ol>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                パスワード
+              </label>
+              <input
+                type="password"
+                value={shinagawaPassword}
+                onChange={(e) => setShinagawaPassword(e.target.value)}
+                placeholder="パスワードを入力"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
+              />
             </div>
 
             <button
-              onClick={handleGetShinagawaSession}
-              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium flex items-center justify-center gap-2"
+              onClick={handleSaveShinagawa}
+              className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              自動取得（PC Chrome/Edge推奨）
+              保存する
             </button>
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center">
-                <span className="px-2 bg-white text-sm text-gray-500">または手動入力（iPhone/Safari等）</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                セッションID (JSESSIONID)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={shinagawaManualSessionId}
-                  onChange={(e) => setShinagawaManualSessionId(e.target.value)}
-                  placeholder="ここにJSESSIONIDを貼り付け"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                />
-                <button
-                  onClick={handleSaveShinagawaManualSession}
-                  disabled={!shinagawaManualSessionId}
-                  className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  保存
-                </button>
-              </div>
-              <p className="text-xs text-gray-500">
-                ※ 開発者ツール等で `JSESSIONID` クッキーの値を確認して入力してください
-              </p>
-            </div>
-
-            {shinagawaSessionId && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800 font-medium">
-                  ✓ セッションID設定済み
-                </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  セッションID: {shinagawaSessionId.substring(0, 20)}...
-                </p>
-                {shinagawaSessionUpdated && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    最終更新: {new Date(shinagawaSessionUpdated).toLocaleString('ja-JP')}
-                  </p>
-                )}
+            {shinagawaId && (
+              <div className="mt-2 text-xs text-green-600 font-medium">
+                ✓ 設定済み
               </div>
             )}
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">
-              ID/パスワード方式（非推奨・後方互換性のみ）
-            </h3>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-              <p className="text-xs text-yellow-800">
-                ⚠️ この方式は将来のreCAPTCHA導入時に動作しなくなる可能性があります。上記のセッション方式を推奨します。
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  利用者ID
-                </label>
-                <input
-                  type="text"
-                  value={shinagawaId}
-                  onChange={(e) => setShinagawaId(e.target.value)}
-                  placeholder="84005349"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  パスワード
-                </label>
-                <input
-                  type="password"
-                  value={shinagawaPassword}
-                  onChange={(e) => setShinagawaPassword(e.target.value)}
-                  placeholder="パスワードを入力"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  パスワードは暗号化して安全に保存されます
-                </p>
-              </div>
-
-              <button
-                onClick={handleSaveShinagawa}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
-              >
-                保存
-              </button>
-
-              {shinagawaId && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <p className="text-sm text-green-800 font-medium">
-                    ✓ 認証情報設定済み
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    ログインに失敗する場合はプッシュ通知でお知らせします
-                  </p>
-                </div>
-              )}
-            </div>
           </div>
         </CollapsibleCard>
 
         {/* 港区認証情報設定 */}
-        <CollapsibleCard title="港区予約サイト セッション設定">
+        {/* 港区認証情報設定 */}
+        <CollapsibleCard title="港区設定（手動ログイン必須）">
 
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
             <p className="text-sm text-red-800 font-medium mb-2">
@@ -718,31 +526,12 @@ export default function SettingsPage() {
                   >
                     港区予約サイト
                   </a>
-                  を新しいタブで開く
+                  をPC/スマホで開く
                 </li>
-                <li>利用者IDとパスワードを入力</li>
-                <li className="font-medium text-red-700">reCAPTCHA（「私はロボットではありません」）をチェック</li>
-                <li>ログイン成功後、下の「セッション取得」ボタンをクリック</li>
+                <li>利用者IDとパスワードでログインし、画像のパズル認証(reCAPTCHA)を通す</li>
+                <li>ログイン後の画面で、開発者ツール等を使って `JSESSIONID` クッキーの値をコピーする</li>
+                <li>下の入力欄に貼り付けて保存する</li>
               </ol>
-            </div>
-
-            <button
-              onClick={handleGetMinatoSession}
-              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium flex items-center justify-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              自動取得（PC Chrome/Edge推奨）
-            </button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center">
-                <span className="px-2 bg-white text-sm text-gray-500">または手動入力（iPhone/Safari等）</span>
-              </div>
             </div>
 
             <div className="space-y-2">
@@ -754,7 +543,7 @@ export default function SettingsPage() {
                   type="text"
                   value={minatoManualSessionId}
                   onChange={(e) => setMinatoManualSessionId(e.target.value)}
-                  placeholder="ここにJSESSIONIDを貼り付け"
+                  placeholder="例: 0000abcde..."
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
                 />
                 <button
@@ -765,9 +554,6 @@ export default function SettingsPage() {
                   保存
                 </button>
               </div>
-              <p className="text-xs text-gray-500">
-                ※ 開発者ツール等で `JSESSIONID` クッキーの値を確認して入力してください
-              </p>
             </div>
 
             {minatoSessionId && (

@@ -37,7 +37,6 @@ export default function AdminMaintenancePage() {
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [checkingTargetId, setCheckingTargetId] = useState<string | null>(null);
-  const [checkingTargetId, setCheckingTargetId] = useState<string | null>(null);
   const { subscribe, isSupported } = usePushNotification();
 
   // New States for Enhancement

@@ -4323,8 +4323,27 @@ async function handleAdminMaintenanceStatus(request: Request, env: Env): Promise
   try {
     await requireAdmin(request, env.JWT_SECRET);
 
-    const isEnabled = env.MAINTENANCE_MODE === 'true';
-    const message = env.MAINTENANCE_MESSAGE || 'システムメンテナンス中です。';
+    // KVから実際のメンテナンス状態を取得（UserAgentが参照している実データ）
+    const maintenanceVal = await env.MONITORING.get('SYSTEM:MAINTENANCE');
+    let isEnabled = false;
+    let message = 'システムメンテナンス中です。';
+    let whitelist: string[] = [];
+
+    if (maintenanceVal) {
+      try {
+        const m = JSON.parse(maintenanceVal) as { enabled: boolean; message?: string; whitelist?: string[] };
+        if (m && m.enabled === true) {
+          isEnabled = true;
+          message = m.message || message;
+          whitelist = m.whitelist || [];
+        }
+      } catch (e) {
+        // 古い形式（文字列 "true"）の場合
+        if (maintenanceVal === 'true') {
+          isEnabled = true;
+        }
+      }
+    }
 
     // 一時停止中の監視対象数を取得
     const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
@@ -4350,7 +4369,8 @@ async function handleAdminMaintenanceStatus(request: Request, env: Env): Promise
     return jsonResponse({
       maintenanceMode: {
         enabled: isEnabled,
-        message: message
+        message: message,
+        whitelist: whitelist
       },
       monitoring: {
         total: totalTargets,

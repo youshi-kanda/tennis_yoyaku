@@ -227,10 +227,12 @@ export class UserAgent extends DurableObject<Env> {
                         const m = JSON.parse(maintenanceVal) as { enabled: boolean; whitelist?: string[] };
                         if (m && m.enabled === true) {
                             // Whitelist check
+                            console.log(`[UserAgent] 🔍 Debug: userId="${this.memState.userId}", whitelist=${JSON.stringify(m.whitelist)}`);
                             if (m.whitelist && Array.isArray(m.whitelist) && m.whitelist.includes(this.memState.userId)) {
                                 console.log(`[UserAgent] 🛡️ Whitelisted user ${this.memState.userId} bypassing maintenance.`);
                                 isMaintenance = false;
                             } else {
+                                console.log(`[UserAgent] 🚫 User ${this.memState.userId} NOT in whitelist`);
                                 isMaintenance = true;
                             }
                         }

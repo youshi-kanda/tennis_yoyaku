@@ -31,6 +31,13 @@ interface UserAgentState {
     safety: SafetyConfig;
     rateLimitBuckets: Record<string, number>; // epochSec -> count
     breakerOpenUntil: number; // 0 = closed, >0 = open until timestamp
+
+    // Login Failure Tracking
+    loginFailures: {
+        count: number;           // Consecutive failure count
+        lastFailureTime: number; // Last failure timestamp
+        haltedUntil: number;     // Halt until timestamp (0 = not halted)
+    };
 }
 
 export interface SafetyConfig {
@@ -64,6 +71,11 @@ export class UserAgent extends DurableObject<Env> {
         },
         rateLimitBuckets: {},
         breakerOpenUntil: 0,
+        loginFailures: {
+            count: 0,
+            lastFailureTime: 0,
+            haltedUntil: 0
+        },
         // fullSession undefined by default
     };
 
@@ -247,6 +259,21 @@ export class UserAgent extends DurableObject<Env> {
                 // Check again in 1 min
                 await this.state.storage.setAlarm(Date.now() + 60 * 1000);
                 return;
+            }
+
+            // 🛑 Login Halt Check
+            if (this.memState.loginFailures.haltedUntil > now) {
+                const minutesLeft = Math.ceil((this.memState.loginFailures.haltedUntil - now) / 60000);
+                console.log(`[UserAgent] 🛑 Login halted (${minutesLeft} minutes remaining). Skipping checks.`);
+                await this.state.storage.setAlarm(Date.now() + 60 * 1000);
+                return;
+            }
+
+            // Auto-reset halt if expired
+            if (this.memState.loginFailures.haltedUntil > 0 && this.memState.loginFailures.haltedUntil <= now) {
+                console.log(`[UserAgent] ✅ Login halt expired, resetting failure counter.`);
+                this.memState.loginFailures = { count: 0, lastFailureTime: 0, haltedUntil: 0 };
+                await this.saveState();
             }
 
             if (this.memState.isHotMonitoring) {
@@ -485,39 +512,63 @@ export class UserAgent extends DurableObject<Env> {
     private async doLogin(): Promise<string> {
         if (!this.memState.credentials) throw new Error('No credentials');
 
+        // Login Halt Check
+        if (this.memState.loginFailures.haltedUntil > Date.now()) {
+            const minutesLeft = Math.ceil((this.memState.loginFailures.haltedUntil - Date.now()) / 60000);
+            throw new Error(`LOGIN_HALTED: Too many failures. Retry after ${minutesLeft} minutes.`);
+        }
+
         console.log(`[UserAgent:${this.memState.site}] Logging in...`);
-        let password = this.memState.credentials.password;
-        if (isEncrypted(password)) {
-            password = await decryptPassword(password, this.env.ENCRYPTION_KEY);
-        }
 
-        let cookie: string | null = null;
-        if (this.memState.site === 'shinagawa') {
-            const session = await loginToShinagawa(this.memState.credentials.username, password);
-            if (session) {
-                this.memState.fullSession = session;
-                cookie = session.cookie;
-            } else {
-                cookie = null;
+        try {
+            let password = this.memState.credentials.password;
+            if (isEncrypted(password)) {
+                password = await decryptPassword(password, this.env.ENCRYPTION_KEY);
             }
-        } else {
-            // Minato: Manual only policy?
-            // If we really want to separate logic, for Minato we might just skip login
-            // OR allow login if NO reCAPTCHA is active (unlikely).
-            // Proposal says: "Minato ... reCAPTCHA ... stop or notify".
-            // We can TRY login, if fail due to captcha, we stop.
-            // Minato scraper loginToMinato handles normal login.
-            cookie = await loginToMinato(this.memState.credentials.username, password);
-        }
 
-        if (!cookie) {
-            throw new Error('Login failed');
-        }
+            let cookie: string | null = null;
+            if (this.memState.site === 'shinagawa') {
+                const session = await loginToShinagawa(this.memState.credentials.username, password);
+                if (session) {
+                    this.memState.fullSession = session;
+                    cookie = session.cookie;
+                } else {
+                    throw new Error('Login failed: Invalid credentials or account locked');
+                }
+            } else {
+                throw new Error('MINATO_LOGIN_REQUIRED: Manual login required');
+            }
 
-        this.memState.sessionCookie = cookie;
-        await this.saveState();
-        return cookie;
+            // Login Success: Reset failure counter
+            this.memState.loginFailures = {
+                count: 0,
+                lastFailureTime: 0,
+                haltedUntil: 0
+            };
+            this.memState.sessionCookie = cookie;
+            await this.saveState();
+
+            console.log(`[UserAgent:${this.memState.site}] ✅ Login successful`);
+            return cookie;
+
+        } catch (e: any) {
+            // Login Failure: Increment counter
+            this.memState.loginFailures.count++;
+            this.memState.loginFailures.lastFailureTime = Date.now();
+
+            console.error(`[UserAgent] ❌ Login failed (${this.memState.loginFailures.count}/5): ${e.message}`);
+
+            // Halt after 5 consecutive failures
+            if (this.memState.loginFailures.count >= 5) {
+                this.memState.loginFailures.haltedUntil = Date.now() + 10 * 60 * 1000; // 10 minutes
+                console.error(`[UserAgent] 🚨 Login halted for 10 minutes due to ${this.memState.loginFailures.count} consecutive failures.`);
+            }
+
+            await this.saveState();
+            throw e;
+        }
     }
+
 
     private async checkWide() {
         console.log(`[UserAgent:${this.memState.site}] 🌍 Check Wide (${this.memState.targets.length} targets)`);

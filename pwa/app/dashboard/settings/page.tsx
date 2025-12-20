@@ -212,10 +212,7 @@ export default function SettingsPage() {
   const [minatoSessionStatus, setMinatoSessionStatus] = useState<string>('expired');
   const [minatoSessionLastChecked, setMinatoSessionLastChecked] = useState<number>(0);
 
-  const [reservationLimits, setReservationLimits] = useState({
-    perWeek: 0,  // 0 = 制限なし
-    perMonth: 0, // 0 = 制限なし
-  });
+
 
   const [shinagawaId, setShinagawaId] = useState('');
 
@@ -246,12 +243,7 @@ export default function SettingsPage() {
             setMinatoSessionStatus(response.data.minatoSessionStatus);
             setMinatoSessionLastChecked(response.data.minatoSessionLastChecked || 0);
           }
-          if (response.data.reservationLimits) {
-            setReservationLimits({
-              perWeek: response.data.reservationLimits.perWeek || 0,
-              perMonth: response.data.reservationLimits.perMonth || 0,
-            });
-          }
+
         }
       } catch (err) {
         console.error('Failed to load settings:', err);
@@ -326,20 +318,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveReservationLimits = async () => {
-    try {
-      await apiClient.saveSettings({
-        reservationLimits: {
-          perWeek: reservationLimits.perWeek > 0 ? reservationLimits.perWeek : undefined,
-          perMonth: reservationLimits.perMonth > 0 ? reservationLimits.perMonth : undefined,
-        },
-      });
-      alert('予約上限設定を保存しました');
-    } catch (err) {
-      console.error('Save error:', err);
-      alert('保存に失敗しました');
-    }
-  };
+
 
   const handleTogglePush = async () => {
     if (isSubscribed) {
@@ -593,132 +572,7 @@ export default function SettingsPage() {
           {/* ID/Password inputs removed as they are not supported for Minato due to reCAPTCHA */}
         </CollapsibleCard>
 
-        {/* 予約上限設定 */}
-        <CollapsibleCard title="予約上限設定">
-          <div className="space-y-4">
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
-              <p className="text-sm text-blue-800">
-                💡 予約しすぎを防ぐために、週・月の予約回数に上限を設定できます。
-                上限に達した場合、監視は継続しますが自動予約は停止します。
-              </p>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                週あたりの予約上限
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min="0"
-                  value={reservationLimits.perWeek}
-                  onChange={(e) => setReservationLimits({ ...reservationLimits, perWeek: parseInt(e.target.value) || 0 })}
-                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                />
-                <span className="text-sm text-gray-600">
-                  回 / 週 {reservationLimits.perWeek === 0 && '（制限なし）'}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                0に設定すると制限なし。例: 週2回までなら「2」と入力
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                月あたりの予約上限
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min="0"
-                  value={reservationLimits.perMonth}
-                  onChange={(e) => setReservationLimits({ ...reservationLimits, perMonth: parseInt(e.target.value) || 0 })}
-                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                />
-                <span className="text-sm text-gray-600">
-                  回 / 月 {reservationLimits.perMonth === 0 && '（制限なし）'}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                0に設定すると制限なし。例: 月8回までなら「8」と入力
-              </p>
-            </div>
-
-            <button
-              onClick={handleSaveReservationLimits}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
-            >
-              予約上限を保存
-            </button>
-
-            {(reservationLimits.perWeek > 0 || reservationLimits.perMonth > 0) && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-                <p className="text-sm text-emerald-800 font-medium">
-                  ✓ 設定中:
-                  {reservationLimits.perWeek > 0 && ` 週${reservationLimits.perWeek}回まで`}
-                  {reservationLimits.perWeek > 0 && reservationLimits.perMonth > 0 && ' / '}
-                  {reservationLimits.perMonth > 0 && ` 月${reservationLimits.perMonth}回まで`}
-                </p>
-              </div>
-            )}
-          </div>
-        </CollapsibleCard>
-
-        {/* 通知設定 */}
-        <CollapsibleCard title="通知設定">
-
-          {!isSupported ? (
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-sm text-yellow-800">
-                このブラウザはプッシュ通知に対応していません
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                    プッシュ通知
-                    {isSubscribed && (
-                      <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
-                        有効
-                      </span>
-                    )}
-                  </h3>
-                  <p className="text-sm text-gray-600">空きが見つかった際に通知を受け取る</p>
-                </div>
-                <button
-                  onClick={handleTogglePush}
-                  disabled={isLoading}
-                  className={`px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${isSubscribed
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                    }`}
-                >
-                  {isLoading ? '処理中...' : isSubscribed ? '無効にする' : '有効にする'}
-                </button>
-              </div>
-
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
-              )}
-
-              {isSubscribed && (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-                  <p className="text-sm text-emerald-800 font-medium mb-2">
-                    ✓ プッシュ通知が有効です
-                  </p>
-                  <p className="text-xs text-emerald-700">
-                    テニスコートに空きが見つかった際、リアルタイムで通知されます
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </CollapsibleCard>
 
         {/* ログアウト */}
         <CollapsibleCard title="ログアウト">

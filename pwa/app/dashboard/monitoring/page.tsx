@@ -802,8 +802,8 @@ export default function MonitoringPage() {
     setCurrentStep(currentStep - 1);
   };
 
-  const canProceedStep1 = config.timeSlots.length > 0;
-  const canProceedStep2 = config.selectedFacilities.length > 0;
+  const canProceedStep1 = config.selectedFacilities.length > 0;
+  const canProceedStep2 = true; // 日時はデフォルト値が入っているため常に進行可能
 
   return (
     <div className="max-w-4xl mx-auto">

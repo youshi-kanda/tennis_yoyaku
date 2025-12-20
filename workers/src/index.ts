@@ -798,6 +798,16 @@ export default {
         return handleAdminReservations(request, env);
       }
 
+      // 拡張監視管理API
+      if (path === '/api/admin/monitoring/detail') {
+        return handleAdminMonitoringDetail(request, env);
+      }
+
+      if (path.startsWith('/api/admin/monitoring/') && request.method === 'DELETE') {
+        // format: /api/admin/monitoring/:userId or /api/admin/monitoring/:userId/:targetId
+        return handleAdminDeleteMonitoring(request, env, path);
+      }
+
       if (path === '/api/admin/users/create' && request.method === 'POST') {
         return handleAdminCreateUser(request, env);
       }
@@ -4365,13 +4375,15 @@ async function handleAdminMaintenanceEnable(request: Request, env: Env): Promise
   try {
     await requireAdmin(request, env.JWT_SECRET);
 
-    const body = await request.json() as { message?: string };
+    const body = await request.json() as { message?: string; whitelist?: string[] };
     const message = body.message || 'システムメンテナンス中です。しばらくお待ちください。';
+    const whitelist = body.whitelist || [];
 
     // KVにメンテナンス状態を保存（動的切り替え用）
     await env.MONITORING.put('SYSTEM:MAINTENANCE', JSON.stringify({
       enabled: true,
       message: message,
+      whitelist: whitelist,
       enabledAt: Date.now(),
       enabledBy: 'admin'
     }));
@@ -4774,6 +4786,142 @@ async function handleDebugDOStatus(request: Request, env: Env): Promise<Response
       });
     }
   } catch (error: any) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * 監視設定詳細取得 (ユーザーごとの階層データ)
+ */
+async function handleAdminMonitoringDetail(request: Request, env: Env): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
+    const details = [];
+
+    for (const key of monitoringKeys.keys) {
+      try {
+        const userId = key.name.replace('MONITORING:', '');
+        const stateJson = await env.MONITORING.get(key.name);
+
+        // ユーザーEmail取得（表示用）
+        const email = await env.USERS.get(`user:id:${userId}`, 'text') || 'unknown';
+
+        if (stateJson) {
+          const state = JSON.parse(stateJson);
+          details.push({
+            userId,
+            email,
+            targets: state.targets || [],
+            updatedAt: state.updatedAt
+          });
+        }
+      } catch (e) {
+        console.error(`Error fetching detail for ${key.name}:`, e);
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      data: details
+    });
+  } catch (error: any) {
+    if (error.message === 'Admin access required') return jsonResponse({ error: 'Admin access required' }, 403);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * 監視設定の削除 (ユーザー単位 or ターゲット単位)
+ * DELETE /api/admin/monitoring/:userId
+ * DELETE /api/admin/monitoring/:userId/:targetId
+ */
+async function handleAdminDeleteMonitoring(request: Request, env: Env, path: string): Promise<Response> {
+  try {
+    await requireAdmin(request, env.JWT_SECRET);
+
+    const parts = path.split('/');
+    // /api/admin/monitoring/:userId -> parts[4] = userId
+    // /api/admin/monitoring/:userId/:targetId -> parts[5] = targetId
+    const userId = parts[4];
+    const targetId = parts[5];
+
+    if (!userId) {
+      return jsonResponse({ error: 'userId required' }, 400);
+    }
+
+    const key = `MONITORING:${userId}`;
+    const stateJson = await env.MONITORING.get(key);
+
+    if (!stateJson) {
+      return jsonResponse({ error: 'Monitoring setting not found' }, 404);
+    }
+
+    const state: UserMonitoringState = JSON.parse(stateJson);
+    let updated = false;
+
+    if (targetId) {
+      // 特定ターゲット削除
+      const initialLen = state.targets.length;
+      state.targets = state.targets.filter(t => t.id !== targetId);
+      if (state.targets.length !== initialLen) {
+        updated = true;
+      }
+    } else {
+      // ユーザー全削除 (監視設定自体を消すのではなく、ターゲットを空にする)
+      state.targets = [];
+      updated = true;
+    }
+
+    if (updated) {
+      state.updatedAt = Date.now();
+      state.version++;
+      await env.MONITORING.put(key, JSON.stringify(state));
+
+      // DO同期
+      try {
+        const id = env.USER_AGENT.idFromName(userId);
+        const stub = env.USER_AGENT.get(id);
+
+        // Credentials取得してDOへRefresh
+        const settingsData = await env.USERS.get(`settings:${userId}`);
+        let credentials = { username: '', password: '' };
+        let primarySite = 'shinagawa';
+
+        if (settingsData) {
+          const settings = JSON.parse(settingsData);
+          primarySite = state.targets[0]?.site || 'shinagawa';
+          credentials = {
+            username: settings[primarySite]?.username || '',
+            password: settings[primarySite]?.password || ''
+          };
+        }
+
+        await stub.fetch('http://do/refresh', {
+          method: 'POST',
+          body: JSON.stringify({
+            userId,
+            site: primarySite,
+            targets: state.targets,
+            credentials
+          })
+        });
+      } catch (e) {
+        console.error(`[Admin] Failed to sync DO deletion for ${userId}`, e);
+      }
+
+      return jsonResponse({
+        success: true,
+        message: targetId ? 'ターゲットを削除しました' : '全監視設定を削除しました',
+        remaining: state.targets.length
+      });
+    } else {
+      return jsonResponse({ success: false, message: '削除対象が見つかりませんでした' });
+    }
+
+  } catch (error: any) {
+    if (error.message === 'Admin access required') return jsonResponse({ error: 'Admin access required' }, 403);
     return jsonResponse({ error: error.message }, 500);
   }
 }

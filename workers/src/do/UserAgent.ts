@@ -216,8 +216,31 @@ export class UserAgent extends DurableObject<Env> {
 
             // 🛑 Global Maintenance Check
             // Fetch maintenance flag from KV (Active check to ensure immediate stop)
-            const maintenance = await this.env.MONITORING.get('SYSTEM:MAINTENANCE');
-            if (maintenance === 'true') {
+            const maintenanceVal = await this.env.MONITORING.get('SYSTEM:MAINTENANCE');
+            let isMaintenance = false;
+
+            if (maintenanceVal) {
+                if (maintenanceVal === 'true') {
+                    isMaintenance = true;
+                } else {
+                    try {
+                        const m = JSON.parse(maintenanceVal) as { enabled: boolean; whitelist?: string[] };
+                        if (m && m.enabled === true) {
+                            // Whitelist check
+                            if (m.whitelist && Array.isArray(m.whitelist) && m.whitelist.includes(this.memState.userId)) {
+                                console.log(`[UserAgent] 🛡️ Whitelisted user ${this.memState.userId} bypassing maintenance.`);
+                                isMaintenance = false;
+                            } else {
+                                isMaintenance = true;
+                            }
+                        }
+                    } catch (e) {
+                        // ignore parse error
+                    }
+                }
+            }
+
+            if (isMaintenance) {
                 console.log('[UserAgent] 🛑 Maintenance Mode Active - Skipping Check');
                 // Check again in 1 min
                 await this.state.storage.setAlarm(Date.now() + 60 * 1000);

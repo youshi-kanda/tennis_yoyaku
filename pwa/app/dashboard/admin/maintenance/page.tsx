@@ -37,7 +37,14 @@ export default function AdminMaintenancePage() {
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [checkingTargetId, setCheckingTargetId] = useState<string | null>(null);
+  const [checkingTargetId, setCheckingTargetId] = useState<string | null>(null);
   const { subscribe, isSupported } = usePushNotification();
+
+  // New States for Enhancement
+  const [whitelistInput, setWhitelistInput] = useState('');
+  const [monitoringDetails, setMonitoringDetails] = useState<any[]>([]);
+  const [expandedUsers, setExpandedUsers] = useState<string[]>([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -49,6 +56,7 @@ export default function AdminMaintenancePage() {
     if (isAdmin) {
       loadMaintenanceStatus();
       loadSystemHealth();
+      loadMonitoringDetails();
     }
   }, [isAdmin]);
 
@@ -56,6 +64,7 @@ export default function AdminMaintenancePage() {
     try {
       const response = await apiClient.getMaintenanceStatus();
       setMaintenanceStatus(response);
+      // Whitelist初期値のセット（Backendが返してくれればの話だが、今回は省略）
     } catch (error) {
       console.error('Failed to load maintenance status:', error);
     }
@@ -196,7 +205,8 @@ export default function AdminMaintenancePage() {
     if (isProcessing) return;
     try {
       setIsProcessing(true);
-      await apiClient.enableMaintenance(customMessage);
+      const whitelist = whitelistInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      await apiClient.enableMaintenance(customMessage, whitelist);
       alert('メンテナンスモードを有効にしました\n\n注意: 完全に有効化するには、Workersの再デプロイが必要です');
       await loadMaintenanceStatus();
       setShowConfirm(null);
@@ -255,6 +265,65 @@ export default function AdminMaintenancePage() {
       alert('監視一括再開に失敗しました: ' + error.message);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // 拡張: 詳細監視データ読み込み
+  const loadMonitoringDetails = async () => {
+    try {
+      setLoadingDetails(true);
+      const data = await apiClient.getAdminMonitoringDetail();
+      setMonitoringDetails(data.data || []);
+    } catch (error) {
+      console.error('Failed to load monitoring details:', error);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const toggleUserExpand = (userId: string) => {
+    setExpandedUsers(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleDeleteUserMonitoring = async (userId: string, email: string) => {
+    if (!confirm(`ユーザー「${email}」の監視設定を全て削除しますか？\n\n・全ターゲットが無効化されます。\n・元に戻すことはできません。`)) return;
+
+    try {
+      setLoadingDetails(true);
+      const result = await apiClient.deleteAdminMonitoringUser(userId);
+      if (result.success) {
+        alert('✅ 監視設定を削除しました');
+        await loadMonitoringDetails();
+        await loadSystemHealth();
+      } else {
+        alert('❌ 削除に失敗しました: ' + result.message);
+      }
+    } catch (error: any) {
+      alert('❌ エラー: ' + error.message);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleDeleteTarget = async (userId: string, targetId: string) => {
+    if (!confirm('この監視ターゲットを削除しますか？')) return;
+
+    try {
+      setLoadingDetails(true);
+      const result = await apiClient.deleteAdminMonitoringTarget(userId, targetId);
+      if (result.success) {
+        // alert('✅ ターゲットを削除しました'); // いちいち出さない方がスムーズかも
+        await loadMonitoringDetails();
+        await loadSystemHealth();
+      } else {
+        alert('❌ 削除に失敗しました: ' + result.message);
+      }
+    } catch (error: any) {
+      alert('❌ エラー: ' + error.message);
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
@@ -345,6 +414,18 @@ export default function AdminMaintenancePage() {
                 onChange={(e) => setCustomMessage(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 placeholder="システムメンテナンス中です。しばらくお待ちください。"
+              />
+
+              <label className="block text-sm font-medium text-gray-700 mt-4 mb-2">
+                例外ユーザー (ホワイトリスト)
+              </label>
+              <p className="text-xs text-gray-500 mb-2">メールアドレスをカンマ区切りで入力（自分は自動で追加されます）</p>
+              <input
+                type="text"
+                value={whitelistInput}
+                onChange={(e) => setWhitelistInput(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="user1@example.com, user2@example.com"
               />
             </div>
           )}
@@ -481,6 +562,112 @@ export default function AdminMaintenancePage() {
           </div>
         </div>
       )}
+
+      {/* 監視詳細管理（ユーザー別・ターゲット別） */}
+      <div className="bg-white rounded-xl shadow-md border">
+        <div className="p-6 border-b flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">監視詳細管理</h2>
+            <p className="text-sm text-gray-600 mt-1">ユーザーごとの監視設定状況を確認・削除</p>
+          </div>
+          <button
+            onClick={loadMonitoringDetails}
+            disabled={loadingDetails}
+            className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm"
+          >
+            {loadingDetails ? '読込中...' : '再読み込み'}
+          </button>
+        </div>
+        <div className="p-0">
+          {monitoringDetails.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">データがありません</div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {monitoringDetails.map((user) => (
+                <div key={user.userId} className="group">
+                  <div className="p-4 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+                    onClick={() => toggleUserExpand(user.userId)}>
+                    <div className="flex items-center gap-3">
+                      <button className="text-gray-400 hover:text-gray-600">
+                        {expandedUsers.includes(user.userId) ? '▼' : '▶'}
+                      </button>
+                      <div>
+                        <div className="font-semibold text-gray-900 flex items-center gap-2">
+                          {user.email}
+                          <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-mono">{user.userId.substring(0, 8)}</span>
+                        </div>
+                        <div className="text-sm text-gray-500 mt-1">
+                          監視対象: {user.targets.length}件
+                          (Active: {user.targets.filter((t: any) => t.status === 'active').length}) |
+                          最終更新: {new Date(user.updatedAt).toLocaleString('ja-JP')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteUserMonitoring(user.userId, user.email);
+                        }}
+                        className="px-3 py-1.5 border border-red-200 text-red-600 text-sm rounded hover:bg-red-50 transition"
+                      >
+                        全削除
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Targets List */}
+                  {expandedUsers.includes(user.userId) && (
+                    <div className="bg-gray-50 px-4 pb-4 pt-0 border-t border-gray-100">
+                      {user.targets.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-2 pl-8">監視ターゲットはありません</p>
+                      ) : (
+                        <table className="min-w-full text-sm">
+                          <thead className="text-xs text-gray-500 border-b border-gray-200">
+                            <tr>
+                              <th className="py-2 text-left w-20">Status</th>
+                              <th className="py-2 text-left">Facility</th>
+                              <th className="py-2 text-left">Condition</th>
+                              <th className="py-2 text-left">ID</th>
+                              <th className="py-2 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {user.targets.map((t: any) => (
+                              <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-100">
+                                <td className="py-2">
+                                  <span className={`px-2 py-0.5 rounded text-xs ${t.status === 'active' ? 'bg-green-100 text-green-700' :
+                                    t.status === 'paused' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'
+                                    }`}>
+                                    {t.status}
+                                  </span>
+                                </td>
+                                <td className="py-2 max-w-xs truncate" title={t.facilityName}>{t.facilityName}</td>
+                                <td className="py-2">
+                                  {t.date} {t.timeSlot}
+                                </td>
+                                <td className="py-2 font-mono text-xs text-gray-400">{t.id.substring(0, 8)}</td>
+                                <td className="py-2 text-right">
+                                  <button
+                                    onClick={() => handleDeleteTarget(user.userId, t.id)}
+                                    className="text-red-500 hover:text-red-700"
+                                  >
+                                    削除
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* メンテナンスツール */}
       <div className="bg-white rounded-xl shadow-md border">

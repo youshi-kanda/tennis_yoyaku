@@ -332,8 +332,8 @@ class ApiClient {
     return response.data;
   }
 
-  async enableMaintenance(message?: string) {
-    const response = await this.client.post('/api/admin/maintenance/enable', { message });
+  async enableMaintenance(message?: string, whitelist?: string[]) {
+    const response = await this.client.post('/api/admin/maintenance/enable', { message, whitelist });
     return response.data;
   }
 
@@ -357,6 +357,22 @@ class ApiClient {
 
   async resumeAllMonitoring() {
     const response = await this.client.post('/api/admin/monitoring/resume-all');
+    return response.data;
+  }
+
+  // 拡張監視管理API
+  async getAdminMonitoringDetail() {
+    const response = await this.client.get('/api/admin/monitoring/detail');
+    return response.data;
+  }
+
+  async deleteAdminMonitoringUser(userId: string) {
+    const response = await this.client.delete(`/api/admin/monitoring/${userId}`);
+    return response.data;
+  }
+
+  async deleteAdminMonitoringTarget(userId: string, targetId: string) {
+    const response = await this.client.delete(`/api/admin/monitoring/${userId}/${targetId}`);
     return response.data;
   }
 }

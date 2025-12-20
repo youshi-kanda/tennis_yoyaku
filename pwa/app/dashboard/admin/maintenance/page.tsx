@@ -17,6 +17,7 @@ interface MaintenanceStatus {
   maintenanceMode: {
     enabled: boolean;
     message: string;
+    whitelist?: string[];
   };
   monitoring: {
     total: number;
@@ -63,7 +64,10 @@ export default function AdminMaintenancePage() {
     try {
       const response = await apiClient.getMaintenanceStatus();
       setMaintenanceStatus(response);
-      // Whitelist初期値のセット（Backendが返してくれればの話だが、今回は省略）
+      // ホワイトリストを入力欄に反映
+      if (response.maintenanceMode.whitelist) {
+        setWhitelistInput(response.maintenanceMode.whitelist.join(', '));
+      }
     } catch (error) {
       console.error('Failed to load maintenance status:', error);
     }
@@ -426,8 +430,26 @@ export default function AdminMaintenancePage() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 placeholder="user1@example.com, user2@example.com"
               />
+
+              {/* 現在のホワイトリスト表示 & ログイン中のユーザー情報 */}
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800 mb-2">
+                  <strong>ℹ️ あなたのアカウント:</strong> <span className="font-mono bg-blue-100 px-2 py-0.5 rounded">{useAuthStore.getState().user?.email || 'Loading...'}</span>
+                </p>
+                {maintenanceStatus?.maintenanceMode.enabled && maintenanceStatus.maintenanceMode.whitelist && maintenanceStatus.maintenanceMode.whitelist.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-sm text-blue-800 mb-1"><strong>現在の例外ユーザー:</strong></p>
+                    <ul className="text-sm text-blue-700 space-y-1">
+                      {maintenanceStatus.maintenanceMode.whitelist.map((email, idx) => (
+                        <li key={idx} className="font-mono bg-blue-100 px-2 py-0.5 rounded inline-block mr-2">✉️ {email}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
           )}
+
 
           {/* ボタン */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

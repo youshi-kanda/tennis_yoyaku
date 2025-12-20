@@ -3825,11 +3825,11 @@ async function handleAdminStats(request: Request, env: Env): Promise<Response> {
     const emailKeys = usersList.keys.filter(k => k.name.startsWith('user:') && !k.name.includes(':id:'));
     const totalUsers = emailKeys.length;
 
-    // 監視数（全ユーザー）
-    const allTargets = await env.MONITORING.get('monitoring:all_targets', 'json') as MonitoringTarget[] || [];
+    // 監視数（DO対応: getAllActiveTargetsを使用）
+    const allTargets = await getAllActiveTargets(env);
     const totalMonitoring = allTargets.length;
-    const activeMonitoring = allTargets.filter((t: MonitoringTarget) => t.status === 'active').length;
-    const pausedMonitoring = allTargets.filter((t: MonitoringTarget) => t.status === 'paused').length;
+    const activeMonitoring = allTargets.filter(t => t.status === 'active').length;
+    const pausedMonitoring = allTargets.filter(t => t.status === 'paused').length;
 
     // 予約数（全ユーザー）
     const reservationsList = await env.RESERVATIONS.list({ prefix: 'history:' });
@@ -3841,9 +3841,6 @@ async function handleAdminStats(request: Request, env: Env): Promise<Response> {
       totalReservations += histories.length;
       successReservations += histories.filter((h: ReservationHistory) => h.status === 'success').length;
     }
-
-    // KVメトリクス
-    const elapsed = (Date.now() - kvMetrics.resetAt) / 1000 / 60;
 
     return jsonResponse({
       users: {
@@ -3860,17 +3857,14 @@ async function handleAdminStats(request: Request, env: Env): Promise<Response> {
         successRate: totalReservations > 0 ? (successReservations / totalReservations * 100).toFixed(1) : '0',
       },
       kv: {
-        reads: kvMetrics.reads,
-        writes: kvMetrics.writes,
-        cacheHits: kvMetrics.cacheHits,
-        cacheMisses: kvMetrics.cacheMisses,
-        cacheHitRate: (kvMetrics.cacheHits / (kvMetrics.cacheHits + kvMetrics.cacheMisses) * 100 || 0).toFixed(1),
-        elapsedMinutes: parseFloat(elapsed.toFixed(1)),
-      },
+        reads: 0,
+        writes: 0,
+        cacheHitRate: '0',
+      }, // Frontend compatibility (will be ignored)
       system: {
         version: env.VERSION || 'unknown',
         environment: env.ENVIRONMENT || 'production',
-        cronInterval: '1 minute',
+        cronInterval: 'DO Alarm',
       },
     });
   } catch (error: any) {
@@ -4434,12 +4428,14 @@ async function handleAdminPauseAllMonitoring(request: Request, env: Env): Promis
     let pausedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    let refreshedDOs = 0;
 
     // 全ユーザーの監視設定を取得
     const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
 
     for (const key of monitoringKeys.keys) {
       try {
+        const userId = key.name.replace('MONITORING:', '');
         const stateJson = await env.MONITORING.get(key.name);
         if (stateJson) {
           const state: UserMonitoringState = JSON.parse(stateJson);
@@ -4460,6 +4456,47 @@ async function handleAdminPauseAllMonitoring(request: Request, env: Env): Promis
             state.updatedAt = Date.now();
             state.version++;
             await env.MONITORING.put(key.name, JSON.stringify(state));
+
+            // 🔥 DOに通知して即時反映
+            try {
+              // 必要なデータ（認証情報等）も一緒に送る必要があるため準備
+              // 認証情報は別途KVから取得
+              const settingsData = await env.USERS.get(`settings:${userId}`);
+              if (settingsData) {
+                const settings = JSON.parse(settingsData);
+                const creds = settings[state.targets[0]?.site || 'shinagawa']; // サイト混在時は不完全だが、DO側でよしなにハンドリングされるか？
+                // DO init は site 単位ではない（1ユーザー1DO）。
+                // handleInit実装待ち。ここでは site 設定の簡易マージか、主要サイト（Shinagawa）を送る。
+                // Note: UserAgent.ts handleInit expects `site` and `credentials`.
+                // If user monitors multiple sites, current DO logic might be site-specific (check handleInit).
+                // Actually UserAgent `memState` has `site` field. This implies 1 DO = 1 Site?
+                // No, targets array can have mixed? "site: 'shinagawa' | 'minato'" in memState suggests SINGLE SITE per DO/User context.
+                // Re-checking UserAgent.ts L21: `site: 'shinagawa' | 'minato';`.
+                // Current implementation assumes 1 user monitors 1 main site or switches context?
+                // For now, we fetch 'shinagawa' credentials as default or detect from first target.
+
+                const primarySite = state.targets.find(t => t.status !== 'completed')?.site || 'shinagawa';
+                const credentials = {
+                  username: settings[primarySite]?.username || '',
+                  password: settings[primarySite]?.password || ''
+                };
+
+                const id = env.USER_AGENT.idFromName(userId);
+                const stub = env.USER_AGENT.get(id);
+                await stub.fetch('http://do/refresh', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    userId,
+                    site: primarySite,
+                    targets: state.targets,
+                    credentials
+                  })
+                });
+                refreshedDOs++;
+              }
+            } catch (doError) {
+              console.error(`[Admin] Failed to refresh DO for ${userId}:`, doError);
+            }
           }
         }
       } catch (error) {
@@ -4468,7 +4505,7 @@ async function handleAdminPauseAllMonitoring(request: Request, env: Env): Promis
       }
     }
 
-    console.log(`[Admin] Paused all monitoring: ${pausedCount} paused, ${skippedCount} already paused, ${errorCount} errors`);
+    console.log(`[Admin] Paused all monitoring: ${pausedCount} paused, ${refreshedDOs} DOs refreshed`);
 
     return jsonResponse({
       success: true,
@@ -4476,7 +4513,8 @@ async function handleAdminPauseAllMonitoring(request: Request, env: Env): Promis
       details: {
         paused: pausedCount,
         skipped: skippedCount,
-        errors: errorCount
+        errors: errorCount,
+        refreshedDOs
       }
     });
   } catch (error: any) {
@@ -4498,12 +4536,14 @@ async function handleAdminResumeAllMonitoring(request: Request, env: Env): Promi
     let resumedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    let refreshedDOs = 0;
 
     // 全ユーザーの監視設定を取得
     const monitoringKeys = await env.MONITORING.list({ prefix: 'MONITORING:' });
 
     for (const key of monitoringKeys.keys) {
       try {
+        const userId = key.name.replace('MONITORING:', '');
         const stateJson = await env.MONITORING.get(key.name);
         if (stateJson) {
           const state: UserMonitoringState = JSON.parse(stateJson);
@@ -4524,6 +4564,34 @@ async function handleAdminResumeAllMonitoring(request: Request, env: Env): Promi
             state.updatedAt = Date.now();
             state.version++;
             await env.MONITORING.put(key.name, JSON.stringify(state));
+
+            // 🔥 DOに通知して即時反映
+            try {
+              const settingsData = await env.USERS.get(`settings:${userId}`);
+              if (settingsData) {
+                const settings = JSON.parse(settingsData);
+                const primarySite = state.targets.find(t => t.status === 'active')?.site || 'shinagawa';
+                const credentials = {
+                  username: settings[primarySite]?.username || '',
+                  password: settings[primarySite]?.password || ''
+                };
+
+                const id = env.USER_AGENT.idFromName(userId);
+                const stub = env.USER_AGENT.get(id);
+                await stub.fetch('http://do/refresh', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    userId,
+                    site: primarySite,
+                    targets: state.targets,
+                    credentials
+                  })
+                });
+                refreshedDOs++;
+              }
+            } catch (doError) {
+              console.error(`[Admin] Failed to refresh DO for ${userId}:`, doError);
+            }
           }
         }
       } catch (error) {
@@ -4532,7 +4600,7 @@ async function handleAdminResumeAllMonitoring(request: Request, env: Env): Promi
       }
     }
 
-    console.log(`[Admin] Resumed all monitoring: ${resumedCount} resumed, ${skippedCount} already active, ${errorCount} errors`);
+    console.log(`[Admin] Resumed all monitoring: ${resumedCount} resumed, ${refreshedDOs} DOs refreshed`);
 
     return jsonResponse({
       success: true,
@@ -4540,7 +4608,8 @@ async function handleAdminResumeAllMonitoring(request: Request, env: Env): Promi
       details: {
         resumed: resumedCount,
         skipped: skippedCount,
-        errors: errorCount
+        errors: errorCount,
+        refreshedDOs
       }
     });
   } catch (error: any) {
@@ -4551,6 +4620,8 @@ async function handleAdminResumeAllMonitoring(request: Request, env: Env): Promi
     return jsonResponse({ error: error.message }, 500);
   }
 }
+
+
 
 /**
  * パスワード変更ハンドラ

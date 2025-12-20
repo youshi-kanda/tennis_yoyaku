@@ -12,11 +12,6 @@ interface SystemStats {
   pausedMonitoring: number;
   totalReservations: number;
   successfulReservations: number;
-  kvMetrics: {
-    reads: number;
-    writes: number;
-    cacheHitRate: number;
-  };
 }
 
 export default function AdminDashboard() {
@@ -38,7 +33,7 @@ export default function AdminDashboard() {
       setIsLoading(true);
       const { apiClient } = await import('@/lib/api/client');
       const response = await apiClient.getAdminStats();
-      
+
       setStats({
         totalUsers: response.users.total,
         totalMonitoringTargets: response.monitoring.total,
@@ -46,11 +41,6 @@ export default function AdminDashboard() {
         pausedMonitoring: response.monitoring.paused,
         totalReservations: response.reservations.total,
         successfulReservations: response.reservations.success,
-        kvMetrics: {
-          reads: response.kv.reads,
-          writes: response.kv.writes,
-          cacheHitRate: parseFloat(response.kv.cacheHitRate),
-        },
       });
     } catch (error) {
       console.error('Failed to load admin stats:', error);
@@ -76,7 +66,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* 統計カード */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* 総ユーザー数 */}
         <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
           <div className="flex items-center justify-between mb-4">
@@ -144,30 +134,6 @@ export default function AdminDashboard() {
             </>
           )}
         </div>
-
-        {/* KVメトリクス */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-600">KV使用量</h3>
-            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-              </svg>
-            </div>
-          </div>
-          {isLoading ? (
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-16"></div>
-            </div>
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-gray-900">
-                {((stats?.kvMetrics.cacheHitRate || 0) * 100).toFixed(0)}%
-              </p>
-              <p className="text-xs text-gray-500 mt-1">キャッシュヒット率</p>
-            </>
-          )}
-        </div>
       </div>
 
       {/* クイックアクション */}
@@ -231,8 +197,8 @@ export default function AdminDashboard() {
             <p className="font-mono text-sm text-gray-900 mt-1">622eb032-9b88-43c4-8099-19fbd9379f68</p>
           </div>
           <div>
-            <p className="text-sm text-gray-600">Cron 実行間隔</p>
-            <p className="font-mono text-sm text-gray-900 mt-1">*/1 * * * * (毎分)</p>
+            <p className="text-sm text-gray-600">監視アーキテクチャ</p>
+            <p className="font-mono text-sm text-gray-900 mt-1">Durable Objects (Alarm Loop)</p>
           </div>
           <div>
             <p className="text-sm text-gray-600">環境</p>

@@ -170,6 +170,31 @@ export class UserAgent extends DurableObject<Env> {
                 return Response.json({ status: 'ok', safety: this.memState.safety });
             }
 
+            if (path === '/refresh' && request.method === 'POST') {
+                const data = await request.json() as {
+                    userId: string;
+                    site: 'shinagawa' | 'minato';
+                    targets: MonitoringTarget[];
+                    credentials: SiteCredentials;
+                };
+                // Reuse handleInit logic but log differently
+                this.memState.userId = data.userId;
+                this.memState.site = data.site;
+                this.memState.targets = data.targets;
+                this.memState.credentials = data.credentials;
+                await this.saveState();
+
+                // Ensure alarm is running if active
+                const hasActive = this.memState.targets.some(t => t.status === 'active');
+                if (hasActive) {
+                    const currentAlarm = await this.state.storage.getAlarm();
+                    if (!currentAlarm) await this.state.storage.setAlarm(Date.now() + 1000);
+                }
+
+                console.log(`[UserAgent] 🔄 Refreshed settings for ${data.userId}`);
+                return Response.json({ status: 'refreshed' });
+            }
+
             return new Response('Not Found', { status: 404 });
         } catch (e: any) {
             console.error(`[UserAgent] Error: ${e.message}`);
@@ -188,6 +213,16 @@ export class UserAgent extends DurableObject<Env> {
         this.isProcessing = true;
         try {
             const now = Date.now();
+
+            // 🛑 Global Maintenance Check
+            // Fetch maintenance flag from KV (Active check to ensure immediate stop)
+            const maintenance = await this.env.MONITORING.get('SYSTEM:MAINTENANCE');
+            if (maintenance === 'true') {
+                console.log('[UserAgent] 🛑 Maintenance Mode Active - Skipping Check');
+                // Check again in 1 min
+                await this.state.storage.setAlarm(Date.now() + 60 * 1000);
+                return;
+            }
 
             if (this.memState.isHotMonitoring) {
                 if (now > this.memState.hotUntil) {

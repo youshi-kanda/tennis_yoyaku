@@ -302,9 +302,14 @@ export class UserAgent extends DurableObject<Env> {
                 }
 
                 // Wide Monitoring
-                await this.checkWide();
-                // Schedule next Wide check (1 min)
-                await this.state.storage.setAlarm(Date.now() + 60 * 1000);
+                if (this.memState.targets.length > 0) {
+                    await this.checkWide();
+                    // Schedule next Wide check (1 min) only if targets exist
+                    await this.state.storage.setAlarm(Date.now() + 60 * 1000);
+                } else {
+                    console.log(`${this.getLogPrefix()} 💤 No active targets. Stopping alarm loop.`);
+                    await this.state.storage.deleteAlarm();
+                }
             }
 
             // Task 3: Output hourly metrics

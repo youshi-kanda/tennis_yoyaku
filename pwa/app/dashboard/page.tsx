@@ -9,13 +9,9 @@ import { MonitoringDetailModal } from '@/components/monitoring/MonitoringDetailM
 import { MonitoringEditModal } from '@/components/monitoring/MonitoringEditModal';
 import { MonitoringTarget } from '@/lib/types';
 import { useRouter } from 'next/navigation';
-import { QuickSetupCard } from '@/components/dashboard/QuickSetupCard';
 
-interface Stats {
-  activeMonitoring: number;
-  totalReservations: number;
-  successRate: number;
-}
+
+
 
 interface MaintenanceStatus {
   maintenanceMode: {
@@ -77,11 +73,7 @@ const getFacilityNameFromId = (facilityId: string, savedName: string): string =>
 export default function DashboardHome() {
   const { user } = useAuthStore();
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({
-    activeMonitoring: 0,
-    totalReservations: 0,
-    successRate: 0,
-  });
+
   const [targets, setTargets] = useState<MonitoringTarget[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -138,19 +130,7 @@ export default function DashboardHome() {
       const monitoringTargets = monitoringResponse.data || [];
       setTargets(monitoringTargets);
 
-      const activeCount = monitoringTargets.filter((t: MonitoringTarget) => t.status === 'active' || t.status === 'monitoring').length;
-
-      // 予約履歴を取得
-      const historyResponse = await apiClient.getReservationHistory(100);
-      const reservations = historyResponse.data || [];
-      const successCount = reservations.filter((r: { status: string }) => r.status === 'success').length;
-      const successRate = reservations.length > 0 ? Math.round((successCount / reservations.length) * 100) : 0;
-
-      setStats({
-        activeMonitoring: activeCount,
-        totalReservations: reservations.length,
-        successRate,
-      });
+      setTargets(monitoringTargets);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -352,80 +332,7 @@ export default function DashboardHome() {
         </div>
       )}
 
-      {/* 統計カード */}
-      <QuickSetupCard onSuccess={loadData} />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
-        {/* 監視中の施設 */}
-        <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-900">監視中の施設</h3>
-            <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </div>
-          </div>
-          {isLoading ? (
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-16 mb-2"></div>
-              <div className="h-4 bg-gray-200 rounded w-24"></div>
-            </div>
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-gray-900 mb-1">{stats.activeMonitoring}</p>
-              <p className="text-sm text-gray-900">アクティブな監視</p>
-            </>
-          )}
-        </div>
-
-        {/* 予約履歴 */}
-        <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-900">予約履歴</h3>
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            </div>
-          </div>
-          {isLoading ? (
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-16 mb-2"></div>
-              <div className="h-4 bg-gray-200 rounded w-24"></div>
-            </div>
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-gray-900 mb-1">{stats.totalReservations}</p>
-              <p className="text-sm text-gray-900">合計予約数</p>
-            </>
-          )}
-        </div>
-
-        {/* 成功率 */}
-        <div className="bg-white rounded-xl shadow-md p-4 lg:p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-900">予約成功率</h3>
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-          </div>
-          {isLoading ? (
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-16 mb-2"></div>
-              <div className="h-4 bg-gray-200 rounded w-24"></div>
-            </div>
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-gray-900 mb-1">{stats.successRate}%</p>
-              <p className="text-sm text-gray-900">成功した予約</p>
-            </>
-          )}
-        </div>
-      </div>
 
       {/* カレンダー */}
       {!isLoading && <MonitoringCalendar targets={targets} />}

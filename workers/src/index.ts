@@ -969,6 +969,10 @@ export default {
     }
   },
 
+  // Empty scheduled handler to suppress "Handler does not export a scheduled() function" errors
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // 🤫 Do nothing. Legacy Cron is disabled.
+  },
 
   // ============================================================================
   // Legacy Cron System Removed

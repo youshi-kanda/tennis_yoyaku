@@ -746,7 +746,14 @@ export class UserAgent extends DurableObject<Env> {
                         badge: '/icons/hot.png'
                     }, this.env);
 
-                    await this.executeReservation(target, session);
+                    if (target.autoReserve) {
+                        await this.executeReservation(target, session);
+                    } else {
+                        console.log('[UserAgent] 🛑 AutoReserve is OFF. Skipping reservation execution.');
+                        // Maybe send another notification like "Please book manually"?
+                        // For now, the "Hot Hit" notification above serves as the alert.
+                    }
+
                     // Stop Hot
                     this.memState.isHotMonitoring = false;
                     this.memState.hotTargetId = undefined;

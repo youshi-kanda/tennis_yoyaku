@@ -589,7 +589,7 @@ export default function MonitoringPage() {
           facilityName: facility.name,
           timeSlots: config.timeSlots,
           selectedWeekdays: config.selectedWeekdays,
-          autoReserve: true,
+          autoReserve: false, // 暫定対応: 自動予約機能は開発中のためOFF固定（通知のみ）
           dateMode: config.dateMode,
           includeHolidays: config.includeHolidays,
           applicantCount: config.applicantCount,

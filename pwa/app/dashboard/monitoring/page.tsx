@@ -1334,7 +1334,8 @@ export default function MonitoringPage() {
                           <span className="text-2xl">🌲</span>
                           <span className="font-bold">品川区</span>
                         </button>
-                        <button
+                        {/* 港区 (開発中につき非表示) */}
+                        {/* <button
                           type="button"
                           onClick={() => {
                             if (config.selectedRegion !== 'minato') {
@@ -1353,7 +1354,7 @@ export default function MonitoringPage() {
                         >
                           <span className="text-2xl">🗼</span>
                           <span className="font-bold">港区</span>
-                        </button>
+                        </button> */}
                       </div>
                     </div>
 

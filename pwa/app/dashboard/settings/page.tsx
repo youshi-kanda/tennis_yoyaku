@@ -380,69 +380,16 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* 港区 */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        {/* 港区 (開発中につき非表示) */}
+        {/* <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm opacity-50 pointer-events-none grayscale">
           <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <span className="w-2 h-6 bg-red-500 rounded-full"></span>
-            港区 (手動セッション)
+            <span className="w-2 h-6 bg-gray-400 rounded-full"></span>
+            港区 (基本機能開発中)
           </h3>
-
-          <div className="space-y-4">
-            <div className="bg-red-50 border border-red-100 rounded-lg p-4">
-              <p className="text-sm text-red-800 font-medium mb-1">
-                ⚠️ reCAPTCHA対応のためセッション方式必須
-              </p>
-              <p className="text-xs text-gray-700 leading-relaxed">
-                ログイン後にブラウザの開発者ツール等で <code>JSESSIONID</code> を取得し、手動で更新してください。有効期限が切れると監視が止まります。
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                セッションID (JSESSIONID)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={minatoManualSessionId}
-                  onChange={(e) => setMinatoManualSessionId(e.target.value)}
-                  placeholder="0000abcde..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-gray-900 bg-white"
-                />
-                <button
-                  onClick={handleSaveMinatoManualSession}
-                  disabled={!minatoManualSessionId}
-                  className="px-6 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  保存
-                </button>
-              </div>
-            </div>
-
-            {minatoSessionId && (
-              <div className={`border rounded-lg p-4 ${minatoSessionStatus === 'valid' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <p className={`text-sm font-medium ${minatoSessionStatus === 'valid' ? 'text-green-800' : 'text-red-800'}`}>
-                    {minatoSessionStatus === 'valid' ? '✓ セッション有効' : '⚠ セッション切れ・未設定'}
-                  </p>
-                  {minatoSessionStatus === 'valid' && (
-                    <span className="px-2 py-0.5 bg-green-200 text-green-800 text-xs rounded-full font-bold">
-                      監視可能
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-600 mt-1 font-mono">
-                  ID: {minatoSessionId.substring(0, 20)}...
-                </p>
-                {minatoSessionLastChecked > 0 && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    最終確認: {new Date(minatoSessionLastChecked).toLocaleString('ja-JP')}
-                  </p>
-                )}
-              </div>
-            )}
+          <div className="bg-gray-100 rounded-lg p-4 text-center">
+            <p className="text-sm text-gray-600 font-medium">現在メンテナンス中 / 開発中です</p>
           </div>
-        </div>
+        </div> */}
       </section>
 
       {/* アカウント・システム */}

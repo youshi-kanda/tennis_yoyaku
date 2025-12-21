@@ -676,3 +676,40 @@ export async function handleMonitoringUpdate(request: Request, env: Env, path: s
         }, 500);
     }
 }
+
+export async function handleMonitoringResume(request: Request, env: Env): Promise<Response> {
+    try {
+        const payload = await authenticate(request, env.JWT_SECRET);
+        const userId = payload.userId;
+
+        console.log(`[MonitoringResume] Manual resume requested for user ${userId}`);
+
+        // Resume Shinagawa UserAgent
+        try {
+            const id = env.USER_AGENT.idFromName(`${userId}:shinagawa`);
+            const stub = env.USER_AGENT.get(id);
+            await stub.fetch(new Request('http://do/resume', { method: 'POST' }));
+            console.log(`[MonitoringResume] Resumed Shinagawa DO for ${userId}`);
+        } catch (e: any) {
+            console.error(`[MonitoringResume] Failed to resume Shinagawa DO: ${e.message}`);
+        }
+        
+        // Resume Minato UserAgent (Optional, but good for completeness)
+        try {
+            const id = env.USER_AGENT.idFromName(`${userId}:minato`);
+            const stub = env.USER_AGENT.get(id);
+            await stub.fetch(new Request('http://do/resume', { method: 'POST' }));
+            console.log(`[MonitoringResume] Resumed Minato DO for ${userId}`);
+        } catch (e: any) {
+             // Ignore if not exists or fails, Minato might not be active
+        }
+
+        return jsonResponse({
+            success: true,
+            message: 'Monitoring resumed successfully'
+        });
+
+    } catch (error: any) {
+        return jsonResponse({ error: 'Internal server error: ' + error.message }, 500);
+    }
+}

@@ -163,6 +163,8 @@ export default function SettingsPage() {
   const [minatoSessionStatus, setMinatoSessionStatus] = useState<string>('expired');
   const [minatoSessionLastChecked, setMinatoSessionLastChecked] = useState<number>(0);
 
+  const [showWarningModal, setShowWarningModal] = useState(false);
+
   // 保存済みの設定を読み込む
   useEffect(() => {
     const loadSettings = async () => {
@@ -203,7 +205,12 @@ export default function SettingsPage() {
       alert('利用者IDとパスワードを入力してください');
       return;
     }
+    // 警告モーダルを表示
+    setShowWarningModal(true);
+  };
 
+  const executeSaveShinagawa = async () => {
+    setShowWarningModal(false);
     try {
       await apiClient.saveSettings({
         shinagawa: {
@@ -211,7 +218,7 @@ export default function SettingsPage() {
           password: shinagawaPassword,
         },
       });
-      alert('品川区の認証情報を保存しました');
+      alert('品川区の認証情報を保存しました\n（停止していた監視があれば自動再開されます）');
     } catch (err: any) {
       console.error('Save error:', err);
       alert(`保存に失敗しました: ${err.message}`);
@@ -478,6 +485,48 @@ export default function SettingsPage() {
           ログアウトする
         </button>
       </div>
+
+      {/* ⚠️ Warning Modal */}
+      {showWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4 text-amber-600">
+                <svg className="w-8 h-8 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 className="text-xl font-bold">アカウント共有の警告</h3>
+              </div>
+
+              <div className="space-y-4 text-sm text-gray-600 leading-relaxed">
+                <p>
+                  <strong>監視実行中に別端末（スマートフォンやPC）でサイトにログインすると、</strong>
+                  セッションの競合により「アカウントロック」や「強制ログアウト」のエラーが発生する可能性があります。
+                </p>
+                <p className="bg-amber-50 p-3 rounded-lg border border-amber-100 text-amber-800">
+                  ⚠️ 監視中は可能な限り手動でのサイト利用はお控えください。
+                  万が一エラーで停止した場合は、しばらく時間を置いてから「再開」を行ってください。
+                </p>
+              </div>
+
+              <div className="flex gap-3 mt-8">
+                <button
+                  onClick={() => setShowWarningModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={executeSaveShinagawa}
+                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold shadow-lg shadow-emerald-200 transition"
+                >
+                  同意して保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

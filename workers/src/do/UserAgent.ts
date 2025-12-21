@@ -182,6 +182,22 @@ export class UserAgent extends DurableObject<Env> {
                 return Response.json({ status: 'ok', safety: this.memState.safety });
             }
 
+            if (path === '/resume' && request.method === 'POST') {
+                console.log(`[UserAgent] 🟢 Manual Resume requested`);
+                // Reset failure state
+                this.memState.loginFailures = {
+                    count: 0,
+                    lastFailureTime: 0,
+                    haltedUntil: 0
+                };
+                await this.saveState();
+
+                // Restart alarm loop immediately
+                await this.state.storage.setAlarm(Date.now());
+
+                return Response.json({ status: 'resumed' });
+            }
+
             if (path === '/refresh' && request.method === 'POST') {
                 const data = await request.json() as {
                     userId: string;
@@ -194,6 +210,10 @@ export class UserAgent extends DurableObject<Env> {
                 this.memState.site = data.site;
                 this.memState.targets = data.targets;
                 this.memState.credentials = data.credentials;
+
+                // Implicit Resume: Clear halt state on settings update
+                this.memState.loginFailures = { count: 0, lastFailureTime: 0, haltedUntil: 0 };
+
                 await this.saveState();
 
                 // Ensure alarm is running if active
@@ -203,7 +223,7 @@ export class UserAgent extends DurableObject<Env> {
                     if (!currentAlarm) await this.state.storage.setAlarm(Date.now() + 1000);
                 }
 
-                console.log(`[UserAgent] 🔄 Refreshed settings for ${data.userId}`);
+                console.log(`[UserAgent] 🔄 Refreshed settings for ${data.userId} (Implicit Resume)`);
                 return Response.json({ status: 'refreshed' });
             }
 
@@ -263,17 +283,14 @@ export class UserAgent extends DurableObject<Env> {
 
             // 🛑 Login Halt Check
             if (this.memState.loginFailures.haltedUntil > now) {
-                const minutesLeft = Math.ceil((this.memState.loginFailures.haltedUntil - now) / 60000);
-                console.log(`[UserAgent] 🛑 Login halted (${minutesLeft} minutes remaining). Skipping checks.`);
-                await this.state.storage.setAlarm(Date.now() + 60 * 1000);
+                console.log(`[UserAgent] 🛑 Login halted (Manual Resume Required). Skipping checks.`);
+                // Keep keeping checking occasionally or just stop alarm?
+                // If we stop alarm, we need explicit 'resume' API to restart it.
+                // The plan says "Resume API" will restart alarm.
+                // So here we can just STOP the alarm loop.
+                console.log('[UserAgent] 💤 Stopping alarm loop due to indefinite halt.');
+                // Do NOT schedule next alarm.
                 return;
-            }
-
-            // Auto-reset halt if expired
-            if (this.memState.loginFailures.haltedUntil > 0 && this.memState.loginFailures.haltedUntil <= now) {
-                console.log(`[UserAgent] ✅ Login halt expired, resetting failure counter.`);
-                this.memState.loginFailures = { count: 0, lastFailureTime: 0, haltedUntil: 0 };
-                await this.saveState();
             }
 
             if (this.memState.isHotMonitoring) {
@@ -342,10 +359,10 @@ export class UserAgent extends DurableObject<Env> {
         this.memState.targets = data.targets;
         this.memState.credentials = data.credentials;
 
-        // Decrypt password if needed for immediate use? 
-        // We acturally store credentials as is (encrypted) and decrypt when using.
-        // Wait, for DO, it's better to keep them memory-safe. 
         // If passed encrypted from Worker, store encrypted.
+
+        // Implicit Resume: Clear halt state on new init/settings update
+        this.memState.loginFailures = { count: 0, lastFailureTime: 0, haltedUntil: 0 };
 
         await this.saveState();
 
@@ -563,9 +580,21 @@ export class UserAgent extends DurableObject<Env> {
 
             console.error(`[UserAgent] ❌ Login failed: ${e.message}`);
 
-            // Halt immediately after first failure (30 minutes)
-            this.memState.loginFailures.haltedUntil = Date.now() + 30 * 60 * 1000; // 30 minutes
-            console.error(`[UserAgent] 🚨 Login halted for 30 minutes due to login failure. Please check credentials or site status.`);
+            // Halt indefinitely (Manual resume required)
+            // Using a safe far-future timestamp (e.g. year 3000) instead of Infinity to ensure number type safety in storage if needed, though JS Infinity is usually fine for number.
+            // Let's use Date.now() + 10 years to be safe.
+            const HALT_FOREVER = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+            this.memState.loginFailures.haltedUntil = HALT_FOREVER;
+
+            console.error(`[UserAgent] 🚨 Login halted INDEFINITELY due to login failure. Manual resume required.`);
+
+            // Notify User
+            await sendPushNotification(this.memState.userId, {
+                title: '⚠️ 監視を停止しました',
+                body: `ログインエラーが発生したため、安全のために監視を停止しました。\n理由: ${e.message}\n設定を確認し、再開してください。`,
+                badge: '/icons/error.png',
+                data: { url: 'https://tennis-yoyaku.pages.dev/settings' }
+            }, this.env);
 
             await this.saveState();
             throw e;

@@ -16,7 +16,8 @@ import {
   handleMonitoringCreate,
   handleMonitoringCreateBatch,
   handleMonitoringDelete,
-  handleMonitoringUpdate
+  handleMonitoringUpdate,
+  handleMonitoringResume
 } from './handlers/monitoring';
 import {
   handleAdminStats,
@@ -392,6 +393,10 @@ export default {
 
       if (path.startsWith('/api/monitoring/') && request.method === 'PATCH') {
         return handleMonitoringUpdate(request, env, path);
+      }
+
+      if (path === '/api/monitoring/resume' && request.method === 'POST') {
+        return handleMonitoringResume(request, env);
       }
 
       if (path === '/api/reservations/history') {

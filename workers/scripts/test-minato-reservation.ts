@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { checkMinatoWeeklyAvailability, makeMinatoReservation } from './src/scraper/minato';
-import { Facility } from './src/scraper/types';
+import { checkMinatoWeeklyAvailability, makeMinatoReservation } from '../src/scraper/minato';
+import { Facility } from '../src/scraper/types';
 
 // Simple .dev.vars parser
 function loadDevVars() {

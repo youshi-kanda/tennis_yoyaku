@@ -11,7 +11,7 @@ import {
   checkMinatoWeeklyAvailability,
   SHINAGAWA_TIMESLOT_MAP,
   MINATO_TIMESLOT_MAP
-} from './src/scraper';
+} from '../src/scraper';
 
 interface FacilityTimeslotInfo {
   facilityId: string;

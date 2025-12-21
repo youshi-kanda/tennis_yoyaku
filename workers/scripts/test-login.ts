@@ -2,7 +2,7 @@
  * ログイン処理の単体テスト
  */
 
-import { loginToShinagawa } from './src/scraper';
+import { loginToShinagawa } from '../src/scraper';
 
 async function testLogin() {
   console.log('=== ログイン処理テスト開始 ===');

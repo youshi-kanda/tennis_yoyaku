@@ -334,35 +334,42 @@ export async function checkShinagawaAvailability(
             credentials
         );
 
-        // Find the specific slot in results
-        // Note: weeklyResult.days might contain multiple days if start date is beginning of week
-        // But we asked for start date = target date, so it should be the first one usually,
-        // unless Shinagawa forces Sunday start.
-        const targetDay = weeklyResult.days.find(d => d.date === date);
-        if (!targetDay) {
-            console.warn(`[Shinagawa] Wrapper: Date ${date} not found in weekly results. Found: ${weeklyResult.days.map(d => d.date).join(', ')}`);
-            // Fallback: maybe date format mismatch in result?
-            return {
-                available: false, facilityId, facilityName: '品川区施設', date, timeSlot, currentStatus: 'Error', changedToAvailable: false
-            };
+        // Match Logic: Direct Map Lookup
+        // Map key format: "YYYY-MM-DD_HH:MM-HH:MM"
+        // Ensure date is formatted correctly (already done in formattedDate)
+
+        let foundStatus: string | undefined;
+        let foundKey: string | undefined;
+
+        // Try exact match first
+        const exactKey = `${formattedDate}_${timeSlot}`;
+        if (weeklyResult.availability.has(exactKey)) {
+            foundStatus = weeklyResult.availability.get(exactKey);
+            foundKey = exactKey;
+        } else {
+            // Fallback: Prefix match for time (e.g. input "19:00" matches "19:00-21:00")
+            const targetTimeStart = timeSlot.split('-')[0];
+            for (const [key, status] of weeklyResult.availability.entries()) {
+                if (key.startsWith(`${formattedDate}_${targetTimeStart}`)) {
+                    foundStatus = status;
+                    foundKey = key;
+                    break;
+                }
+            }
         }
 
-        // Match Logic: Prefix Match (e.g. "09:00" in "09:00-11:00")
-        const targetTimeStart = timeSlot.split('-')[0];
-        const targetSlot = targetDay.slots.find(s => s.time.startsWith(targetTimeStart));
-
-        if (!targetSlot) {
-            console.warn(`[Shinagawa] Wrapper: Slot ${timeSlot} not found in day results. Available: ${targetDay.slots.map(s => s.time).join(', ')}`);
+        if (!foundStatus) {
+            console.warn(`[Shinagawa] Wrapper: Slot ${timeSlot} not found in availability map.`);
             return {
                 available: false, facilityId, facilityName: '品川区施設', date, timeSlot, currentStatus: '×', changedToAvailable: false
             };
         }
 
-        const isAvailable = targetSlot.status === '○' || targetSlot.status === '取'; // Include '取' as available for reservation attempt
+        const isAvailable = foundStatus === '○' || foundStatus === '取';
         if (isAvailable) {
-            console.log(`[Shinagawa] ⚡ Wrapper SUCCESS: ${targetSlot.status} 検知: ${facilityId}, ${date}, ${timeSlot}`);
+            console.log(`[Shinagawa] ⚡ Wrapper SUCCESS: ${foundStatus} 検知: ${facilityId}, ${date}, ${timeSlot}`);
         } else {
-            console.log(`[Shinagawa] Wrapper: Slot found but status is ${targetSlot.status}`);
+            console.log(`[Shinagawa] Wrapper: Slot found but status is ${foundStatus}`);
         }
 
         return {
@@ -371,12 +378,8 @@ export async function checkShinagawaAvailability(
             facilityName: '品川区施設',
             date,
             timeSlot,
-            currentStatus: targetSlot.status,
+            currentStatus: foundStatus,
             changedToAvailable: isAvailable,
-            // reservationContext is not easily extracted from weekly result structure without modification 
-            // but weeklyResult might have it? Types check: WeeklyAvailabilityResult usually has parsed data.
-            // If we need context for booking, we might need to modify WeeklyAvailabilityResult to carry it.
-            // For now, let's assume we can fetch it again during booking, OR checking 'available' is enough to trigger booking flow which fetches fresh form.
             reservationContext: undefined
         };
 

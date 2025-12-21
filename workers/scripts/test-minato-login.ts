@@ -1,4 +1,4 @@
-import { loginToMinato, checkMinatoWeeklyAvailability } from './src/scraper';
+import { loginToMinato, checkMinatoWeeklyAvailability } from '../src/scraper';
 
 async function main() {
     const username = process.env.MINATO_USER;
@@ -37,7 +37,7 @@ async function main() {
         // But getMinatoFacilities also needs a session usually? 
         // Wait, getMinatoFacilities(cookie) exists.
 
-        const { getMinatoFacilities } = require('./src/scraper');
+        const { getMinatoFacilities } = require('../src/scraper');
         console.log('\n--- Step 2.5: Get Facilities ---');
         // Mock Env for monitoring KV if needed, but getMinatoFacilities signature is:
         // (cookie: string, monitoringNamespace: any, userId: string)

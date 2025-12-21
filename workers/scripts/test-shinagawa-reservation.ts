@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { loginToShinagawa, makeShinagawaReservation, getShinagawaFacilities, checkShinagawaWeeklyAvailability } from './src/scraper/shinagawa';
-import { ShinagawaSession, Facility } from './src/scraper/types';
+import { loginToShinagawa, makeShinagawaReservation, getShinagawaFacilities, checkShinagawaWeeklyAvailability } from '../src/scraper/shinagawa';
+import { ShinagawaSession, Facility } from '../src/scraper/types';
 
 // Simple .dev.vars parser
 function loadDevVars() {

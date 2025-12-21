@@ -1,6 +1,6 @@
 
-import { KVLock } from './src/lib/kvLock';
-import { SmartBackoff } from './src/lib/backoff';
+import { KVLock } from '../src/lib/kvLock';
+import { SmartBackoff } from '../src/lib/backoff';
 import * as assert from 'assert';
 
 // --- Mocks ---

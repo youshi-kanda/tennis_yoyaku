@@ -9,7 +9,7 @@
  * npx wrangler secret put ENCRYPTION_KEY
  */
 
-import { generateEncryptionKey } from './src/crypto';
+import { generateEncryptionKey } from '../src/crypto';
 
 async function main() {
   console.log('🔐 暗号化キーを生成しています...\n');

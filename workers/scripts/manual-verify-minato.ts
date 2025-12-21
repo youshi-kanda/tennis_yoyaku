@@ -1,7 +1,7 @@
 
 // Run with: npx tsx manual-verify-minato.ts
 require('dotenv').config({ path: '.dev.vars' }); // Load env vars if needed
-const { loginToMinato, checkMinatoAvailability } = require('./src/scraper');
+const { loginToMinato, checkMinatoAvailability } = require('../src/scraper');
 
 async function main() {
     const userId = process.env.MINATO_USER_ID;

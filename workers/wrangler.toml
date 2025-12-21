@@ -55,6 +55,10 @@ VAPID_SUBJECT = "mailto:youshi.kanda@gmail.com"
 MAINTENANCE_MODE = "false"  # メンテナンスモード: true=有効, false=無効
 MAINTENANCE_MESSAGE = "システムメンテナンス中です。しばらくお待ちください。"
 
+# Explicitly disable Cron Triggers to remove legacy configurations
+[triggers]
+crons = []
+
 # ===== Development Environment =====
 [env.development]
 name = "tennis-yoyaku-api-dev"

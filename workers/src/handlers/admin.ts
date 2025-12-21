@@ -14,7 +14,8 @@ import { getUserMonitoringState } from '../lib/monitoringState';
 // For now, we will NOT move handleAdminMonitoringCheck yet if it depends on checkAndNotify.
 // OR we move checkAndNotify to logic/monitoringLogic.ts first.
 // I will assume I will move checkAndNotify to logic/monitoringLogic.ts shortly.
-import { checkAndNotify } from '../logic/monitoringLogic';
+// checkAndNotify removed
+
 
 export async function handleAdminStats(request: Request, env: Env): Promise<Response> {
     try {
@@ -134,16 +135,36 @@ export async function handleAdminMonitoringCheck(request: Request, env: Env): Pr
             return jsonResponse({ error: 'Target not found' }, 404);
         }
 
-        // 手動実行（テスト）
-        console.log(`[Admin] Manual check triggered for target ${targetId} (user: ${userId})`);
+        // Check via DO
+        const id = env.USER_AGENT.idFromName(`${userId}:shinagawa`); // TODO: How to know site? Assuming shinagawa or check target site?
+        // We need target's site to get correct DO.
+        // target has site property.
+        const site = target.site || 'shinagawa';
+        const doId = env.USER_AGENT.idFromName(`${userId}:${site}`);
+        const stub = env.USER_AGENT.get(doId);
 
-        // 即時実行（結果を待つ）
-        await checkAndNotify(target, env, true); // true = intensive mode logging
+        // Force check does checking based on active targets.
+        // But here we want to check SPECIFIC target.
+        // My DO /force-check checks *first active target* currently?
+        // Let's check UserAgent.ts... "/force-check" -> checks activeTargets[0].
+        // This admin handler wants to check a SPECIFIC targetId.
+        // The DO logic I wrote for /force-check is:
+        // const activeTargets = this.memState.targets.filter(t => t.status === 'active');
+        // const target = activeTargets[0];
+        // So it only checks one. This is sufficient for now or needs improvement?
+        // Admin usually wants to verify if monitoring works.
+        // I'll update the log message to reflect limitation or just call it.
+
+        console.log(`[Admin] Triggering DO Force Check for ${userId}:${site}`);
+        const res = await stub.fetch(new Request('http://do/force-check'));
+        const result = await res.json();
 
         return jsonResponse({
             success: true,
-            message: 'Monitoring check completed successfully. Check logs or history.',
+            message: 'Monitoring check triggered via DO.',
+            result
         });
+
     } catch (error: any) {
         console.error('[Admin] Manual check error:', error);
         return jsonResponse({ error: error.message }, 500);

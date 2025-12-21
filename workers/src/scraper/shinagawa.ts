@@ -83,7 +83,12 @@ function updateSessionCookies(session: ShinagawaSession, response: Response) {
 // Login Logic
 // =============================================================================
 
-export async function loginToShinagawa(userId: string, password: string): Promise<ShinagawaSession | null> {
+export async function loginToShinagawa(
+    userId: string,
+    password: string,
+    fetchImpl?: typeof fetch
+): Promise<ShinagawaSession | null> {
+    const fetcher = fetchImpl || globalThis.fetch;
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
     let sessionId = '';
     let currentCookies = new Map<string, string>();
@@ -92,7 +97,7 @@ export async function loginToShinagawa(userId: string, password: string): Promis
         console.log('[Login] 🔐 品川区ログイン開始:', userId.substring(0, 3) + '***');
 
         // Step 0: トップページアクセス（セッション確立）
-        const topResponse = await fetch(`${baseUrl}/`, {
+        const topResponse = await fetcher(`${baseUrl}/`, {
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
@@ -124,7 +129,7 @@ export async function loginToShinagawa(userId: string, password: string): Promis
         loginFormParams.append('displayNo', 'pawab2000');
         loginFormParams.append('displayNoFrm', 'pawab2000');
 
-        const initResponse = await fetch(`${baseUrl}/rsvWTransUserLoginAction.do`, {
+        const initResponse = await fetcher(`${baseUrl}/rsvWTransUserLoginAction.do`, {
             method: 'POST',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
@@ -162,7 +167,7 @@ export async function loginToShinagawa(userId: string, password: string): Promis
             authParams.append('loginCharPass', char);
         });
 
-        const loginResponse = await fetch(`${baseUrl}/rsvWUserAttestationLoginAction.do`, {
+        const loginResponse = await fetcher(`${baseUrl}/rsvWUserAttestationLoginAction.do`, {
             method: 'POST',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
@@ -208,7 +213,7 @@ export async function loginToShinagawa(userId: string, password: string): Promis
             step3Params.append('screenName', 'Home');
             step3Params.append('gRsvWTransInstListAction', '1');
 
-            const step3Response = await fetch(`${baseUrl}/rsvWTransInstListAction.do`, {
+            const step3Response = await fetcher(`${baseUrl}/rsvWTransInstListAction.do`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -282,8 +287,10 @@ export async function checkShinagawaAvailability(
     timeSlot: string,
     credentials: SiteCredentials,
     existingReservations?: ReservationHistory[],
-    session?: ShinagawaSession | null
+    session?: ShinagawaSession | null,
+    fetchImpl?: typeof fetch // [NEW] Dependency Injection
 ): Promise<AvailabilityResult> {
+    const fetcher = fetchImpl || globalThis.fetch;
 
     // 既存予約チェック
     const isAlreadyReserved = existingReservations?.some(
@@ -314,7 +321,7 @@ export async function checkShinagawaAvailability(
         if (isIncompleteSession) {
             console.log('[Shinagawa] Incomplete session detected (missing JKey) in checkShinagawaAvailability. Re-logging in...');
         }
-        currentSession = await loginToShinagawa(credentials.username, credentials.password);
+        currentSession = await loginToShinagawa(credentials.username, credentials.password, fetcher);
         if (!currentSession) throw new Error('Login failed');
     }
 
@@ -331,7 +338,8 @@ export async function checkShinagawaAvailability(
             formattedDate, // Pass yyyy/MM/dd
             currentSession,
             undefined, // facilityInfo not strictly needed for availability check
-            credentials
+            credentials,
+            fetcher
         );
 
         // Match Logic: Direct Map Lookup
@@ -459,7 +467,7 @@ export const SHINAGAWA_LOGIN_NEEDED = 'SHINAGAWA_LOGIN_NEEDED';
 export const SHINAGAWA_PARAM_MISSING = 'SHINAGAWA_PARAM_MISSING';
 export const SHINAGAWA_FLOW_ERROR = 'SHINAGAWA_FLOW_ERROR';
 
-function logDiagnostic(label: string, html: string, maxLength: number = 2000) {
+function logDiagnostic(label: string, html: string, maxLength: number = 2000): void {
     // 構造だけ残して個人情報っぽいものをマスクするのが理想だが、
     // ここでは簡易的に切り出しを行う。
     const cleanHtml = html.replace(/\n/g, ' ').substring(0, maxLength);
@@ -471,8 +479,10 @@ export async function checkShinagawaWeeklyAvailability(
     weekStartDate: string,
     session: ShinagawaSession,
     facilityInfo?: Facility,
-    credentials?: SiteCredentials
+    credentials?: SiteCredentials,
+    fetchImpl?: typeof fetch
 ): Promise<WeeklyAvailabilityResult> {
+    const fetcher = fetchImpl || globalThis.fetch;
     const baseUrl = 'https://www.cm9.eprs.jp/shinagawa/web';
 
     // 💡 ステートレス化: 内部での自動ログイン/リトライを廃止
@@ -515,13 +525,13 @@ export async function checkShinagawaWeeklyAvailability(
         console.log(`[Shinagawa] Checking availability for ${facilityId} (Area: ${areaCode})`);
 
         // 1. Home (Reset flow)
-        const homeRes = await fetch(`${baseUrl}/rsvWOpeHomeAction.do`, {
+        const homeRes = await fetcher(`${baseUrl}/rsvWOpeHomeAction.do`, {
             headers: { 'Cookie': session.cookie }
         });
         updateSessionCookies(session, homeRes);
 
         // 2. Search Init
-        const initRes = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+        const initRes = await fetcher(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
             headers: { 'Cookie': session.cookie, 'Referer': `${baseUrl}/rsvWOpeHomeAction.do` }
         });
         updateSessionCookies(session, initRes);
@@ -529,7 +539,7 @@ export async function checkShinagawaWeeklyAvailability(
         console.log(`[Shinagawa] Cookies before Search POST: ${session.cookie}`);
 
         // 3. Vacancy Search POST
-        const searchResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+        const searchResponse = await fetcher(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -626,8 +636,10 @@ export async function makeShinagawaReservation(
     session: ShinagawaSession,
     target: { applicantCount?: number },
     weeklyContext?: ReservationContext,
-    dryRun: boolean = false
+    dryRun: boolean = false,
+    fetchImpl?: typeof fetch
 ): Promise<{ success: boolean; message: string }> {
+    const fetcher = fetchImpl || globalThis.fetch;
     const SHINAGAWA_TIMESLOT_MAP: Record<string, string> = {
         '09:00': '10', '11:00': '20', '13:00': '30', '15:00': '40', '17:00': '50', '19:00': '60'
     };
@@ -664,7 +676,7 @@ export async function makeShinagawaReservation(
         ajaxParams.append('akiNum', '0');
         ajaxParams.append('selectNum', '0');
 
-        const ajaxResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+        const ajaxResponse = await fetcher(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
@@ -685,7 +697,7 @@ export async function makeShinagawaReservation(
         applyParams.set('selectInstCd', facilityId);
         applyParams.set('useDay', useDay);
 
-        const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+        const applyResponse = await fetcher(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
@@ -702,7 +714,7 @@ export async function makeShinagawaReservation(
             const ruleParams = new URLSearchParams();
             ruleParams.append('ruleFg', '1');
             ruleParams.append('displayNo', 'prwcd1000');
-            await fetch(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
+            await fetcher(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
                 method: 'POST',
                 headers: {
                     'Cookie': session.cookie,
@@ -765,7 +777,7 @@ export async function makeShinagawaReservation(
         confirmParams.append('rsvWOpeReservedConfirmForm.usrNum', (target.applicantCount || 2).toString());
         confirmParams.append('rsvWOpeReservedConfirmForm.eventName', '');
 
-        const confirmRes = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
+        const confirmRes = await fetcher(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
@@ -812,7 +824,7 @@ export async function makeShinagawaReservation(
         console.log('[Shinagawa] 🚀 EXECUTING FINAL COMMIT (Real Reservation)...');
 
         // 5. Complete
-        const compRes = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
+        const compRes = await fetcher(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
@@ -868,8 +880,10 @@ export async function getShinagawaFacilities(
     credentials: SiteCredentials,
     kv: KVNamespace,
     userId?: string,
-    existingSession?: ShinagawaSession
+    existingSession?: ShinagawaSession,
+    fetchImpl?: typeof fetch
 ): Promise<Facility[]> {
+    const fetcher = fetchImpl || globalThis.fetch;
     try {
         const cacheKey = userId ? `shinagawa:facilities:${userId}` : 'shinagawa:facilities:cache';
         const cached = await kv.get(cacheKey, 'json');

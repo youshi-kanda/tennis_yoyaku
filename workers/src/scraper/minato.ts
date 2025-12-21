@@ -23,11 +23,12 @@ export const MINATO_SESSION_EXPIRED_MESSAGE = 'MINATO_SESSION_EXPIRED';
 // Login Logic
 // =============================================================================
 
-export async function loginToMinato(userId: string, password: string): Promise<string | null> {
+export async function loginToMinato(userId: string, password: string, fetchImpl?: typeof fetch): Promise<string | null> {
+    const fetcher = fetchImpl || globalThis.fetch;
     try {
         const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
 
-        const initResponse = await fetch(`${baseUrl}/rsvWTransUserLoginAction.do`, {
+        const initResponse = await fetcher(`${baseUrl}/rsvWTransUserLoginAction.do`, {
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -61,7 +62,7 @@ export async function loginToMinato(userId: string, password: string): Promise<s
 
         console.log(`Minato: Login parameters: ${loginParams.toString()}`);
 
-        const loginResponse = await fetch(`${baseUrl}/rsvWUserAttestationLoginAction.do`, {
+        const loginResponse = await fetcher(`${baseUrl}/rsvWUserAttestationLoginAction.do`, {
             method: 'POST',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
@@ -110,8 +111,10 @@ export async function checkMinatoAvailability(
     timeSlot: string,
     credentials: SiteCredentials,
     existingReservations?: ReservationHistory[],
-    sessionId?: string | null
+    sessionId?: string | null,
+    fetchImpl?: typeof fetch
 ): Promise<AvailabilityResult> {
+    const fetcher = fetchImpl || globalThis.fetch;
     try {
         const isAlreadyReserved = existingReservations?.some(
             r => r.site === 'minato' &&
@@ -188,8 +191,10 @@ export async function checkMinatoWeeklyAvailability(
     facilityId: string,
     weekStartDate: string,
     sessionId: string,
-    facilityInfo?: Facility
+    facilityInfo?: Facility,
+    fetchImpl?: typeof fetch
 ): Promise<WeeklyAvailabilityResult> {
+    const fetcher = fetchImpl || globalThis.fetch;
     const availability = new Map<string, string>();
     const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
 
@@ -270,8 +275,10 @@ export async function makeMinatoReservation(
     timeSlot: string,
     sessionId: string,
     target: { applicantCount?: number },
-    dryRun: boolean = false
+    dryRun: boolean = false,
+    fetchImpl?: typeof fetch
 ): Promise<{ success: boolean; reservationId?: string; error?: string; message?: string }> {
+    const fetcher = fetchImpl || globalThis.fetch;
     try {
         console.log(`[Minato] Making reservation: ${facilityId}, ${date}, ${timeSlot} (DryRun: ${dryRun})`);
         const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
@@ -330,7 +337,7 @@ export async function makeMinatoReservation(
         ajaxParams.append('akiNum', '0');
         ajaxParams.append('selectNum', '0');
 
-        const ajaxResponse = await fetch(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
+        const ajaxResponse = await fetcher(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': `JSESSIONID=${sessionId}`,
@@ -348,7 +355,7 @@ export async function makeMinatoReservation(
         const applyParams = new URLSearchParams();
         for (const [key, value] of Object.entries(formParams)) applyParams.append(key, value);
 
-        const applyResponse = await fetch(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
+        const applyResponse = await fetcher(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': `JSESSIONID=${sessionId}`,
@@ -380,7 +387,7 @@ export async function makeMinatoReservation(
         detailsBody.set('applyNum', (target.applicantCount || 4).toString());
         if (!detailsBody.has('applyFlg')) detailsBody.set('applyFlg', '1');
 
-        const detailsResponse = await fetch(`${baseUrl}/rsvWInstRsvApplyAction.do`, {
+        const detailsResponse = await fetcher(`${baseUrl}/rsvWInstRsvApplyAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': `JSESSIONID=${sessionId}`,
@@ -392,7 +399,7 @@ export async function makeMinatoReservation(
         });
 
         // 6. Confirm
-        const confirmResponse = await fetch(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
+        const confirmResponse = await fetcher(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': `JSESSIONID=${sessionId}`,
@@ -417,7 +424,7 @@ export async function makeMinatoReservation(
         }
 
         // 7. Complete
-        const completeResponse = await fetch(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
+        const completeResponse = await fetcher(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': `JSESSIONID=${sessionId}`,
@@ -466,15 +473,17 @@ export async function makeMinatoReservation(
 export async function getMinatoFacilities(
     sessionId: string,
     kv: KVNamespace,
-    userId?: string
+    userId?: string,
+    fetchImpl?: typeof fetch
 ): Promise<Facility[]> {
+    const fetcher = fetchImpl || globalThis.fetch;
     try {
         const cacheKey = userId ? `minato:facilities:${userId}` : 'facilities:minato';
         const cached = await kv.get(cacheKey);
         if (cached) return JSON.parse(cached);
 
         const baseUrl = 'https://web101.rsv.ws-scs.jp/web';
-        const response = await fetch(`${baseUrl}/rsvWOpeInstListAction.do`, {
+        const response = await fetcher(`${baseUrl}/rsvWOpeInstListAction.do`, {
             method: 'GET',
             headers: {
                 'Cookie': `JSESSIONID=${sessionId}`,

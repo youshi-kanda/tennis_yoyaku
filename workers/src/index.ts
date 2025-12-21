@@ -2,9 +2,8 @@
 import {
   generateJWT, verifyJWT, hashPassword, verifyPassword, authenticate, requireAdmin
 } from './auth';
-import { KVLock } from './lib/kvLock';
-import { SmartBackoff } from './lib/backoff';
-// SmartBackoff removed - login failure tracking now handled by Durable Objects
+// kvLock and backoff removed
+
 import { corsHeaders, jsonResponse } from './utils/response';
 import { kvMetrics } from './utils/metrics';
 import { monitoringListCache, MONITORING_LIST_CACHE_TTL, sessionCache, SESSION_CACHE_TTL } from './utils/cache';
@@ -54,11 +53,8 @@ import {
   handleSaveSettings,
   handleReservationHistory
 } from './handlers/misc';
-import {
-  handle5AMBatchReservation,
-  checkAndNotify,
-  executeReservation
-} from './logic/monitoringLogic';
+// monitoringLogic removed
+
 import {
   checkShinagawaAvailability,
   checkShinagawaWeeklyAvailability,
@@ -763,30 +759,7 @@ export default {
   // All monitoring now handled by Durable Objects Alarm Loop
   // ============================================================================
 
-  async queue(batch: MessageBatch<ReservationMessage>, env: Env): Promise<void> {
-    console.log(`[Queue] Received batch of ${batch.messages.length} messages`);
-
-    for (const msg of batch.messages) {
-      const { target, weeklyContext } = msg.body;
-      console.log(`[Queue] Processing reservation for ${target.facilityName} (${target.date} ${target.timeSlot})`);
-
-      try {
-        await executeReservation(target, env, weeklyContext);
-        msg.ack();
-      } catch (error: any) {
-        console.error(`[Queue] Failed to process message ${msg.id}:`, error);
-
-        // リトライ可能か判定（例: ログイン失敗ならリトライ、満室ならリトライ不要）
-        const isRetryable = error.message.includes('Login failed') || error.message.includes('network error');
-
-        if (isRetryable) {
-          msg.retry(); // Queueのバックオフ設定に従ってリトライ
-          console.log(`[Queue] Message ${msg.id} marked for retry`);
-        } else {
-          console.error(`[Queue] Message ${msg.id} failed permanently: ${error.message}`);
-          // 通知を送るなど（executeReservation内でも送っているが）
-        }
-      }
-    }
-  }
+  // Queue handler removed (Reservation Queue deprecated in favor of UserAgent)
 };
+
+

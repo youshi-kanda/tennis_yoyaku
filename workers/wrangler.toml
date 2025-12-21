@@ -32,16 +32,7 @@ new_classes = ["UserAgent"]
 
 
 
-# Queues (Producer)
-[[queues.producers]]
-queue = "tennis-reservation-queue"
-binding = "RESERVATION_QUEUE"
 
-# Queues (Consumer)
-[[queues.consumers]]
-queue = "tennis-reservation-queue"
-max_batch_size = 5
-max_batch_timeout = 30
 
 # Environment variables (Production)
 [vars]

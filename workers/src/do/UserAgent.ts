@@ -641,6 +641,14 @@ export class UserAgent extends DurableObject<Env> {
                             if (result.currentStatus === '取') {
                                 // 🔥 Signal Detected!
                                 console.log(`[UserAgent] 🔥 Signal '取' detected! Switching to HOT.`);
+
+                                // Notify 'Tori' detection
+                                await sendPushNotification(this.memState.userId, {
+                                    title: '🔥 キャンセル待ち検知',
+                                    body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n「取」マークを検知しました。集中監視を開始します。`,
+                                    badge: '/icons/hot.png' // Ensure this icon exists or use generic
+                                }, this.env);
+
                                 this.memState.isHotMonitoring = true;
                                 this.memState.hotTargetId = target.id;
                                 this.memState.hotUntil = Date.now() + 15000; // 15s burst
@@ -786,10 +794,20 @@ export class UserAgent extends DurableObject<Env> {
                 );
                 if (result.success) {
                     console.log('[UserAgent] ✅ Reservation Success!');
-                    // Update target status, notify...
-                    // For now, log. We should probably callback to Worker or update KV.
+                    // Notify Success
+                    await sendPushNotification(this.memState.userId, {
+                        title: '🎉 予約完了',
+                        body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n予約に成功しました！`,
+                        badge: '/icons/success.png'
+                    }, this.env);
                 } else {
                     console.error(`[UserAgent] ❌ Reservation Failed: ${result.message}`);
+                    // Notify Failure
+                    await sendPushNotification(this.memState.userId, {
+                        title: '❌ 予約失敗',
+                        body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n予約に失敗しました。\n理由: ${result.message}`,
+                        badge: '/icons/failure.png'
+                    }, this.env);
                 }
             } else {
                 const result = await makeMinatoReservation(
@@ -798,6 +816,22 @@ export class UserAgent extends DurableObject<Env> {
                     { applicantCount: target.applicantCount },
                     false
                 );
+
+                if (result.success) {
+                    // Minato Success
+                    await sendPushNotification(this.memState.userId, {
+                        title: '🎉 予約完了 (港区)',
+                        body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n予約に成功しました！`,
+                        badge: '/icons/success.png'
+                    }, this.env);
+                } else {
+                    // Minato Failure
+                    await sendPushNotification(this.memState.userId, {
+                        title: '❌ 予約失敗 (港区)',
+                        body: `${target.facilityName}\n${target.date} ${target.timeSlot}\n予約に失敗しました。\n理由: ${result.message}`,
+                        badge: '/icons/failure.png'
+                    }, this.env);
+                }
                 if (result.success) {
                     console.log('[UserAgent] ✅ Minato Reservation Success!');
                 } else {

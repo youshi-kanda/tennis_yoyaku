@@ -146,12 +146,12 @@ export async function loginToShinagawa(
 
         // loginJKey抽出
         const loginJKeyMatch = initHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-        if (!loginJKeyMatch) throw new Error('loginJKey not found');
+        if (!loginJKeyMatch?.[1]) throw new Error('loginJKey not found'); // Optional chaining & guard
         const loginJKey = loginJKeyMatch[1];
 
         // displayNo
         const displayNoMatch = initHtml.match(/name=["']?displayNo["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-        const displayNo = displayNoMatch ? displayNoMatch[1] : 'pawab2100';
+        const displayNo = displayNoMatch?.[1] ?? 'pawab2100'; // Optional chaining & default
 
         // Step 2: ログイン実行
         const passwordChars = password.split('');
@@ -202,10 +202,10 @@ export async function loginToShinagawa(
 
             // Step 3: 検索画面への遷移してパラメータ取得
             const homeLoginJKeyMatch = loginHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-            const step3LoginJKey = homeLoginJKeyMatch ? homeLoginJKeyMatch[1] : loginJKey;
+            const step3LoginJKey = homeLoginJKeyMatch?.[1] ?? loginJKey;
 
             const homeDisplayNoMatch = loginHtml.match(/name=["']?displayNo["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-            const step3DisplayNo = homeDisplayNoMatch ? homeDisplayNoMatch[1] : 'pawab2000';
+            const step3DisplayNo = homeDisplayNoMatch?.[1] ?? 'pawab2000';
 
             const step3Params = new URLSearchParams();
             step3Params.append('loginJKey', step3LoginJKey);
@@ -255,7 +255,7 @@ export async function loginToShinagawa(
             }
 
             const rLoginJKeyMatch = step3Html.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-            const rLoginJKey = rLoginJKeyMatch ? rLoginJKeyMatch[1] : step3LoginJKey;
+            const rLoginJKey = rLoginJKeyMatch?.[1] ?? step3LoginJKey;
 
             return {
                 cookie: getCookieHeader(currentCookies),
@@ -738,7 +738,7 @@ export async function makeShinagawaReservation(
 
         const linkMatch = applyHtml.match(/(?:href|action)=["']([^"']*(?:instNo|dateNo|timeNo)[^"']*)["']/i);
 
-        if (linkMatch) {
+        if (linkMatch?.[1]) { // Optional chaining
             let rawUrl = linkMatch[1];
             // Decode HTML entities (&amp; -> &)
             rawUrl = rawUrl.replace(/&amp;/g, '&');

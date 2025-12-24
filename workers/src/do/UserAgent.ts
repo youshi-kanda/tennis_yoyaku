@@ -630,7 +630,9 @@ export class UserAgent extends DurableObject<Env> {
                                     await this.checkHot(); // Switch immediately
                                     return; // Exit check loop
                                 } else if (currentStatus === '○' || currentStatus === '△') {
-                                    // Available -> Reserve
+                                    // Available -> NOTIFY ONLY (Monitoring Mode)
+                                    // Auto-reservation disabled by user request [2025-12-24]
+                                    /*
                                     if (target.autoReserve) {
                                         // Pass the specific date/timeSlot we found!
                                         await this.executeReservation(target, checkItem.date, checkItem.timeSlot, session);
@@ -641,6 +643,14 @@ export class UserAgent extends DurableObject<Env> {
                                             data: { url: 'https://tennis-yoyaku.pages.dev/dashboard' }
                                         }, this.env);
                                     }
+                                    */
+
+                                    // Always notify in Monitoring Mode
+                                    await sendPushNotification(this.memState.userId, {
+                                        title: '🎾 空き枠検知 (監視あり)',
+                                        body: `${target.facilityName}\n${checkItem.date} ${checkItem.timeSlot}\n現在ステータス: ${currentStatus}\n※手動で予約してください`,
+                                        data: { url: 'https://tennis-yoyaku.pages.dev/dashboard' }
+                                    }, this.env);
                                 }
                             }
 
@@ -707,16 +717,18 @@ export class UserAgent extends DurableObject<Env> {
                     );
 
                     if (result.available && (result.currentStatus === '○' || result.currentStatus === '△')) {
-                        console.log('[UserAgent] 🔥 Hot Hit! Booking...');
+                        console.log('[UserAgent] 🔥 Hot Hit! NOTIFYING (No Auto-Reserve)...');
                         await sendPushNotification(this.memState.userId, {
-                            title: '🔥 空き枠確保開始',
-                            body: `検出しました！自動予約を開始します。\n${target.facilityName}\n${checkItem.timeSlot}`,
+                            title: '🔥 空き枠確保チャンス',
+                            body: `検出しました！すぐに手動予約をお願いします。\n${target.facilityName}\n${checkItem.timeSlot}`,
                             badge: '/icons/hot.png'
                         }, this.env);
 
+                        /*
                         if (target.autoReserve) {
                             await this.executeReservation(target, checkItem.date, checkItem.timeSlot, session);
                         }
+                        */
 
                         // Stop Hot
                         this.memState.isHotMonitoring = false;

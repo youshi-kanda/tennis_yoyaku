@@ -45,6 +45,13 @@ function updateCookies(response: Response, currentCookies: Map<string, string>):
         }
     }
 
+    if (cookieStrings.length > 0) {
+        console.log(`[Cookies] Received ${cookieStrings.length} cookies from ${response.url}`);
+        cookieStrings.forEach(c => console.log(`  Set-Cookie: ${c.split(';')[0]}`));
+    } else {
+        console.log(`[Cookies] No cookies received from ${response.url} (Status: ${response.status})`);
+    }
+
     cookieStrings.forEach(cookieStr => {
         const parts = cookieStr.split(';');
         if (parts.length > 0) {
@@ -129,6 +136,7 @@ export async function loginToShinagawa(
         loginFormParams.append('displayNo', 'pawab2000');
         loginFormParams.append('displayNoFrm', 'pawab2000');
 
+        // Original POST request to get login form
         const initResponse = await fetcher(`${baseUrl}/rsvWTransUserLoginAction.do`, {
             method: 'POST',
             headers: {
@@ -144,33 +152,67 @@ export async function loginToShinagawa(
         const initHtml = new TextDecoder('shift-jis').decode(initBuffer);
         updateCookies(initResponse, currentCookies);
 
-        // loginJKey抽出
+        // DEBUG: Save pre-login HTML
+        try {
+            // @ts-ignore
+            const fs = require('fs');
+            // @ts-ignore
+            const path = require('path');
+            // @ts-ignore
+            const debugPath = path.join(process.cwd(), 'debug_html', 'pre_login.html');
+            fs.writeFileSync(debugPath, initHtml);
+        } catch (e) { }
+
+        // loginJKey抽出 (Still explicitly check for critical one)
         const loginJKeyMatch = initHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-        if (!loginJKeyMatch?.[1]) throw new Error('loginJKey not found'); // Optional chaining & guard
+        if (!loginJKeyMatch?.[1]) throw new Error('loginJKey not found');
         const loginJKey = loginJKeyMatch[1];
 
-        // displayNo
-        const displayNoMatch = initHtml.match(/name=["']?displayNo["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
-        const displayNo = displayNoMatch?.[1] ?? 'pawab2100'; // Optional chaining & default
-
-        // Step 2: ログイン実行
-        const passwordChars = password.split('');
+        // Extract ALL hidden inputs to mimic browser behavior (Struts/Java apps often need these)
         const authParams = new URLSearchParams();
-        authParams.append('userId', userId);
-        authParams.append('password', password);
-        authParams.append('loginJKey', loginJKey);
-        authParams.append('displayNo', displayNo);
-        authParams.append('displayNoFrm', displayNo);
-        authParams.append('fcflg', '');
 
+        // Generic extraction of all inputs in the form
+        const formRegex = /<form[^>]*name=["']form1["'][^>]*>([\s\S]*?)<\/form>/i;
+        const formMatch = initHtml.match(formRegex);
+        if (formMatch) {
+            const formContent = formMatch[1];
+            const inputRegex = /<input[^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi;
+            const inputs = [...formContent.matchAll(inputRegex)];
+            for (const m of inputs) {
+                const name = m[1];
+                const value = m[2];
+                // Skip userId/password as we set them manually
+                if (name !== 'userId' && name !== 'password') {
+                    authParams.append(name, value);
+                }
+            }
+        } else {
+            // Fallback if form parsing fails (should not happen)
+            console.warn('[Login] ⚠️ Could not parse form1, falling back to manual params');
+            authParams.append('loginJKey', loginJKey);
+            authParams.append('displayNo', 'pawab2100');
+            authParams.append('fcflg', '');
+        }
+
+        // Overwrite/Set credentials
+        authParams.set('userId', userId);
+        authParams.set('password', password);
+
+        // Add loginCharPass
+        const passwordChars = password.split('');
         passwordChars.forEach(char => {
             authParams.append('loginCharPass', char);
         });
 
+        const displayNo = authParams.get('displayNo') || 'unknown';
+        console.log(`[Login] Params: userId=${userId}, loginJKey=${loginJKey}, displayNo=${displayNo}`);
+        console.log(`[Login] Full Params Keys: ${[...authParams.keys()].join(',')}`);
+
+
         const loginResponse = await fetcher(`${baseUrl}/rsvWUserAttestationLoginAction.do`, {
             method: 'POST',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
+                'User-Agent': USER_AGENT,
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Cookie': getCookieHeader(currentCookies),
                 'Referer': `${baseUrl}/rsvWTransUserLoginAction.do`,
@@ -197,8 +239,15 @@ export async function loginToShinagawa(
         }
 
         // 302 Found = Success
-        if (loginResponse.status === 302 || loginResponse.status === 303 || loginHtml.includes('rsvWTransInstListAction')) {
-            console.log('[Login] ✅ Login Success (Redirect detected)');
+        // OR 200 OK but MUST NOT contain the login button (id="btn-login")
+        // The presence of "rsvWTransInstListAction" alone is not enough as it appears in JS variables on the login page too.
+        const isRedirect = loginResponse.status === 302 || loginResponse.status === 303;
+        const hasMenuLink = loginHtml.includes('rsvWTransInstListAction');
+        const hasLoginButton = loginHtml.includes('id="btn-login"');
+
+        if (isRedirect || (hasMenuLink && !hasLoginButton)) {
+            const location = loginResponse.headers.get('Location');
+            console.log(`[Login] ✅ Login Success. Status: ${loginResponse.status}, Location: ${location}`);
 
             // Step 3: 検索画面への遷移してパラメータ取得
             const homeLoginJKeyMatch = loginHtml.match(/name=["']?loginJKey["']?[^>]*value=["']?([^"'\s>]*)["']?/i);
@@ -269,6 +318,19 @@ export async function loginToShinagawa(
         const titleMatch = loginHtml.match(/<title>([^<]*)<\/title>/i);
         const pageTitle = titleMatch ? titleMatch[1] : 'Unknown';
         console.error(`[Login] ❌ Failed. Title: ${pageTitle}`);
+
+        // DEBUG: Save login failure HTML
+        try {
+            // @ts-ignore
+            const fs = require('fs');
+            // @ts-ignore
+            const path = require('path');
+            // @ts-ignore
+            const debugPath = path.join(process.cwd(), 'debug_html', 'login_failure.html');
+            fs.writeFileSync(debugPath, loginHtml);
+            console.error(`[Login] Saved failure HTML to: ${debugPath}`);
+        } catch (e) { }
+
         return null;
 
     } catch (e) {
@@ -463,6 +525,7 @@ function extractInputValue(html: string, name: string): string | undefined {
 
 // 修正: エラーコードの定義 (診断力向上)
 export const SHINAGAWA_SESSION_EXPIRED = 'SHINAGAWA_SESSION_EXPIRED';
+const USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 export const SHINAGAWA_LOGIN_NEEDED = 'SHINAGAWA_LOGIN_NEEDED';
 export const SHINAGAWA_PARAM_MISSING = 'SHINAGAWA_PARAM_MISSING';
 export const SHINAGAWA_FLOW_ERROR = 'SHINAGAWA_FLOW_ERROR';
@@ -524,15 +587,16 @@ export async function checkShinagawaWeeklyAvailability(
 
         console.log(`[Shinagawa] Checking availability for ${facilityId} (Area: ${areaCode})`);
 
-        // 1. Home (Reset flow)
-        const homeRes = await fetcher(`${baseUrl}/rsvWOpeHomeAction.do`, {
-            headers: { 'Cookie': session.cookie }
-        });
-        updateSessionCookies(session, homeRes);
+        // 1. Home (Reset flow) - SKIPPED to prevent session reset
+        // const homeRes = await fetcher(`${baseUrl}/rsvWOpeHomeAction.do`, {
+        //     headers: { 'Cookie': session.cookie, 'User-Agent': USER_AGENT }
+        // });
+        // updateSessionCookies(session, homeRes);
 
         // 2. Search Init
         const initRes = await fetcher(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
-            headers: { 'Cookie': session.cookie, 'Referer': `${baseUrl}/rsvWOpeHomeAction.do` }
+            // Referer modified to look like we came from the menu/dashboard
+            headers: { 'Cookie': session.cookie, 'Referer': `${baseUrl}/rsvWTransInstListAction.do`, 'User-Agent': USER_AGENT }
         });
         updateSessionCookies(session, initRes);
 
@@ -545,6 +609,7 @@ export async function checkShinagawaWeeklyAvailability(
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Cookie': session.cookie,
                 'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`, // Changed from list action
+                'User-Agent': USER_AGENT
             },
             body: new URLSearchParams(params).toString(),
         });
@@ -555,8 +620,19 @@ export async function checkShinagawaWeeklyAvailability(
 
         if (htmlText.includes('ログイン') || htmlText.includes('セッションが切れました')) {
             console.error('[Shinagawa] Session Expiry detected.');
-            console.error('[Shinagawa] HTML Snippet:', htmlText.substring(0, 500).replace(/\n/g, ' '));
-            // 🔥 即座に特定エラーを投げる
+            // Dump to file for debugging
+            try {
+                // @ts-ignore
+                const fs = require('fs');
+                // @ts-ignore
+                const path = require('path');
+                // @ts-ignore
+                const debugPath = path.join(process.cwd(), 'debug_html', 'error_search_response.html');
+                fs.writeFileSync(debugPath, htmlText);
+                console.error(`[Shinagawa] Full Error HTML saved to: ${debugPath}`);
+            } catch (err) {
+                console.error('[Shinagawa] Failed to save error HTML:', err);
+            }
             throw new Error(SHINAGAWA_SESSION_EXPIRED);
         }
 
@@ -634,7 +710,7 @@ export async function makeShinagawaReservation(
     date: string,
     timeSlot: string,
     session: ShinagawaSession,
-    target: { applicantCount?: number },
+    target: { applicantCount?: number; eventName?: string }, // eventName added
     weeklyContext?: ReservationContext,
     dryRun: boolean = false,
     fetchImpl?: typeof fetch
@@ -668,7 +744,11 @@ export async function makeShinagawaReservation(
         const ajaxParams = new URLSearchParams();
         ajaxParams.append('displayNo', session.displayNo || 'prwrc2000');
         ajaxParams.append('bldCd', bldCd);
+        ajaxParams.append('selectBldCd', bldCd); // Redundant
+
         ajaxParams.append('instCd', facilityId);
+        ajaxParams.append('selectInstCd', facilityId); // Redundant
+
         ajaxParams.append('useDay', useDay);
         ajaxParams.append('startTime', startTime);
         ajaxParams.append('endTime', endTime);
@@ -676,45 +756,168 @@ export async function makeShinagawaReservation(
         ajaxParams.append('akiNum', '0');
         ajaxParams.append('selectNum', '0');
 
+        // [FIX] Add Purpose Codes (Missing causing e430010 error "Purpose not specified")
+        // Mapping: selectPpsCd -> ppsCd, selectPpsClsCd -> ppsClsCd
+        const currentPpsCd = formParams['selectPpsCd'] || '31011700'; // Default Tennis
+        const currentPpsClsCd = formParams['selectPpsClsCd'] || '31000000';
+
+        ajaxParams.append('ppsCd', currentPpsCd);
+        ajaxParams.append('selectPpsCd', currentPpsCd); // Redundant
+
+        ajaxParams.append('ppsClsCd', currentPpsClsCd);
+        ajaxParams.append('selectPpsClsCd', currentPpsClsCd); // Redundant
+        // Sometimes legacy systems need both or specific variations, but starting with these matches the short-name pattern (bldCd, instCd)
+
+        console.log('[Shinagawa] AJAX Params:', ajaxParams.toString());
+
         const ajaxResponse = await fetcher(`${baseUrl}/rsvWOpeInstSrchVacantAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': session.userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
                 'X-Requested-With': 'XMLHttpRequest',
-                'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`
+                'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`,
+                'Origin': 'https://www.cm9.eprs.jp'
             },
             body: ajaxParams.toString()
         });
 
         if (!ajaxResponse.ok) return { success: false, message: `AJAX failed: ${ajaxResponse.status}` };
 
-        // 2. Application Form
+        // [FIX] Parse the selection page HTML to get all hidden fields (selectBldName, selectInstName, etc.)
+        // valid session state depends on these being correct.
+        // [FIX] Decode extraction page with reliable encoding (windows-31j covers most JP chars)
+        const buffer = await ajaxResponse.arrayBuffer();
+        let selectionHtml = '';
+        try {
+            const decoder = new TextDecoder('windows-31j');
+            selectionHtml = decoder.decode(buffer);
+        } catch (e) {
+            console.warn('TextDecoder error, falling back to shift-jis/utf-8', e);
+            try {
+                selectionHtml = new TextDecoder('shift-jis').decode(buffer);
+            } catch (e2) {
+                selectionHtml = new TextDecoder('utf-8').decode(buffer);
+            }
+        }
+        updateSessionCookies(session, ajaxResponse);
+
+        // Extract hidden fields from selection page
+        const selectionParams: Record<string, string> = {};
+        const hiddenRegex = /<input[^>]*type=["']hidden["'][^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi;
+        const inputs = [...selectionHtml.matchAll(hiddenRegex)];
+        inputs.forEach(match => {
+            if (match[1] && match[2] !== undefined) {
+                // [CRITICAL] Filter out garbage keys/values (Mojibake often results in \uFFFD)
+                if (match[1].includes('\uFFFD') || match[2].includes('\uFFFD')) return;
+                selectionParams[match[1]] = match[2];
+            }
+        });
+
+        // Also capture generic inputs if regex missed them (using the robust regex I extracted earlier)
+        const robustInputRegex = /<input([\s\S]*?)>/gi;
+        const robustInputs = [...selectionHtml.matchAll(robustInputRegex)];
+        robustInputs.forEach(match => {
+            const attrs = match[1];
+            if (/type=["']?hidden["']?/i.test(attrs)) {
+                const nameMatch = attrs.match(/name=["']?([^"'\s>]+)["']?/i);
+                const valueMatch = attrs.match(/value=["']?([^"']*)["']?/i);
+                if (nameMatch) {
+                    const name = nameMatch[1];
+                    const val = valueMatch ? valueMatch[1] : '';
+                    if (!name.includes('\uFFFD') && !val.includes('\uFFFD')) {
+                        if (!(name in selectionParams)) selectionParams[name] = val;
+                    }
+                }
+            }
+        });
+
+        // 2. Application Form (Transition to Terms or Details)
+        // Base params come from the page we just loaded (Critical fix)
+        // Using manual map for robustness if regex failed completely
         const applyParams = new URLSearchParams();
-        for (const [k, v] of Object.entries(formParams)) applyParams.append(k, v);
+        for (const [k, v] of Object.entries(selectionParams)) applyParams.append(k, v);
+
         if (!applyParams.has('applyFlg')) applyParams.append('applyFlg', '1');
         applyParams.set('selectInstCd', facilityId);
         applyParams.set('useDay', useDay);
+
+        // [FIX] Ensure critical context params are set (Fallbacks if value is empty/invalid)
+        // The previous !has() check was insufficient because extraction might return "" or "0"
+        const currentBldCd = applyParams.get('selectBldCd');
+        if (!currentBldCd || currentBldCd === '') applyParams.set('selectBldCd', facilityId.substring(0, 4));
+
+        const checkPpsCd = applyParams.get('selectPpsCd');
+        if (!checkPpsCd || checkPpsCd === '' || checkPpsCd === '0') applyParams.set('selectPpsCd', '31011700');
+
+        const checkPpsClsCd = applyParams.get('selectPpsClsCd');
+        if (!checkPpsClsCd || checkPpsClsCd === '' || checkPpsClsCd === '0') applyParams.set('selectPpsClsCd', '31000000');
+
+        // [FIX] Supply Names if missing (Using generic defaults if extraction failed or names are empty)
+        const bldName = applyParams.get('selectBldName');
+        if (!bldName || bldName === '') applyParams.set('selectBldName', 'しながわ区民公園');
+        const instName = applyParams.get('selectInstName');
+        if (!instName || instName === '') applyParams.set('selectInstName', 'しながわ区民公園（庭球場）');
+
+        // [FIX] Add missing parameters that setReserv() would normally set on client-side
+        applyParams.set('useDate', useDay);
+        applyParams.set('useTimeNo', tzoneNo); // e.g., '10'
+        applyParams.set('useTimeKbn', '1'); // 1=Standard/Timezone
+        applyParams.set('useTimeFrom', startTime.padStart(4, '0'));
+        applyParams.set('useTimeTo', endTime.padStart(4, '0'));
+        applyParams.set('useFieldNum', '1'); // Usually 1 court
+
+        console.log('[Shinagawa] Apply Params:', applyParams.toString());
 
         const applyResponse = await fetcher(`${baseUrl}/rsvWOpeReservedApplyAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'User-Agent': session.userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Referer': `${baseUrl}/rsvWOpeInstSrchVacantAction.do`
             },
             body: applyParams.toString()
         });
+        updateSessionCookies(session, applyResponse);
 
-        const applyHtml = await applyResponse.text();
+        // Correctly decode Term Agreement page key (might contain japanese error messages if failed)
+        let currentHtml = new TextDecoder('shift-jis').decode(await applyResponse.arrayBuffer());
 
-        // 3. Terms rule
-        if (applyHtml.includes('利用規約')) {
+        // 3. Terms rule Agreement (If present)
+        // Check for specific form action or text indicating terms page
+        if (currentHtml.includes('利用規約') && currentHtml.includes('rsvWInstUseruleRsvApplyAction')) {
+            console.log('[Shinagawa] Terms of Use page detected. Agreeing...');
+
             const ruleParams = new URLSearchParams();
-            ruleParams.append('ruleFg', '1');
-            ruleParams.append('displayNo', 'prwcd1000');
-            await fetcher(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
+
+            // Generic extraction of all hidden inputs to preserve session state
+            // Robust regex to capture <input ... > tags (handling newlines and attribute order)
+            const inputTagRegex = /<input([\s\S]*?)>/gi;
+            const inputTags = [...currentHtml.matchAll(inputTagRegex)];
+
+            inputTags.forEach(match => {
+                const attrs = match[1];
+                if (/type=["']?hidden["']?/i.test(attrs)) {
+                    const nameMatch = attrs.match(/name=["']?([^"'\s>]+)["']?/i);
+                    const valueMatch = attrs.match(/value=["']?([^"']*)["']?/i);
+                    if (nameMatch) {
+                        const name = nameMatch[1];
+                        const value = valueMatch ? valueMatch[1] : '';
+                        ruleParams.append(name, value);
+                    }
+                }
+            });
+
+            // Ensure specific agreement params
+            ruleParams.set('ruleFg', '1'); // Agree
+            ruleParams.set('displayNo', 'prwcd1000');
+
+            // Log parameters for debugging
+            console.log('[Shinagawa] Terms Params Keys:', [...ruleParams.keys()].join(', '));
+
+            const ruleResponse = await fetcher(`${baseUrl}/rsvWInstUseruleRsvApplyAction.do`, {
                 method: 'POST',
                 headers: {
                     'Cookie': session.cookie,
@@ -723,146 +926,118 @@ export async function makeShinagawaReservation(
                 },
                 body: ruleParams.toString()
             });
+            updateSessionCookies(session, ruleResponse);
+            currentHtml = await ruleResponse.text();
+
+            // Check for error page immediately
+            if (currentHtml.includes('pawfa1000') || currentHtml.includes('エラー')) {
+                console.error('[Shinagawa] Terms Agreement resulted in Error Page (pawfa1000).');
+                logDiagnostic('TermsError', currentHtml);
+                const errorMatch = currentHtml.match(/<div[^>]*class="[^"]*error[^"]*"[^>]*>(.*?)<\/div>/s);
+                if (errorMatch) console.error('[Shinagawa] Server Error Message:', errorMatch[1].trim());
+            }
         }
 
-        // 4. Confirm
-        let instNo = '', dateNo = '', timeNo = '';
-
-        // Robust Link Extraction from HTML
-        // Find the absolute or relative link to Confirm Action
-        // Link format typically: <a href="...ConfirmAction.do?instNo=X&dateNo=Y&timeNo=Z...">
-        // OR form action. But mostly it's a link or a javascript submit.
-
-        // Strategy: Look for the specific parameters in any 'href' or 'action' in the HTML
-        // This is looser but much improved over a fixed string regex.
-
-        const linkMatch = applyHtml.match(/(?:href|action)=["']([^"']*(?:instNo|dateNo|timeNo)[^"']*)["']/i);
-
-        if (linkMatch?.[1]) { // Optional chaining
-            let rawUrl = linkMatch[1];
-            // Decode HTML entities (&amp; -> &)
-            rawUrl = rawUrl.replace(/&amp;/g, '&');
-
-            // Resolve relative URL
-            // baseUrl is https://www.cm9.eprs.jp/shinagawa/web
-            const absUrl = new URL(rawUrl, baseUrl);
-            const sp = absUrl.searchParams;
-
-            instNo = sp.get('instNo') || '';
-            dateNo = sp.get('dateNo') || '';
-            timeNo = sp.get('timeNo') || '';
-
-            console.log(`[Shinagawa] Extracted IDs: inst=${instNo}, date=${dateNo}, time=${timeNo}`);
-        } else {
-            console.warn('[Shinagawa] Could not find Confirm Link/Form in HTML.');
-            // Log snippet for debugging
-            const confirmSnippet = applyHtml.substring(0, 1000).replace(/\n/g, ' ');
-            console.log(`[Shinagawa] HTML Snippet: ${confirmSnippet}...`);
+        // 4. Details Entry (Purpose, People, EventName)
+        // We should now be on the Details page (sinagawa_yoyaku_2.html)
+        if (!currentHtml.includes('rsvWInstRsvApplyAction') && !currentHtml.includes('予約内容確認')) {
+            console.warn('[Shinagawa] Unexpected page content after Terms. Dumping snippet...');
+            console.log(currentHtml.substring(0, 1000));
         }
 
-        // CRITICAL CHECK
-        if (!instNo || !dateNo || !timeNo) {
-            console.error('[Shinagawa] CRITICAL: Missing required reservation parameters (instNo/dateNo/timeNo).');
-            logDiagnostic('MissingParams', applyHtml);
+        // Extract hidden fields needed for the final POST
+        // insIRsvJKey is CRITICAL.
+        const extractField = (name: string) => extractInputValue(currentHtml, name);
+        const insIRsvJKey = extractField('insIRsvJKey');
+
+        if (!insIRsvJKey) {
+            console.error('[Shinagawa] CRITICAL: insIRsvJKey not found in details page.');
+            logDiagnostic('MissingJKey', currentHtml);
             return {
                 success: false,
-                message: `${SHINAGAWA_PARAM_MISSING}: Failed to extract reservation IDs from page.`
+                message: `${SHINAGAWA_FLOW_ERROR}: Failed to extract session key (insIRsvJKey).`
             };
         }
 
-        const confirmParams = new URLSearchParams();
-        confirmParams.append('rsvWOpeReservedConfirmForm.instNo', instNo);
-        confirmParams.append('rsvWOpeReservedConfirmForm.dateNo', dateNo);
-        confirmParams.append('rsvWOpeReservedConfirmForm.timeNo', timeNo);
-        confirmParams.append('rsvWOpeReservedConfirmForm.usrNum', (target.applicantCount || 2).toString());
-        confirmParams.append('rsvWOpeReservedConfirmForm.eventName', '');
+        const detailsParams = new URLSearchParams();
 
-        const confirmRes = await fetcher(`${baseUrl}/rsvWOpeReservedConfirmAction.do`, {
-            method: 'POST',
-            headers: {
-                'Cookie': session.cookie,
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Referer': `${baseUrl}/rsvWOpeReservedApplyAction.do`
-            },
-            body: confirmParams.toString()
+        // Populate Hidden Fields
+        const hiddenFields = [
+            'displayNo', 'stimeZoneNo', 'etimeZoneNo', 'ppsdCd', 'ppsCd',
+            'field', 'selectRsvDetailNo', 'MaxApplyNum'
+        ];
+        hiddenFields.forEach(f => {
+            const val = extractField(f);
+            if (val) detailsParams.append(f, val);
         });
-        const confirmHtml = await confirmRes.text();
 
-        // Check validation errors in confirmation screen
-        if (confirmHtml.includes('class="error"') || confirmHtml.includes('color="red"')) {
-            console.warn('[Shinagawa] Warning in Confirm screen (might be error or just notice):', confirmHtml.substring(0, 500));
-            // If critical error, return failure
-            if (confirmHtml.includes('入力をご確認ください') || confirmHtml.includes('既に予約されています')) {
-                logDiagnostic('ConfirmError', confirmHtml);
-                return { success: false, message: `${SHINAGAWA_FLOW_ERROR}: Failed at confirmation screen (validation error)` };
-            }
-        }
+        // Populate User Input Fields
+        // hardcoded for Tennis based on flow analysis
+        detailsParams.append('purpose', '31000000_31011700');
+
+        // Applicant Count & Event Name
+        const applicantCount = target.applicantCount || 2;
+        const eventName = target.eventName || 'サークル練習会';
+
+        detailsParams.append('applyNum', applicantCount.toString());
+        detailsParams.append('eventName', eventName);
+
+        // Append Key
+        detailsParams.append('insIRsvJKey', insIRsvJKey);
+
+        console.log(`[Shinagawa] Prepared Application. Key found: ${insIRsvJKey.substring(0, 10)}...`);
 
         // --- SAFE-BY-DEFAULT GUARD ---
         // 最終的な予約実行（POST）を行う前に、厳格な条件チェックを行う。
-        // 条件:
-        // 1. dryRun が false であること
-        // 2. 環境変数 EXECUTE_RESERVATION が "true" であること
-        // (注: Cloudflare Workersでは process.env は使えないため、envオブジェクト経由が必要だが、
-        //  汎用スクレーパー関数には env が渡されていない。
-        //  今回は target.applicantCount などと共に `target` オブジェクトに `executeReservation: boolean` プロパティが含まれていると仮定するか、
-        //  あるいは呼び出し元で制御すべきだが、ここで防波堤を作るなら `target` anyキャスト等で対応) 
-
         const shouldExecute = (!dryRun && (target as any).executeReservation === true);
 
         if (!shouldExecute) {
-            console.log('[Shinagawa] 🛡️ SAFETY GUARD: Skipping final reservation commit.');
+            console.log('[Shinagawa] 🛡️ SAFETY GUARD: Skipping final reservation apply.');
             console.log(`[Shinagawa] Reason: dryRun=${dryRun}, executeReservation=${(target as any).executeReservation}`);
 
-            if (confirmHtml.includes('受付内容確認')) {
-                return { success: true, message: 'DryRun/Guard: Reached Confirm Screen successfully (Commit Skipped)' };
-            } else {
-                return { success: false, message: 'DryRun/Guard: Failed to reach Confirm Screen' };
-            }
+            // Validation check (Soft Guard)
+            // Just return success here implies we reached the final step successfully.
+            return { success: true, message: 'DryRun/Guard: Reached Details Entry successfully (Commit Skipped)' };
         }
 
-        console.log('[Shinagawa] 🚀 EXECUTING FINAL COMMIT (Real Reservation)...');
+        console.log('[Shinagawa] 🚀 EXECUTING FINAL APPLICATION (Real Reservation)...');
 
-        // 5. Complete
-        const compRes = await fetcher(`${baseUrl}/rsvWOpeReservedCompleteAction.do`, {
+        // 5. Final Application POST
+        const resultRes = await fetcher(`${baseUrl}/rsvWInstRsvApplyAction.do`, {
             method: 'POST',
             headers: {
                 'Cookie': session.cookie,
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'Referer': `${baseUrl}/rsvWOpeReservedConfirmAction.do`
+                'Referer': `${baseUrl}/rsvWInstUseruleRsvApplyAction.do` // Referer from Terms action (or Apply action if Terms skipped)
             },
-            body: ''
+            body: detailsParams.toString()
         });
-        const compHtml = await compRes.text();
+        updateSessionCookies(session, resultRes);
+        const resultHtml = await resultRes.text();
 
-        // 判定ロジック強化: 予約番号の抽出を必須とする
-        // パターン1: "予約番号 : 12345678"
-        // パターン2: "受け付けました" + 近くに数字
-        const rsvNoMatch = compHtml.match(/予約番号[:\s]*(\d+)/) || compHtml.match(/受付番号[:\s]*(\d+)/);
+        // 6. Result Analysis
+        // Check for success message or reservation number
+        // Based on other systems, often there's a "Reservation Complete" message or a number.
+        // Analysis of sinagawa_yoyaku_2.html doesn't show the result page, but common patterns apply.
+
+        const rsvNoMatch = resultHtml.match(/予約番号[:\s]*(\d+)/) || resultHtml.match(/受付番号[:\s]*(\d+)/);
 
         if (rsvNoMatch) {
             const reservationNumber = rsvNoMatch[1];
             console.log(`[Shinagawa] ✅ Reservation Confirmed! Number: ${reservationNumber}`);
             return { success: true, message: `予約完了: No.${reservationNumber}` };
-        } else if (compHtml.includes('予約完了') || compHtml.includes('受け付けました')) {
-            // 文言はあるが番号が取れなかった場合
-            console.warn('[Shinagawa] ⚠️ Reservation might be successful but number not found.');
-            // 念のためHTMLをログに残す
-            console.log(compHtml.substring(0, 3000));
-            return { success: true, message: '予約完了 (番号取得失敗)' };
+        } else if (resultHtml.includes('予約完了') || resultHtml.includes('受け付けました') || resultHtml.includes('申し受けました')) {
+            console.log('[Shinagawa] ✅ Reservation Confirmed (Message detection).');
+            return { success: true, message: '予約完了' };
         } else {
-            // 🚨 失敗: エラーメッセージの抽出を試みる
-            console.error('[Shinagawa] ❌ Reservation Failed. Analyzing response...');
-
-            // エラーメッセージの抽出 (赤字のfontタグなど)
-            const errorMatch = compHtml.match(/<font[^>]*color=["']red["'][^>]*>([\s\S]*?)<\/font>/i) ||
-                compHtml.match(/class=["']error["'][^>]*>([\s\S]*?)<\//i);
-
-            const errorMessage = errorMatch ? errorMatch[1].replace(/<[^>]+>/g, '').trim() : '不明なエラー';
+            // Error detection
+            console.error('[Shinagawa] ❌ Reservation might have failed. Analyzing response...');
+            const errorMatch = resultHtml.match(/<font[^>]*color=["']red["'][^>]*>([\s\S]*?)<\/font>/i) ||
+                resultHtml.match(/class=["']error["'][^>]*>([\s\S]*?)<\//i);
+            const errorMessage = errorMatch ? errorMatch[1].replace(/<[^>]+>/g, '').trim() : '不明なエラー（完了画面解析失敗）';
 
             console.error(`[Shinagawa] Error Message: ${errorMessage}`);
-            console.error('[Shinagawa] HTML Dump (Partial):');
-            console.log(compHtml.substring(0, 4000)); // ログ長を拡張
+            logDiagnostic('ReservationFailed', resultHtml);
 
             return { success: false, message: errorMessage };
         }

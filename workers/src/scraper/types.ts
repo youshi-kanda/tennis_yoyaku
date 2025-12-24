@@ -94,4 +94,5 @@ export interface ShinagawaSession {
     displayNo: string;
     errorParams: Record<string, string>;
     searchFormParams?: Record<string, string>; // 検索フォーム（rsvWOpeInstSrchVacantAction.do）の初期値
+    userAgent?: string;
 }

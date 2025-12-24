@@ -11,6 +11,7 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: 'export',
 };
 
 export default withPWA(nextConfig);

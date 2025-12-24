@@ -658,10 +658,21 @@ export async function checkShinagawaWeeklyAvailability(
 
             const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
             let status = '×';
-            if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) status = '○';
-            else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) status = '取';
-            else if (cellContent.includes('○')) status = '○';
-            else if (cellContent.includes('取')) status = '取';
+            if (cellContent.includes('alt="空き"') || cellContent.includes('calendar_available')) {
+                status = '○';
+            } else if (cellContent.includes('alt="一部空き"') || cellContent.includes('calendar_few-available')) {
+                status = '○'; // 一部空きも予約可能
+            } else if (cellContent.includes('alt="選択中"') || cellContent.includes('calendar_check')) {
+                status = '○'; // 選択中も空きとみなす
+            } else if (cellContent.includes('alt="取消処理中"') || cellContent.includes('calendar_delete')) {
+                status = '取';
+            } else if (cellContent.includes('alt="予約あり"') || cellContent.includes('calendar_full')) {
+                status = '×'; // 明示的に予約済み
+            } else if (cellContent.includes('○')) {
+                status = '○';
+            } else if (cellContent.includes('取')) {
+                status = '取';
+            }
 
             availability.set(`${formattedDate}_${timeSlot}`, status);
         }

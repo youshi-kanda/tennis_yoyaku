@@ -24,6 +24,7 @@ interface UserAgentState {
     targets: MonitoringTarget[];
     credentials?: SiteCredentials;
     sessionCookie?: string;
+    sessionCreatedAt?: number; // Timestamp when session was created
     fullSession?: any; // ShinagawaSession (keep in memory only)
     isHotMonitoring: boolean;
     hotUntil: number;
@@ -84,6 +85,7 @@ export class UserAgent extends DurableObject<Env> {
     // Lock for strict serialization
     private isProcessing: boolean = false;
     private isBooking: boolean = false; // [NEW] Booking lock
+    private loginPromise: Promise<string> | null = null; // [NEW] Promise-based Mutex for login
 
     // Reservation Metrics (Task 3: Phase 2)
     private reservationMetrics = {
@@ -478,78 +480,113 @@ export class UserAgent extends DurableObject<Env> {
     // --- Logic ---
 
     private async getSession(): Promise<string> {
-        if (this.memState.sessionCookie) {
-            return this.memState.sessionCookie;
+        const SESSION_LIFETIME = 20 * 60 * 1000; // 20分
+        const now = Date.now();
+
+        // 品川区の場合は fullSession と loginJKey の存在を確認
+        if (this.memState.site === 'shinagawa') {
+            const hasValidFullSession =
+                this.memState.fullSession &&
+                this.memState.fullSession.loginJKey;
+
+            if (!hasValidFullSession) {
+                console.log('[UserAgent] Missing fullSession or loginJKey. Re-logging in...');
+                return await this.doLogin();
+            }
         }
-        return await this.doLogin();
+
+        // セッションが期限切れまたは存在しない場合
+        if (!this.memState.sessionCookie ||
+            !this.memState.sessionCreatedAt ||
+            now - this.memState.sessionCreatedAt > SESSION_LIFETIME) {
+            console.log('[UserAgent] Session expired or missing. Re-logging in...');
+            return await this.doLogin();
+        }
+
+        return this.memState.sessionCookie;
     }
 
     private async doLogin(): Promise<string> {
-        if (!this.memState.credentials) throw new Error('No credentials');
-
-        // Login Halt Check
-        if (this.memState.loginFailures.haltedUntil > Date.now()) {
-            const minutesLeft = Math.ceil((this.memState.loginFailures.haltedUntil - Date.now()) / 60000);
-            throw new Error(`LOGIN_HALTED: Too many failures. Retry after ${minutesLeft} minutes.`);
+        // 1. 既に誰かがログイン処理中なら、その結果(Promise)を返す（便乗する）
+        if (this.loginPromise) {
+            console.log('[UserAgent] Login already in progress. Waiting for result...');
+            return this.loginPromise;
         }
 
-        console.log(`[UserAgent:${this.memState.site}] Logging in...`);
+        // 2. 自分が代表してログイン処理を開始し、Promiseを保持する
+        this.loginPromise = (async () => {
+            if (!this.memState.credentials) throw new Error('No credentials');
 
-        // Use SafeFetch for login
-        const fetcher = this.safeFetch.bind(this);
-
-        try {
-            let password = this.memState.credentials.password;
-            if (isEncrypted(password)) {
-                password = await decryptPassword(password, this.env.ENCRYPTION_KEY);
+            // Login Halt Check
+            if (this.memState.loginFailures.haltedUntil > Date.now()) {
+                const minutesLeft = Math.ceil((this.memState.loginFailures.haltedUntil - Date.now()) / 60000);
+                throw new Error(`LOGIN_HALTED: Too many failures. Retry after ${minutesLeft} minutes.`);
             }
 
-            let cookie: string | null = null;
-            if (this.memState.site === 'shinagawa') {
-                const session = await loginToShinagawa(this.memState.credentials.username, password, fetcher);
-                if (session) {
-                    this.memState.fullSession = session;
-                    cookie = session.cookie;
-                } else {
-                    throw new Error('Login failed: Invalid credentials or account locked');
+            console.log(`[UserAgent:${this.memState.site}] Logging in...`);
+
+            // Use SafeFetch for login
+            const fetcher = this.safeFetch.bind(this);
+
+            try {
+                let password = this.memState.credentials.password;
+                if (isEncrypted(password)) {
+                    password = await decryptPassword(password, this.env.ENCRYPTION_KEY);
                 }
-            } else {
-                throw new Error('MINATO_LOGIN_REQUIRED: Manual login required');
+
+                let cookie: string | null = null;
+                if (this.memState.site === 'shinagawa') {
+                    const session = await loginToShinagawa(this.memState.credentials.username, password, fetcher);
+                    if (session) {
+                        this.memState.fullSession = session;
+                        cookie = session.cookie;
+                    } else {
+                        throw new Error('Login failed: Invalid credentials or account locked');
+                    }
+                } else {
+                    throw new Error('MINATO_LOGIN_REQUIRED: Manual login required');
+                }
+
+                this.memState.loginFailures = {
+                    count: 0,
+                    lastFailureTime: 0,
+                    haltedUntil: 0
+                };
+                this.memState.sessionCookie = cookie;
+                this.memState.sessionCreatedAt = Date.now(); // Track session creation time
+                await this.saveState();
+
+                console.log(`[UserAgent:${this.memState.site}] ✅ Login successful`);
+                return cookie;
+
+            } catch (e: any) {
+                this.memState.loginFailures.count++;
+                this.memState.loginFailures.lastFailureTime = Date.now();
+
+                console.error(`[UserAgent] ❌ Login failed: ${e.message}`);
+
+                // Halt indefinitely (safe far-future)
+                const HALT_FOREVER = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+                this.memState.loginFailures.haltedUntil = HALT_FOREVER;
+
+                console.error(`[UserAgent] 🚨 Login halted INDEFINITELY.`);
+
+                await sendPushNotification(this.memState.userId, {
+                    title: '⚠️ 監視を停止しました',
+                    body: `ログインエラーが発生したため、安全のために監視を停止しました。\n理由: ${e.message}\n設定を確認し、再開してください。`,
+                    badge: '/icons/error.png',
+                    data: { url: 'https://tennis-yoyaku.pages.dev/settings' }
+                }, this.env);
+
+                await this.saveState();
+                throw e;
+            } finally {
+                // 3. 処理が終わったら（成功/失敗問わず）Promiseをクリア
+                this.loginPromise = null;
             }
+        })();
 
-            this.memState.loginFailures = {
-                count: 0,
-                lastFailureTime: 0,
-                haltedUntil: 0
-            };
-            this.memState.sessionCookie = cookie;
-            await this.saveState();
-
-            console.log(`[UserAgent:${this.memState.site}] ✅ Login successful`);
-            return cookie;
-
-        } catch (e: any) {
-            this.memState.loginFailures.count++;
-            this.memState.loginFailures.lastFailureTime = Date.now();
-
-            console.error(`[UserAgent] ❌ Login failed: ${e.message}`);
-
-            // Halt indefinitely (safe far-future)
-            const HALT_FOREVER = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
-            this.memState.loginFailures.haltedUntil = HALT_FOREVER;
-
-            console.error(`[UserAgent] 🚨 Login halted INDEFINITELY.`);
-
-            await sendPushNotification(this.memState.userId, {
-                title: '⚠️ 監視を停止しました',
-                body: `ログインエラーが発生したため、安全のために監視を停止しました。\n理由: ${e.message}\n設定を確認し、再開してください。`,
-                badge: '/icons/error.png',
-                data: { url: 'https://tennis-yoyaku.pages.dev/settings' }
-            }, this.env);
-
-            await this.saveState();
-            throw e;
-        }
+        return this.loginPromise;
     }
 
 
@@ -565,12 +602,8 @@ export class UserAgent extends DurableObject<Env> {
         let session: string;
 
         try {
+            // getSession() now handles fullSession validation and refresh automatically
             session = await this.getSession();
-
-            if (this.memState.site === 'shinagawa' && !this.memState.fullSession) {
-                console.log('[UserAgent] 🔄 Refreshing full session for Shinagawa...');
-                session = await this.doLogin();
-            }
 
             // [NEW] Parallel Execution with Concurrency Limit
             const CONCURRENCY = 3; // Safe limit to avoid WAF/DoS detection (and DO CPU limit)
@@ -656,16 +689,9 @@ export class UserAgent extends DurableObject<Env> {
 
                         } catch (e: any) {
                             console.warn(`[UserAgent] Check failed for ${target.facilityName} ${checkItem.date}: ${e.message}`);
-                            if (e.message?.includes('SESSION_EXPIRED') || e.message?.includes('Login failed')) {
-                                try {
-                                    // Note: In parallel execution, multiple threads might try to relogin.
-                                    // But `doLogin` calls aren't mutexed here, so simple retry.
-                                    // ideally `getSession` handles mutex. For now, simple retry.
-                                    // session = await this.doLogin(); // Do NOT refresh inside parallel loop to avoid chaos
-                                } catch (loginErr) {
-                                    // ignore inside loop
-                                }
-                            } else if (e.message?.includes('Circuit Breaker')) {
+                            // Session errors are now handled automatically by getSession() with proper mutex
+                            // No manual re-login needed here
+                            if (e.message?.includes('Circuit Breaker')) {
                                 throw e;
                             }
                         }

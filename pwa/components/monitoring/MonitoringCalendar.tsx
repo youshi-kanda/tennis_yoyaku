@@ -132,16 +132,16 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
 
     const dateStr = selectedDate.toISOString().split('T')[0];
     console.log('[MonitoringCalendar] Selected date:', dateStr);
-    
+
     const allForDate = reservations.filter((r) => r.date === dateStr);
     const successOnly = allForDate.filter((r) => r.status === 'success');
-    
+
     console.log('[MonitoringCalendar] Reservations for', dateStr, ':', {
       total: allForDate.length,
       success: successOnly.length,
       failed: allForDate.length - successOnly.length
     });
-    
+
     return successOnly;
   }, [selectedDate, reservations]);
 
@@ -157,7 +157,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
         return dateStr >= target.startDate && dateStr <= target.endDate;
       } else if (target.dateMode === 'continuous' && target.startDate && target.endDate) {
         if (dateStr < target.startDate || dateStr > target.endDate) return false;
-        
+
         // 曜日チェック
         if (target.selectedWeekdays && target.selectedWeekdays.length > 0) {
           const dayOfWeek = selectedDate.getDay();
@@ -173,15 +173,15 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
   const tileClassName = ({ date }: { date: Date }) => {
     const dateStr = date.toISOString().split('T')[0];
     const status = dateStatusMap.get(dateStr);
-    
+
     const classes: string[] = [];
-    
+
     // 土日祝を赤文字に
     const dayOfWeek = date.getDay();
     if (dayOfWeek === 0 || dayOfWeek === 6 || isHoliday(date)) {
       classes.push('text-red-600');
     }
-    
+
     if (!status) return classes.join(' ');
 
     // 優先度: failed > reserved > detected > monitoring
@@ -189,7 +189,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
     else if (status.reserved > 0) classes.push('bg-green-100 font-semibold border border-green-300');
     else if (status.detected > 0) classes.push('bg-yellow-100 font-semibold border border-yellow-300');
     else if (status.monitoring > 0) classes.push('bg-blue-100 font-semibold border border-blue-300');
-    
+
     return classes.join(' ');
   };
 
@@ -197,7 +197,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
   const tileContent = ({ date }: { date: Date }) => {
     const dateStr = date.toISOString().split('T')[0];
     const status = dateStatusMap.get(dateStr);
-    
+
     if (!status) return null;
 
     const total = status.monitoring + status.detected + status.reserved + status.failed;
@@ -249,6 +249,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
                 <div className="w-4 h-4 bg-yellow-100 border border-yellow-300 rounded"></div>
                 <span>🟡 空き検知</span>
               </div>
+              {/*
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
                 <span>🟢 予約成功</span>
@@ -257,6 +258,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
                 <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
                 <span>🔴 予約失敗</span>
               </div>
+              */}
             </div>
 
             {/* カレンダー本体 */}
@@ -345,7 +347,8 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
             </p>
           ) : (
             <div className="space-y-6">
-              {/* 予約成功 */}
+              {/* 予約成功 (監視モードでは非表示) */}
+              {/*
               {selectedDateReservations.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
@@ -380,8 +383,10 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
                   </div>
                 </div>
               )}
+              */}
 
-              {/* 予約失敗 */}
+              {/* 予約失敗 (監視モードでは非表示) */}
+              {/*
               {selectedDateTargets.filter(t => t.status === 'failed').length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
@@ -415,6 +420,7 @@ export function MonitoringCalendar({ targets }: MonitoringCalendarProps) {
                   </div>
                 </div>
               )}
+              */}
 
               {/* 空き検知 */}
               {selectedDateTargets.filter(t => t.status === 'detected').length > 0 && (

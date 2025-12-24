@@ -1,0 +1,380 @@
+<html lang="ja"><!-- prwea1000.jsp -->
+
+<head>
+    <title>品川区施設予約システム&nbsp;予約内容一覧画面</title>
+    <meta charset="Shift_JIS">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="format-detection" content="telephone=no">
+    <link rel="shortcut icon" href="image/favicon.ico">
+    <link rel="stylesheet" href="css/jquery-ui.min.css">
+    <link rel="stylesheet" href="css/fgnp.min.css">
+    <link rel="stylesheet" href="css/fgnp-icons.css">
+    <link rel="stylesheet" href="css/combobox.css">
+    <link rel="stylesheet" href="css/prs_web_common.css">
+    <script src="js/lib/jquery-3.7.1.min.js"></script>
+    <script src="js/lib/jquery.cookie.js"></script>
+    <script src="js/lib/jquery-ui.min.js"></script>
+    <script src="js/lib/bootstrap.bundle.min.js"></script>
+    <script src="js/paw_combobox.js"></script>
+    <script src="js/paw_doaction.js"></script>
+    <script src="js/paw_errormsg.js"></script>
+    <script src="js/paw_common.js"></script>
+    <script src="js/paw_l100.js"></script>
+    <script src="js/prwea1000.js"></script>
+    <script>var gRsvWOpeReservedApplyBackAction = '/shinagawa/web/rsvWOpeReservedApplyBackAction.do'; var gRsvWInstRsvApplyAction = '/shinagawa/web/rsvWInstRsvApplyAction.do'; var gRsvWTransContactAction = '/shinagawa/web/rsvWTransContactAction.do'; var gRsvTransSiteMapAction = '/shinagawa/web/rsvWTransSiteMapAction.do'; var gRsvWTransMenuAction = '/shinagawa/web/rsvWUserAttestationPageMoveAction.do'; var gLotWOpeLotListAction = '/shinagawa/web/lotWOpeLotListAction.do'; var gRsvWTransUserRegistAction = '/shinagawa/web/rsvWTransUserRegistAction.do'; var gRsvWTransUserLoginAction = '/shinagawa/web/rsvWTransUserLoginAction.do'; var gRsvWTransUserAttestationEndAction = '/shinagawa/web/rsvWTransUserAttestationEndAction.do'; var gRsvWTransChgPasswdAction = '/shinagawa/web/rsvWTransChgPasswdAction.do'; var gRsvWTransSetMfaAction = '/shinagawa/web/rsvWTransSetMfaAction.do'; var gRsvWTransMailAddressRegistAction = '/shinagawa/web/rsvWTransMailAddressRegistAction.do'; var gRsvWGetFoundTransAction = '/shinagawa/web/rsvWGetFoundTransAction.do'; var gRsvWTransFavorite2InfoDispAction = '/shinagawa/web/rsvWTransFavorite2InfoDispAction.do'; var gRsvWTransFavorite2InfoAction = '/shinagawa/web/rsvWTransFavorite2InfoAction.do'; var gLotWRegistLotFavoriteInfoDispAction = '/shinagawa/web/lotWRegistLotFavoriteInfoDispAction.do'; var gLotWTransLotFavoriteInfoAction = '/shinagawa/web/lotWTransLotFavoriteInfoAction.do'; var gRsvWOpeHomeAction = '/shinagawa/web/rsvWOpeHomeAction.do'; var gRsvWGetCancelRsvDataAction = '/shinagawa/web/rsvWGetCancelRsvDataAction.do'; var gRsvWTransRsvEquipListAction = '/shinagawa/web/rsvWTransRsvEquipListAction.do'; var gLotWOpeLotSearchAction = '/shinagawa/web/lotWOpeLotSearchAction.do'; var gLotWTransLotCancelListAction = '/shinagawa/web/lotWTransLotCancelListAction.do'; var gLotWTransLotElectListAction = '/shinagawa/web/lotWTransLotElectListAction.do'; var gLotWTransLotComfirmListAction = '/shinagawa/web/lotWTransLotComfirmListAction.do'; var gRsvWTransEventSrchAction = '/shinagawa/web/rsvWTransEventSrchAction.do'; var gRsvWTransInstListAction = '/shinagawa/web/rsvWTransInstListAction.do'; var gRsvWTransUseGuideAction = '/shinagawa/web/rsvWTransUseGuideAction.do'; var gRsvCreditInitListAction = '/shinagawa/web/rsvWRsvGetNotPaymentRsvDataListAction.do'; var gRsvGetApprRcptDataListAction = '/shinagawa/web/rsvWRsvGetApprRcptDataListAction.do'; var gRsvWGetCancelHistoryRsvDataAction = '/shinagawa/web/rsvWGetCancelHistoryRsvDataAction.do'; var gRsvWTransAgentLoginAction = '/shinagawa/web/rsvWTransAgentLoginAction.do'; var gEventHisuChk = 0; var gEventSet = 1; var gTimeChk = 0;</script>
+</head>
+
+<body class="d-flex flex-column" onload="javascript:msgHide();javascript:errorMsg(&quot;&quot;, 0);startInitTimer();">
+    <script>loadMsgWrite(this.document);</script>
+    <div id="loadmsg" style="visibility: hidden;"><img src="image/bi_nowloading.gif" alt="loading" id="loadmsgimg">
+    </div>
+    <div id="disp">
+        <div id="wrapper" class="flex-grow-1 flex-shrink-0 h-100 ">
+            <form name="form1" method="post" action="index.jsp" onsubmit="return false;" autocomplete="off">
+                <script src="js/pawzz1010.js"></script>
+                <div class="modal fade" id="envModal" tabindex="-1" role="dialog" aria-labelledby="envModalLabel">
+                    <div class="modal-dialog modal-dialog-centered" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="envModalLabel">ご利用環境</h5><button type="button" class="close"
+                                    data-dismiss="modal" aria-label="閉じる"><span aria-hidden="true">×</span></button>
+                            </div>
+                            <div class="modal-body">
+                                <h4><span>対応ブラウザ</span></h4>
+                                <p>対応ブラウザは以下のとおりです。いずれも最新版のみ対応しています。</p>
+                                <h5><span>デスクトップブラウザ</span></h5>
+                                <ul style="padding: 0 20px;">
+                                    <li>Chrome</li>
+                                    <li>Firefox</li>
+                                    <li>Microsoft Edge</li>
+                                    <li>Safari （macOS のみ）</li>
+                                </ul>
+                                <h5><span>モバイルデバイス</span></h5>
+                                <ul style="padding: 0 20px;">
+                                    <li>Chrome for Android</li>
+                                    <li>iOS Safari</li>
+                                </ul>
+                            </div>
+                            <div class="modal-footer"><button type="button" class="btn btn-dark"
+                                    data-dismiss="modal">閉じる</button></div>
+                        </div>
+                    </div>
+                </div>
+                <header class="navbar flex-column flex-grow-0 flex-shrink-0 animation thin">
+                    <div class="w-100 d-flex">
+                        <div id="title" class="d-flex flex-row">
+                            <div id="title-left" class="d-flex flex-column">
+                                <div id="subtitle" class="mt-1 mb-2">品川区施設予約システム</div>
+                                <div>
+                                    <h1 class="font-weight-bold m-0"><a
+                                            href="javascript:doAction(document.form1, gRsvWTransMenuAction);"><img
+                                                id="title-icon" class="align-top" src="image/service_image.png"
+                                                alt="しせつよやく"><span id="title-text-area">しせつよやく</span></a></h1>
+                                </div>
+                            </div>
+                            <div id="title_pana"></div>
+                            <div id="pc-dropdown"
+                                class="flex-row justify-content-center align-items-center flex-grow-0 flex-shrink-0">
+                                <div class="dropdown d-none fixed-dropdown d-table h-100" id="userMenu"><a
+                                        class="btn btn-flat-dark dropdown-toggle d-table-cell align-middle" href="#"
+                                        id="userName" data-toggle="dropdown" aria-expanded="false"><i
+                                            class="fj-icon fj-icon-user"> </i><span>★今井　健嗣 様</span></a>
+                                    <div class="dropdown-menu dropdown-menu-right"><a
+                                            href="javascript:doAction(document.form1, gRsvWTransChgPasswdAction);"
+                                            class="dropdown-item">パスワード変更</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransSetMfaAction);"
+                                            class="dropdown-item">多要素認証設定</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransMailAddressRegistAction);"
+                                            class="dropdown-item">メールアドレス登録</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWGetFoundTransAction);"
+                                            class="dropdown-item">口座振替結果の確認</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvGetApprRcptDataListAction);"
+                                            class="dropdown-item">承認書ダウンロード</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransFavorite2InfoDispAction);"
+                                            class="dropdown-item">予約お気に入り登録</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransFavorite2InfoAction);"
+                                            class="dropdown-item">予約お気に入り変更・削除</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gLotWRegistLotFavoriteInfoDispAction);"
+                                            class="dropdown-item">抽選お気に入り登録</a><a
+                                            href="javascript:doAction(document.form1, gLotWTransLotFavoriteInfoAction);"
+                                            class="dropdown-item">抽選お気に入り変更・削除</a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="sp-dropdown">
+                                <div class="dropdown bg-white"><a href="#" class="btn btn-flat-dark"
+                                        data-toggle="dropdown"><span class="collapse-icon collapse-icon-menu"
+                                            aria-hidden="true"></span><span class="sr-only">ドロップダウンメニュー</span></a>
+                                    <div class="dropdown-menu dropdown-menu-right px-2"><span
+                                            class="dropdown-item-text font-weight-bold"><i class="fj-icon fj-icon-user">
+                                            </i>★今井　健嗣 様</span>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransChgPasswdAction);"
+                                            class="dropdown-item">パスワード変更</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransSetMfaAction);"
+                                            class="dropdown-item">多要素認証設定</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransMailAddressRegistAction);"
+                                            class="dropdown-item">メールアドレス登録</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWGetFoundTransAction);"
+                                            class="dropdown-item">口座振替結果の確認</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvGetApprRcptDataListAction);"
+                                            class="dropdown-item">承認書ダウンロード</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransFavorite2InfoDispAction);"
+                                            class="dropdown-item">予約お気に入り登録</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransFavorite2InfoAction);"
+                                            class="dropdown-item">予約お気に入り変更・削除</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gLotWRegistLotFavoriteInfoDispAction);"
+                                            class="dropdown-item">抽選お気に入り登録</a><a
+                                            href="javascript:doAction(document.form1, gLotWTransLotFavoriteInfoAction);"
+                                            class="dropdown-item">抽選お気に入り変更・削除</a>
+                                    </div>
+                                </div>
+                            </div><button type="button" id="btn-logout" class="btn btn-sm btn-dark m-auto logoutbtn"
+                                onclick="javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);">ログアウト</button>
+                            <div id="right-lable" class="validend"><label style="color: black;">有効期限：2027年11月18日</label>
+                            </div>
+                        </div>
+                        <div id="nav-menu-area">
+                            <div id="nav-menu">
+                                <nav class="nav nav-lines m-0"><a id="nav-home"
+                                        class="nav-item nav-link d-flex align-items-center " aria-current="page"
+                                        href="javascript:doAction(document.form1, gRsvWOpeHomeAction);">
+                                        <div class="m-auto"><svg version="1.1" id="home-ic"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                                                viewBox="0 0 32 32" style="enable-background:new 0 0 32 32;"
+                                                xml:space="preserve">
+                                                <style type="text/css">
+                                                    .st0 {
+                                                        fill: none;
+                                                    }
+                                                </style>
+                                                <rect class="st0" width="32" height="32"></rect>
+                                                <g id="nav-home-ic">
+                                                    <path
+                                                        d="M16,1.9722L1.9861,15.9861H6V30h6v-8h8v8h6V15.9861h4.0139L16,1.9722z">
+                                                    </path>
+                                                </g>
+                                            </svg><span class="font-weight-normal">ホーム</span></div>
+                                    </a>
+                                    <div class="nav-item dropdown d-table h-100  active"> <a
+                                            class="nav-link dropdown-toggle m-auto d-table-cell align-middle" href="#"
+                                            onclick="javascript:doMsgListAction(document.form1);" data-toggle="dropdown"
+                                            aria-expanded="false"><svg version="1.1" id="reservation-ic"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                                                viewBox="0 0 32 32" style="enable-background:new 0 0 32 32;"
+                                                xml:space="preserve">
+                                                <style type="text/css">
+                                                    .st0 {
+                                                        fill: none;
+                                                    }
+                                                </style>
+                                                <rect class="st0" width="32" height="32"></rect>
+                                                <g id="nav-reservation">
+                                                    <rect x="7" y="15" width="3" height="3"></rect>
+                                                    <rect x="22" y="15" width="3" height="3"></rect>
+                                                    <rect x="7" y="20" width="3" height="3"></rect>
+                                                    <rect x="12" y="20" width="3" height="3"></rect>
+                                                    <rect x="17" y="20" width="3" height="3"></rect>
+                                                    <rect x="22" y="20" width="3" height="3"></rect>
+                                                    <polygon
+                                                        points="28,10.0499 28,25 4,25 4,9 14.9606,9 19.9606,4 1,4 1,28 31,28 31,7.05">
+                                                    </polygon>
+                                                    <rect x="26.6833" y="0.2821"
+                                                        transform="matrix(0.7071 -0.7071 0.7071 0.7071 6.1198 20.6944)"
+                                                        width="2.7139" height="5.3555"></rect>
+                                                    <polygon
+                                                        points="23.8337,3.3794 13.0068,14.2063 13.0002,18 16.7939,17.9933 27.6209,7.1664 ">
+                                                    </polygon>
+                                                </g>
+                                            </svg><span class="font-weight-normal">予約</span></a>
+                                        <div class="dropdown-menu px-2"><a class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWOpeHomeAction + '#free-search');">空き検索</a><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWGetCancelRsvDataAction);">予約の確認・取消</a><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWGetCancelHistoryRsvDataAction);">取消履歴</a>
+                                            <div role="separator" class="dropdown-divider"></div><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvCreditInitListAction);">未入金予約の確認・支払</a>
+                                            <div role="separator" class="dropdown-divider"></div><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWTransRsvEquipListAction);">設備の予約</a>
+                                        </div>
+                                    </div>
+                                    <div class="nav-item dropdown d-table h-100 "> <a
+                                            class="nav-link dropdown-toggle m-auto d-table-cell align-middle" href="#"
+                                            onclick="javascript:doMsgListAction(document.form1);" data-toggle="dropdown"
+                                            aria-expanded="false"><svg version="1.1" id="lottery-ic"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                                                viewBox="0 0 32 32" style="enable-background:new 0 0 32 32;"
+                                                xml:space="preserve">
+                                                <style type="text/css">
+                                                    .st0 {
+                                                        fill: none;
+                                                    }
+                                                </style>
+                                                <rect class="st0" width="32" height="32"></rect>
+                                                <g id="nav-lottery">
+                                                    <path
+                                                        d="M28.6715,11.1066l-0.5858,0.5858h-0.8284h-1.5072c0.5851,1.319,0.9166,2.7743,0.9166,4.3076  c0,5.8816-4.7852,10.6666-10.6667,10.6666S5.3334,21.8816,5.3334,16c0-5.8817,4.785-10.6667,10.6666-10.6667  c1.5333,0,2.9886,0.3315,4.3076,0.9166V4.7426V3.9142l0.5858-0.5858l0.316-0.3161C19.598,2.3652,17.8428,2,16,2  C8.2681,2,2,8.268,2,16c0,7.7319,6.2681,14,14,14s14-6.2681,14-14c0-1.8429-0.3652-3.598-1.0123-5.2095L28.6715,11.1066z">
+                                                    </path>
+                                                    <path
+                                                        d="M16,20.0833c-1.1249,0-2.1448-0.4574-2.884-1.1957l-0.0043,0.0006l0.0006-0.0043  C12.374,18.1447,11.9167,17.1248,11.9167,16c0-2.0721,1.5569-3.7698,3.5591-4.0303l2.6417-2.6418C17.4493,9.116,16.7384,9,16,9  c-3.866,0-7,3.134-7,7s3.134,7,7,7s7-3.134,7-7c0-0.7384-0.116-1.4493-0.3279-2.1176l-2.6418,2.6418  C19.7698,18.5264,18.072,20.0833,16,20.0833z">
+                                                    </path>
+                                                    <path
+                                                        d="M31.5,5.4497h-3.2235l0.0112-0.0112c0.3177-0.3178,0.3177-0.833,0-1.1508l-0.5754-0.5754  c-0.3177-0.3177-0.833-0.3177-1.1508,0l-0.0113,0.0113V0.5l-4.2426,4.2426v3.2236l-6.5511,6.5511l-0.2877,2.0139l2.0139-0.2877  l6.5511-6.5511h3.2236L31.5,5.4497z">
+                                                    </path>
+                                                </g>
+                                            </svg><span class="font-weight-normal">抽選</span></a>
+                                        <div class="dropdown-menu px-2"><a class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gLotWOpeLotSearchAction);">抽選の申込み</a><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gLotWTransLotCancelListAction);">抽選申込の確認・取消</a>
+                                            <div role="separator" class="dropdown-divider"></div><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gLotWTransLotElectListAction);">抽選結果の確認・利用確定</a><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gLotWTransLotComfirmListAction);">利用確定済の当選確認</a>
+                                        </div>
+                                    </div>
+                                    <div class="nav-item dropdown d-table h-100 "><a id="nav-other"
+                                            class="nav-link dropdown-toggle m-auto d-table-cell align-middle" href="#"
+                                            data-toggle="dropdown" aria-expanded="false"><svg width="32" height="32"
+                                                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                                                <path
+                                                    d="M0,15h6V9H0V15z M0,27h6v-6H0V27z M0,39h6v-6H0V39z M12,27h36v-6H12V27z M12,39h36v-6H12V39z M12,9v6h36V9H12z">
+                                                </path>
+                                            </svg><span class="font-weight-normal">その他</span></a>
+                                        <div class="dropdown-menu px-2"><a class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWTransUseGuideAction);">ご利用ガイド</a><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWTransInstListAction);">館・施設一覧</a>
+                                            <div role="separator" class="dropdown-divider"></div><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvWTransEventSrchAction);">イベント検索</a>
+                                            <div role="separator" class="dropdown-divider"></div> <a
+                                                class="dropdown-item font-weight-normal"
+                                                href="javascript:doAction(document.form1, gRsvTransSiteMapAction);">サイトマップ</a><a
+                                                class="dropdown-item font-weight-normal" href="#envModal"
+                                                data-toggle="modal">利用環境</a>
+                                            <div role="separator" class="dropdown-divider"></div><a
+                                                class="dropdown-item font-weight-normal"
+                                                href="https://www.city.shinagawa.tokyo.jp/contentshozon2025/operationManual.pdf"
+                                                target="_blank">操作マニュアル</a>
+                                        </div>
+                                    </div>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+                <main id="prwea1000">
+                    <div id="contents">
+                        <article id="reservation-info">
+                            <h2 class="eyecatch eyecatch-left">予約内容確認<a class="icon-help" data-toggle="collapse"
+                                    href="#text-description" aria-expanded="true" aria-controls="text-description"><i
+                                        class="fj-icon fj-icon-help fj-icon-24 ml-5" title="ヘルプ"><span
+                                            class="sr-only">ヘルプ</span></i></a></h2>
+                            <div id="text-description" class="collapse show" style="">
+                                <div class="d-flex flex-wrap text-description align-items-center">
+                                    <div class="mt-1">以下の内容で予約を行います。</div>
+                                </div>
+                            </div><br>
+                            <h3 class="d-flex flex-wrap"><span class="font-middle"><span class="number">No.1</span><span
+                                        class="title mr-2">東品川公園</span></span><span class="font-default my-1"><span
+                                        class="dow-saturday">12月27日(土曜)</span>2025年</span></h3>
+                            <table class="table sp-table">
+                                <tbody>
+                                    <tr>
+                                        <th scope="row">利用時間</th>
+                                        <td><span>08時30分～10時30分</span><input type="hidden" name="stimeZoneNo"
+                                                value="10"><input type="hidden" name="etimeZoneNo" value="10"></td>
+                                    </tr>
+                                    <tr>
+                                        <th scope="row">施設</th>
+                                        <td>
+                                            <div class="d-flex flex-wrap">
+                                                <div class="my-auto">庭球場Ｂ</div><input type="hidden" name="field"
+                                                    value="0">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th scope="row"><label for="purpose0">利用目的<span
+                                                    class="badge badge-pill badge-pill badge-required">必須</span></label>
+                                        </th>
+                                        <td><span class="flex-grow-1 flex-shrink-1 search-category-choices"><span
+                                                    class="select-form-for-custom-select select-form"><select
+                                                        id="purpose0" class="custom-select" name="purpose">
+                                                        <option value="">選択して下さい。</option>
+                                                        <optgroup label="文化・スポーツ">
+                                                            <option value="31000000_31011700" selected="">テニス</option>
+                                                        </optgroup>
+                                                    </select></span></span><input type="hidden" name="ppsdCd"
+                                                value="31000000"><input type="hidden" name="ppsCd" value="31011700">
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th scope="row"><label for="eventname0">催し物名</label></th>
+                                        <td><span class="font-small comment">（全角文字で入力）</span>
+                                            <div class="d-flex justify-content-between"><input id="eventname0"
+                                                    type="text" name="eventName" class="form-control eventname"
+                                                    placeholder="例）サークル練習会" value=""></div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th scope="row"><label for="peoples0">利用人数<span
+                                                    class="badge badge-pill badge-pill badge-required">必須</span></label>
+                                        </th>
+                                        <td><span class="font-small comment">（半角文字で入力）</span>
+                                            <div class="d-flex justify-content-between"><input id="peoples0" type="tel"
+                                                    name="applyNum" class="form-control" maxlength="4" size="3"
+                                                    value=""><input type="hidden" name="MaxApplyNum" value="99999">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table><br>
+                            <div class="text-center"><button id="btn-go" type="submit"
+                                    class="form-control btn btn-go btn-lg mb-2"
+                                    onclick="javascript:checkTextValue(document.form1, gRsvWInstRsvApplyAction, '1');"><i
+                                        class="fj-icon fj-icon-check"> </i>予約</button><button type="button"
+                                    class="form-control btn btn-back mb-2"
+                                    onclick="javascript:rsvreset(document.form1, gRsvWOpeReservedApplyBackAction);"><i
+                                        class="fj-icon fj-icon-back"> </i>キャンセル</button></div>
+                        </article>
+                    </div>
+                </main>
+                <footer
+                    class="position-relative d-flex flex-shrink-0 flex-wrap flex-column flex-sm-row align-items-center justify-content-sm-between p-4 border-top border-primary">
+                </footer><input type="hidden" name="displayNo" value="prwea1000"><input type="hidden"
+                    name="selectRsvDetailNo" value="0"><input type="hidden" name="e410190"
+                    value="入力された利用人数が施設の収容人数を超えています。"><input type="hidden" name="e410200"
+                    value="利用人数は半角数字で入力して下さい。"><input type="hidden" name="e410220" value="催し物名は全角文字で入力して下さい。"><input
+                    type="hidden" name="e410340" value="利用目的を選択して下さい。"><input type="hidden" name="e512070"
+                    value="予約申込処理を中止します。よろしいですか？"><input type="hidden" name="e512080"
+                    value="予約申込処理を行います。よろしいですか？"><input type="hidden" name="e411100" value="催し物名を正しく入力してください。"><input
+                    type="hidden" name="e412220" value="施設利用開始時間＜施設利用終了時間で選択してください。"><input type="hidden"
+                    name="insIRsvJKey"
+                    value="dfbc3bc26ef7015d1c6a7ca90067c55f85f30d355e0069bf009d3f601fb06f44d0a95c56abbaab7b40e04e5cfee3701df3ac1afba4be96caf815e1f1345e9537">
+                <div id="page-top" title="ページ先頭へ" style="display: none;"><button type="button"
+                        class="btn btn-sm btn-light"><img src="image/top.svg" alt="ページ先頭へ"></button></div>
+            </form>
+        </div>
+        <script>endTagWrite(this.document);</script>
+    </div><noscript>このページではJavaScriptを使用しています。</noscript>
+</body>
+
+</html>
